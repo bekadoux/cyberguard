@@ -12,7 +12,7 @@ import (
 
 func TestServerLimits(t *testing.T) {
 	t.Parallel()
-	server := NewServer("127.0.0.1:8080", NewRouter(testLogger()), testLogger())
+	server := NewServer("127.0.0.1:8080", NewRouter(testLogger(), nil, time.Second), testLogger())
 	if server.ReadHeaderTimeout <= 0 || server.ReadTimeout <= 0 || server.WriteTimeout <= 0 || server.IdleTimeout <= 0 || server.MaxHeaderBytes <= 0 {
 		t.Fatal("server limits must be configured")
 	}
@@ -138,7 +138,7 @@ func TestServeReportsListenerFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	listener.Close()
-	server := NewServer(listener.Addr().String(), NewRouter(testLogger()), testLogger())
+	server := NewServer(listener.Addr().String(), NewRouter(testLogger(), nil, time.Second), testLogger())
 	err = Serve(context.Background(), server, listener, time.Second)
 	if err == nil {
 		t.Fatal("expected listener error")

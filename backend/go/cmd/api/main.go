@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/bekadoux/cyberguard/backend/go/internal/config"
+	"github.com/bekadoux/cyberguard/backend/go/internal/database"
 	"github.com/bekadoux/cyberguard/backend/go/internal/httpapi"
 )
 
@@ -28,7 +29,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	router := httpapi.NewRouter(logger)
+	pools, err := database.NewPools(ctx, cfg.IdentityDatabaseURL, cfg.IncidentDatabaseURL, cfg.DatabaseTimeout)
+	if err != nil {
+		return err
+	}
+	defer pools.Close()
+	router := httpapi.NewRouter(logger, pools.Check, cfg.DatabaseTimeout)
 	server := httpapi.NewServer(cfg.HTTPAddr, router, logger)
 	listener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {

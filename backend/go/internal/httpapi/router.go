@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -21,7 +22,7 @@ type apiError struct {
 	Message string `json:"message"`
 }
 
-func NewRouter(logger *slog.Logger) *chi.Mux {
+func NewRouter(logger *slog.Logger, check func(context.Context) error, databaseTimeout time.Duration) *chi.Mux {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(requestLogger(logger))
@@ -36,6 +37,19 @@ func NewRouter(logger *slog.Logger) *chi.Mux {
 	})
 	router.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	router.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if check == nil {
+			writeError(w, http.StatusServiceUnavailable, "not_ready", "Service is not ready.")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), databaseTimeout)
+		defer cancel()
+		if err := check(ctx); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "not_ready", "Service is not ready.")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "Resource not found.")

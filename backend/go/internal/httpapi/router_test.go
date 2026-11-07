@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testLogger() *slog.Logger {
@@ -32,7 +34,7 @@ func TestHealthAndErrors(t *testing.T) {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
 			t.Parallel()
 			recorder := httptest.NewRecorder()
-			NewRouter(testLogger()).ServeHTTP(recorder, httptest.NewRequest(tt.method, tt.path, nil))
+			NewRouter(testLogger(), nil, time.Second).ServeHTTP(recorder, httptest.NewRequest(tt.method, tt.path, nil))
 			if recorder.Code != tt.status || strings.TrimSpace(recorder.Body.String()) != tt.body {
 				t.Fatalf("got %d %s", recorder.Code, recorder.Body.String())
 			}
@@ -49,7 +51,7 @@ func TestHealthAndErrors(t *testing.T) {
 func TestRecoveryDoesNotLeakPanic(t *testing.T) {
 	t.Parallel()
 	var logs bytes.Buffer
-	router := NewRouter(slog.New(slog.NewJSONHandler(&logs, nil)))
+	router := NewRouter(slog.New(slog.NewJSONHandler(&logs, nil)), nil, time.Second)
 	router.Get("/panic", func(w http.ResponseWriter, r *http.Request) {
 		panic("sensitive-panic-content")
 	})
@@ -69,7 +71,7 @@ func TestRecoveryDoesNotLeakPanic(t *testing.T) {
 func TestLogsExcludeRequestSecrets(t *testing.T) {
 	t.Parallel()
 	var logs bytes.Buffer
-	router := NewRouter(slog.New(slog.NewJSONHandler(&logs, nil)))
+	router := NewRouter(slog.New(slog.NewJSONHandler(&logs, nil)), nil, time.Second)
 	router.Get("/incidents/{id}", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -96,7 +98,7 @@ func TestLogsExcludeRequestSecrets(t *testing.T) {
 
 func TestRequestBodyLimit(t *testing.T) {
 	t.Parallel()
-	router := NewRouter(testLogger())
+	router := NewRouter(testLogger(), nil, time.Second)
 	router.Post("/body", func(w http.ResponseWriter, r *http.Request) {
 		_, err := io.Copy(io.Discard, r.Body)
 		var tooLarge *http.MaxBytesError
@@ -120,5 +122,59 @@ func TestRequestBodyLimit(t *testing.T) {
 		if recorder.Code != want {
 			t.Fatalf("body size %d: got %d, want %d", size, recorder.Code, want)
 		}
+	}
+}
+
+func TestReadiness(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		check func(context.Context) error
+		want  int
+	}{
+		{"healthy", func(context.Context) error { return nil }, http.StatusOK},
+		{"unavailable", func(context.Context) error { return errors.New("sensitive-database-error") }, http.StatusServiceUnavailable},
+		{"missing check", nil, http.StatusServiceUnavailable},
+		{"timeout", func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }, http.StatusServiceUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var logs bytes.Buffer
+			router := NewRouter(slog.New(slog.NewJSONHandler(&logs, nil)), tt.check, 10*time.Millisecond)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+			if recorder.Code != tt.want {
+				t.Fatalf("got %d, want %d", recorder.Code, tt.want)
+			}
+			if tt.want == http.StatusOK && strings.TrimSpace(recorder.Body.String()) != `{"status":"ready"}` {
+				t.Fatal("unexpected readiness success body")
+			}
+			if tt.want == http.StatusServiceUnavailable && strings.TrimSpace(recorder.Body.String()) != `{"error":{"code":"not_ready","message":"Service is not ready."}}` {
+				t.Fatal("unexpected readiness failure body")
+			}
+			if strings.Contains(recorder.Body.String()+logs.String(), "sensitive") {
+				t.Fatal("database error details leaked")
+			}
+			// Liveness must neither invoke nor depend on the database check.
+			recorder = httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+			if recorder.Code != http.StatusOK {
+				t.Fatal("liveness depends on readiness")
+			}
+		})
+	}
+}
+
+func TestLivenessDoesNotCallDatabaseCheck(t *testing.T) {
+	t.Parallel()
+	called := false
+	router := NewRouter(testLogger(), func(context.Context) error {
+		called = true
+		return nil
+	}, time.Second)
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if called {
+		t.Fatal("liveness called the database check")
 	}
 }
