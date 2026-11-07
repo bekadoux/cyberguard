@@ -1,9 +1,11 @@
 GO ?= go
+PSQL ?= psql
 GO_DIR := backend/go
 GOVULNCHECK_VERSION := v1.9.0
 
 .DEFAULT_GOAL := help
 .PHONY: help go-run go-build go-fmt go-fmt-check go-test go-test-race go-vet go-vuln go-check go-test-integration
+.PHONY: db-bootstrap-identity db-bootstrap-incidents
 
 help:
 	@printf '%s\n' \
@@ -17,6 +19,9 @@ help:
 	  'go-vuln             Run pinned govulncheck (requires network access)' \
 	  'go-check            Check formatting, vet, race tests and vulnerabilities' \
 	  'go-test-integration Run database tests against two dedicated PostgreSQL instances'
+	@printf '%s\n' \
+	  'db-bootstrap-identity  Create identity database and restricted roles (admin connection)' \
+	  'db-bootstrap-incidents Create incident database and restricted roles (admin connection)'
 
 go-run:
 	cd $(GO_DIR) && $(GO) run ./cmd/api
@@ -47,3 +52,11 @@ go-check: go-fmt-check go-vet go-test-race go-vuln
 
 go-test-integration:
 	cd $(GO_DIR) && $(GO) test -race -tags=integration -count=1 ./...
+
+db-bootstrap-identity:
+	@test -n "$$IDENTITY_ADMIN_DATABASE_URL" || { printf '%s\n' 'IDENTITY_ADMIN_DATABASE_URL is required'; exit 1; }
+	@PGCONNECT_TIMEOUT=5 $(PSQL) -X --no-password --dbname "$$IDENTITY_ADMIN_DATABASE_URL" --file db/bootstrap/identity.sql
+
+db-bootstrap-incidents:
+	@test -n "$$INCIDENT_ADMIN_DATABASE_URL" || { printf '%s\n' 'INCIDENT_ADMIN_DATABASE_URL is required'; exit 1; }
+	@PGCONNECT_TIMEOUT=5 $(PSQL) -X --no-password --dbname "$$INCIDENT_ADMIN_DATABASE_URL" --file db/bootstrap/incidents.sql
