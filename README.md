@@ -8,3 +8,6 @@ direction, scope, architecture, team responsibilities, and open decisions.
 
 The [software engineer handoff](docs/software-engineer-handoff.md) details the initial
 Go backend milestone, chosen tooling, implementation order, and integration checks.
+
+The [Go backend foundation guide](docs/go-backend.md) documents the implemented
+configuration, health/readiness endpoints, local startup, and test commands.

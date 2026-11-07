@@ -1,0 +1,90 @@
+openapi: 3.1.0
+info:
+  title: CyberGuard Go Foundation API
+  version: 0.1.0
+  description: >-
+    Public process and database connectivity probes only. Authentication and
+    incident-management contracts will be added in subsequent increments.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local Go process (not a production ingress URL)
+security: []
+paths:
+  /healthz:
+    get:
+      operationId: getLiveness
+      summary: Check process liveness without querying dependencies
+      responses:
+        '200':
+          description: The HTTP process is responding, regardless of database or AI availability.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Check connectivity to both required PostgreSQL instances
+      description: >-
+        Probes both databases concurrently within DATABASE_TIMEOUT. Does not check
+        Python, models, migrations or business functionality. Errors expose no
+        database names, addresses, credentials or driver diagnostics.
+      responses:
+        '200':
+          description: Both database pings succeeded.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ready
+        '503':
+          description: A required database is unavailable or its probe timed out.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: not_ready
+                  message: Service is not ready.
+components:
+  headers:
+    RequestID:
+      description: Request correlation identifier; also present on error responses.
+      schema:
+        type: string
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
