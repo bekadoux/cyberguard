@@ -68,6 +68,32 @@ func TestRecoveryDoesNotLeakPanic(t *testing.T) {
 	}
 }
 
+func TestRecoveryAbortsStartedResponse(t *testing.T) {
+	t.Parallel()
+	var logs bytes.Buffer
+	router := NewRouter(slog.New(slog.NewJSONHandler(&logs, nil)), nil, time.Second)
+	router.Get("/partial", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "partial response")
+		panic("sensitive-panic-content")
+	})
+	recorder := httptest.NewRecorder()
+	func() {
+		defer func() {
+			if value := recover(); value != http.ErrAbortHandler {
+				t.Errorf("expected http.ErrAbortHandler, got %v", value)
+			}
+		}()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/partial", nil))
+		t.Error("partially written response was not aborted")
+	}()
+	if recorder.Body.String() != "partial response" {
+		t.Fatal("recovery appended an error to an already started response")
+	}
+	if strings.Contains(logs.String(), "sensitive") || !strings.Contains(logs.String(), `"msg":"HTTP request"`) {
+		t.Fatal("aborted request must be logged without its panic value")
+	}
+}
+
 func TestLogsExcludeRequestSecrets(t *testing.T) {
 	t.Parallel()
 	var logs bytes.Buffer

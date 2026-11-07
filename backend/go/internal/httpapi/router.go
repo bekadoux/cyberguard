@@ -76,19 +76,21 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			started := time.Now()
 			response := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			defer func() {
+				status := response.Status()
+				if status == 0 {
+					status = http.StatusOK
+				}
+				// Log the route template, never raw URLs, query strings, headers or bodies.
+				logger.Info("HTTP request",
+					"request_id", middleware.GetReqID(r.Context()),
+					"method", r.Method,
+					"route", chi.RouteContext(r.Context()).RoutePattern(),
+					"status", status,
+					"duration_ms", time.Since(started).Milliseconds(),
+				)
+			}()
 			next.ServeHTTP(response, r)
-			status := response.Status()
-			if status == 0 {
-				status = http.StatusOK
-			}
-			// Log the route template, never raw URLs, query strings, headers or bodies.
-			logger.Info("HTTP request",
-				"request_id", middleware.GetReqID(r.Context()),
-				"method", r.Method,
-				"route", chi.RouteContext(r.Context()).RoutePattern(),
-				"status", status,
-				"duration_ms", time.Since(started).Milliseconds(),
-			)
 		})
 	}
 }
@@ -103,6 +105,11 @@ func recoverPanic(logger *slog.Logger) func(http.Handler) http.Handler {
 					}
 					// Panic values can contain incident content or credentials.
 					logger.Error("HTTP handler panicked", "request_id", middleware.GetReqID(r.Context()))
+					if response, ok := w.(middleware.WrapResponseWriter); ok && response.Status() != 0 {
+						// A response already on the wire cannot be replaced with JSON.
+						// Ask net/http to abort it instead of appending a misleading error.
+						panic(http.ErrAbortHandler)
+					}
 					writeError(w, http.StatusInternalServerError, "internal_error", "An internal error occurred.")
 				}
 			}()
