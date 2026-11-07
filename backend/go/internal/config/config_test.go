@@ -124,3 +124,20 @@ func TestMissingDatabaseURL(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadIdentityMigrationURL(t *testing.T) {
+	valid := "postgres://identity_migrator:test@127.0.0.1:5433/cyberguard_identity?sslmode=disable"
+	for _, value := range []string{"", "postgres://user:sensitive%zz@localhost/db", valid} {
+		t.Setenv("IDENTITY_MIGRATION_DATABASE_URL", value)
+		loaded, err := LoadIdentityMigrationURL()
+		if value == valid {
+			if err != nil || loaded != valid {
+				t.Fatal("migration configuration was not loaded independently")
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), "IDENTITY_MIGRATION_DATABASE_URL") || strings.Contains(err.Error(), "sensitive") {
+			t.Fatal("expected safe migration configuration error")
+		}
+	}
+}

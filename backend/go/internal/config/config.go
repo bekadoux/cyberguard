@@ -24,6 +24,12 @@ func Load() (Config, error) {
 	return load(os.LookupEnv)
 }
 
+// LoadIdentityMigrationURL is for one-off migration/demo commands, not the API.
+// It deliberately does not require or read the runtime API configuration.
+func LoadIdentityMigrationURL() (string, error) {
+	return databaseURL(os.LookupEnv, "IDENTITY_MIGRATION_DATABASE_URL")
+}
+
 func load(lookup func(string) (string, bool)) (Config, error) {
 	var cfg Config
 	cfg.HTTPAddr = "127.0.0.1:8080"
