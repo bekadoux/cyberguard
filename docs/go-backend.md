@@ -1,9 +1,11 @@
 # Go Backend Foundation
 
 This increment provides a runnable HTTP service, typed configuration, two independent
-PostgreSQL pools, liveness/readiness probes, and tests. Authentication, business
-schemas/migrations, role-provisioning scripts, and incident/assessment APIs are not
-implemented yet. It is not the complete first milestone in the
+PostgreSQL pools, liveness/readiness probes, and tests. The SQL increment adds database/
+role bootstrap, identity migrations, generated queries and demo accounts; see
+[database setup](database-setup.md) and the [architect handoff](architect-handoff.md).
+HTTP authentication and incident/assessment APIs are not implemented yet. This is not
+the complete first milestone in the
 [engineer handoff](software-engineer-handoff.md).
 
 ## Prerequisites and ownership
@@ -15,9 +17,9 @@ implemented yet. It is not the complete first milestone in the
   displays the underlying Go command.
 - The architect owns Compose, database containers, networking, and volumes. This
   increment intentionally adds no competing Compose configuration.
-- The engineer owns database roles/grants and coordinated goose migrations. Their
-  implementation follows with the identity/authentication work. No application
-  tables are needed for the current connectivity-only readiness probe.
+- The engineer owns database roles/grants and coordinated goose migrations, now
+  provided by the SQL increment. No application tables are needed for the current
+  connectivity-only readiness probe, even though users/sessions exist after migration.
 - Successful readiness requires both PostgreSQL instances and working runtime roles.
   Without them, the API can still start and expose liveness, but stays unready.
 
@@ -32,7 +34,7 @@ implemented yet. It is not the complete first milestone in the
 Give these settings to the architect. Database port publishing is for local development
 only and must bind to loopback, not all interfaces. Credentials must be generated locally;
 the example file deliberately contains no usable passwords. Runtime roles must not be
-superusers or have `CREATEDB`/`CREATEROLE` privileges. Future migrations use separate
+superusers or have `CREATEDB`/`CREATEROLE` privileges. Migrations use separate
 credentials and do not run automatically during API startup.
 
 Inside Compose, use the architect's database service names and their internal `5432`
@@ -141,7 +143,7 @@ make go-check
 make go-build
 ```
 
-`go-check` verifies formatting without editing files, runs `go vet`, tests with the
+`go-check` verifies formatting and sqlc regeneration without editing files, runs `go vet`, tests with the
 race detector, and `govulncheck` pinned to `v1.9.0`. Dependency/tool downloads and
 vulnerability database access need network connectivity. Go module dependencies are
 pinned in `go.mod` and verified by `go.sum`. This increment provides local check
@@ -158,16 +160,19 @@ Use **two dedicated disposable PostgreSQL instances**, never development or depl
 data. Provision the database names and restricted runtime roles before running:
 
 ```sh
-export TEST_IDENTITY_DATABASE_URL='postgres://TEST_USER:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15433/TEST_IDENTITY_DB?sslmode=disable'
-export TEST_INCIDENT_DATABASE_URL='postgres://TEST_USER:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15434/TEST_INCIDENT_DB?sslmode=disable'
+export TEST_IDENTITY_DATABASE_URL='postgres://go_identity:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15433/cyberguard_identity?sslmode=disable'
+export TEST_INCIDENT_DATABASE_URL='postgres://go_incidents:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15434/cyberguard_incidents?sslmode=disable'
+export TEST_IDENTITY_MIGRATION_DATABASE_URL='postgres://identity_migrator:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15433/cyberguard_identity?sslmode=disable'
 make go-test-integration
 ```
 
 Replace placeholders with the dedicated test credentials. The suite fails clearly if
 either variable is missing. It checks actual connectivity, configured database/user,
 restricted runtime role attributes, and readiness failure after closing one pool.
-It performs only read-only probes and does not provision roles, apply migrations, or
-manage containers. It is intentionally separate from the default test target.
+The identity persistence suite also applies migrations and tests users/SCS/seeding in
+a newly created isolated schema, removing only that schema on cleanup. It does not
+provision roles or manage containers. See [database setup](database-setup.md) for test
+isolation details. Integration tests are separate from the default test target.
 
 For the joint Compose acceptance check, start both databases and confirm readiness
 returns `200`. Stop either instance and confirm readiness changes to `503` while
@@ -175,7 +180,6 @@ liveness stays `200`; restart it and confirm readiness recovers. Python need not
 
 ## Next increment
 
-Agree role provisioning and migration execution with the architect, then implement
-identity migrations, repeatable development accounts, and login/logout/current-user
-with SCS sessions and Argon2id. Incident create/read and atomic assessment enqueueing
+Integrate the provided SQL setup with the architect, then implement login/logout/
+current-user with SCS sessions and Argon2id. Incident create/read and atomic assessment enqueueing
 follow; assessment schema requires the engineer–AI specialist agreement first.
