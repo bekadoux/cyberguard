@@ -127,8 +127,11 @@ authentication increment now supplies those checks for its protected `/auth/me` 
 
 **`sessions`:** documented SCS/pgxstore layout: `token TEXT PRIMARY KEY`, `data BYTEA
 NOT NULL`, `expiry TIMESTAMPTZ NOT NULL`, and an expiry index. SCS owns serialization
-and storage operations, not sqlc. The pinned pgxstore requires its context-aware API
-(`CommitCtx`, `FindCtx`, `DeleteCtx`); SCS selects this interface automatically.
+and lifecycle, not sqlc. Production uses a context-aware SCS adapter over pgxstore:
+lookup/delete retain pgxstore behavior, while commit distinguishes new-token INSERT
+from loaded-token UPDATE so concurrent refresh cannot recreate a revoked session.
+See [authentication handoff](authentication-handoff.md#concurrent-refresh-logout-and-rotation).
+The schema and runtime grants are unchanged.
 
 ## Explicit demo accounts
 

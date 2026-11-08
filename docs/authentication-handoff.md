@@ -61,6 +61,35 @@ revoked merely because a frontend cleared its own state.
 - No incident-level authorization is implied by successfully calling `/auth/me`.
 - Backend restart preserves sessions when the same database and cookie policy remain.
 
+### Concurrent refresh, logout and rotation
+
+Architect review identified that pgxstore's default commit upsert could recreate a
+session deleted by a concurrent logout or token rotation. Production now uses
+`internal/sessionstore`, a context-aware SCS persistence adapter:
+
+- SCS still generates/hashes tokens, serializes values and controls expiry/cookies.
+- Request-local bookkeeping distinguishes loaded tokens from newly generated tokens.
+  Install `sessionstore.WithRequest` outside SCS `LoadAndSave`, as `withSession` does;
+  missing request state fails closed. It must not be reset between load and save.
+- A new token uses INSERT without upsert; collisions fail without overwriting data.
+- A loaded token uses UPDATE only while its row exists and has not expired. PostgreSQL
+  orders UPDATE against DELETE; a zero-row update is a revoked session, never an INSERT.
+- The adapter retains pgxstore's context-aware lookup/delete operations with cleanup
+  disabled. It replaces only the unsafe commit behavior. No migration/grant change,
+  process-wide session map, tombstones or distributed lock service is needed.
+- If revocation wins before a delayed refresh, the buffered response becomes
+  `401 authentication_required`, without user data or **any** Set-Cookie. A stale
+  response must not replace or delete a fresh cookie from a concurrent login.
+- SQL/deadline errors still produce 503, not 401 or false success. Other independent
+  sessions of the same account are unaffected. Already authorized in-flight work is
+  not retroactively canceled; the guarantee is that stale saves cannot restore access.
+
+Deterministic regression tests pause a refresh after its successful lookup, complete
+logout or rotation on another manager, then release the refresh. Both cases failed
+before the fix (the old cookie returned 200). PostgreSQL tests use independent stores
+and connection pools to verify the same behavior without shared process locks, check
+that the old row is absent, and check both the new token and an independent session.
+
 ### Operational limits
 
 - Absolute lifetime: 8h; inactivity timeout: 30m. Activity refreshes idle expiry only.
@@ -79,7 +108,7 @@ revoked merely because a frontend cleared its own state.
   failures return safe 503 responses and never bypass authentication.
 - pgxstore's unbounded/raw-logging built-in cleaner is disabled. A lifecycle-bound
   five-minute maintenance task deletes only expired sessions with DATABASE_TIMEOUT
-  and safe logging. SCS/pgxstore still owns session load/save/delete/serialization.
+  and safe logging. SCS owns serialization; the adapter above owns safe persistence.
 - Probes do not load sessions: identity failure does not break `/healthz`; `/readyz`
   continues checking both DB connections, not authentication/schema correctness.
 
@@ -196,6 +225,15 @@ tests use a new owned schema, real migrations, restricted runtime credentials an
 SCS storage. They verify all roles, hashed tokens/payload/expiry, manager recreation,
 block/unblock/password/role revocation, housekeeping, actual failed session INSERT/
 UPDATE, and dependency loss. Only the newly created test schema is cleaned up.
+
+Focused concurrency checks (integration requires the same dedicated test DB URLs):
+
+```sh
+cd backend/go
+go test -race ./internal/httpapi -run TestAuthHTTPConcurrentSessionRevocation -count=20
+go test -race -tags=integration ./internal/httpapi -run 'TestAuthenticationPostgresIntegration/concurrent_' -count=20
+go test -race -tags=integration ./internal/sessionstore -count=20
+```
 
 A local binary smoke test also verified an existing cookie across a real Go process
 restart, hostile-origin logout rejection, trusted logout, database outage/recovery,

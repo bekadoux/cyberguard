@@ -85,6 +85,9 @@ paths:
         changes revoke old sessions; unblocking does not restore them. Invalid stored
         sessions are destroyed when possible. A dependency failure denies access with
         503, not a successful response or a claim that the credentials were wrong.
+        If logout or rotation deletes this token before its idle refresh is persisted,
+        returns 401 authentication_required without Set-Cookie or user data. A stale
+        refresh cannot recreate a deleted session or overwrite a new login cookie.
       responses:
         '200':
           description: Current safe identity; idle expiry refreshed without extending absolute lifetime.
@@ -111,6 +114,8 @@ paths:
         no active session also returns 204. Browser CSRF policy still applies. If the
         session store cannot be read or updated, returns 503 instead of falsely
         reporting successful logout. Other sessions are not explicitly logged out.
+        Concurrent idle refreshes cannot recreate the revoked session, including
+        refreshes handled by another API instance using the same database.
       responses:
         '204':
           description: Current session absent/destroyed and cookie expired; no response body.
