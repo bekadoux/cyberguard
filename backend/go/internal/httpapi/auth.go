@@ -102,23 +102,28 @@ func NewAuthentication(users auth.Users, store scs.Store, settings config.AuthCo
 
 func (a *Authentication) Mount(router chi.Router) {
 	router.Route("/auth", func(routes chi.Router) {
-		// Empty go-chi/cors origins default to '*', so install no CORS middleware
-		// at all for the secure, same-origin-only default.
-		if len(a.settings.TrustedOrigins) > 0 {
-			routes.Use(cors.Handler(cors.Options{
-				AllowedOrigins:   a.settings.TrustedOrigins,
-				AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
-				AllowedHeaders:   []string{"Accept", "Content-Type"},
-				ExposedHeaders:   []string{"X-Request-ID", "Retry-After"},
-				AllowCredentials: true, MaxAge: 300,
-			}))
-		}
-		routes.Use(a.csrf.Handler)
+		routes.Use(a.browserPolicy)
 		routes.Use(a.withDeadline)
 		routes.With(a.limitLogin, a.withSession).Post("/login", a.login)
 		routes.With(a.withSession, a.requireUser).Get("/me", a.me)
 		routes.With(a.withSession).Post("/logout", a.logout)
 	})
+}
+
+func (a *Authentication) browserPolicy(next http.Handler) http.Handler {
+	handler := a.csrf.Handler(next)
+	// Empty go-chi/cors origins default to '*': do not install that middleware
+	// for the secure same-origin-only default. Share this policy with incidents.
+	if len(a.settings.TrustedOrigins) > 0 {
+		handler = cors.Handler(cors.Options{
+			AllowedOrigins:   a.settings.TrustedOrigins,
+			AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
+			AllowedHeaders:   []string{"Accept", "Content-Type"},
+			ExposedHeaders:   []string{"X-Request-ID", "Retry-After", "Location"},
+			AllowCredentials: true, MaxAge: 300,
+		})(handler)
+	}
+	return handler
 }
 
 func (a *Authentication) withDeadline(next http.Handler) http.Handler {

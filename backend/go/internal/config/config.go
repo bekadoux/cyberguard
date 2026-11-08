@@ -31,6 +31,11 @@ func LoadIdentityMigrationURL() (string, error) {
 	return databaseURL(os.LookupEnv, "IDENTITY_MIGRATION_DATABASE_URL")
 }
 
+// LoadIncidentMigrationURL is for one-off incident migrations, never API startup.
+func LoadIncidentMigrationURL() (string, error) {
+	return databaseURL(os.LookupEnv, "INCIDENT_MIGRATION_DATABASE_URL")
+}
+
 func load(lookup func(string) (string, bool)) (Config, error) {
 	var cfg Config
 	cfg.HTTPAddr = "127.0.0.1:8080"

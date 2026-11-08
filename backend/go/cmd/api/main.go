@@ -13,6 +13,7 @@ import (
 	"github.com/bekadoux/cyberguard/backend/go/internal/config"
 	"github.com/bekadoux/cyberguard/backend/go/internal/database"
 	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
+	incidentQueries "github.com/bekadoux/cyberguard/backend/go/internal/db/incidents"
 	"github.com/bekadoux/cyberguard/backend/go/internal/httpapi"
 	"github.com/bekadoux/cyberguard/backend/go/internal/sessionstore"
 )
@@ -44,6 +45,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	authentication.Mount(router)
+	incidentAPI, err := httpapi.NewIncidentAPI(incidentQueries.New(pools.Incidents), identity.New(pools.Identity), authentication)
+	if err != nil {
+		return err
+	}
+	incidentAPI.Mount(router)
 	server := httpapi.NewServer(cfg.HTTPAddr, router, logger)
 	listener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {

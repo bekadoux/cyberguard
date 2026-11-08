@@ -17,19 +17,31 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 )
 
-type IdentityFixture struct {
+type DatabaseFixture struct {
 	Runtime  *pgxpool.Pool
 	Migrator *pgxpool.Pool
 }
 
-func Identity(t *testing.T, migrationDirectory string) IdentityFixture {
+type IdentityFixture = DatabaseFixture
+
+func Identity(t *testing.T, migrationDirectory string) DatabaseFixture {
 	t.Helper()
-	runtimeURL := os.Getenv("TEST_IDENTITY_DATABASE_URL")
-	migrationURL := os.Getenv("TEST_IDENTITY_MIGRATION_DATABASE_URL")
+	return databaseFixture(t, migrationDirectory, "TEST_IDENTITY_DATABASE_URL", "TEST_IDENTITY_MIGRATION_DATABASE_URL", "go_identity", "auth_test_")
+}
+
+func Incidents(t *testing.T, migrationDirectory string) DatabaseFixture {
+	t.Helper()
+	return databaseFixture(t, migrationDirectory, "TEST_INCIDENT_DATABASE_URL", "TEST_INCIDENT_MIGRATION_DATABASE_URL", "go_incidents", "incident_test_")
+}
+
+func databaseFixture(t *testing.T, migrationDirectory, runtimeSetting, migrationSetting, role, prefix string) DatabaseFixture {
+	t.Helper()
+	runtimeURL := os.Getenv(runtimeSetting)
+	migrationURL := os.Getenv(migrationSetting)
 	if runtimeURL == "" || migrationURL == "" {
-		t.Fatal("set dedicated TEST_IDENTITY_DATABASE_URL and TEST_IDENTITY_MIGRATION_DATABASE_URL")
+		t.Fatalf("set dedicated %s and %s", runtimeSetting, migrationSetting)
 	}
-	schema := "auth_test_" + strings.ToLower(rand.Text())
+	schema := prefix + strings.ToLower(rand.Text())
 	newPool := func(url string) *pgxpool.Pool {
 		t.Helper()
 		cfg, err := pgxpool.ParseConfig(url)
@@ -51,16 +63,16 @@ func Identity(t *testing.T, migrationDirectory string) IdentityFixture {
 	defer cancel()
 	quoted := pgx.Identifier{schema}.Sanitize()
 	if _, err := migrator.Exec(ctx, "CREATE SCHEMA "+quoted); err != nil {
-		t.Fatal("could not create isolated authentication test schema")
+		t.Fatal("could not create isolated test schema")
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if _, err := migrator.Exec(ctx, "DROP SCHEMA "+quoted+" CASCADE"); err != nil {
-			t.Error("could not remove owned authentication test schema")
+			t.Error("could not remove owned test schema")
 		}
 	})
-	if _, err := migrator.Exec(ctx, "GRANT USAGE ON SCHEMA "+quoted+" TO go_identity"); err != nil {
+	if _, err := migrator.Exec(ctx, "GRANT USAGE ON SCHEMA "+quoted+" TO "+pgx.Identifier{role}.Sanitize()); err != nil {
 		t.Fatal("could not grant runtime access to test schema")
 	}
 	db := stdlib.OpenDB(*migrator.Config().ConnConfig)
@@ -72,5 +84,5 @@ func Identity(t *testing.T, migrationDirectory string) IdentityFixture {
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatal("could not apply test migrations")
 	}
-	return IdentityFixture{Runtime: newPool(runtimeURL), Migrator: migrator}
+	return DatabaseFixture{Runtime: newPool(runtimeURL), Migrator: migrator}
 }
