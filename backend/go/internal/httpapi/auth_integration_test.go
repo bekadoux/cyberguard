@@ -79,6 +79,13 @@ func TestAuthenticationPostgresIntegration(t *testing.T) {
 			}
 		})
 	}
+	for _, ordering := range []string{"before_lookup", "completed_me", "failed_login", "destroyed_identity"} {
+		t.Run("cookie_ordering/"+ordering, func(t *testing.T) {
+			body, _ := json.Marshal(map[string]string{"username": accounts[0].Username, "password": accounts[0].Password})
+			sessionCookieOrdering(t, queries, settings, sessionstore.NewPostgres(fixture.Runtime),
+				sessionstore.NewPostgres(secondPool), string(body), ordering)
+		})
+	}
 	login := func(account demoseed.Account) *http.Cookie {
 		t.Helper()
 		body, _ := json.Marshal(map[string]string{"username": account.Username, "password": account.Password})
@@ -126,13 +133,25 @@ func TestAuthenticationPostgresIntegration(t *testing.T) {
 		if bytes.Contains(data, []byte(accounts[0].Password)) || deadline.Before(time.Now().Add(7*time.Hour)) || expiry.After(time.Now().Add(31*time.Minute)) {
 			t.Fatal("unsafe session payload or expiry policy")
 		}
-		authRequest(router, http.MethodGet, "/auth/me", "", cookie)
+		if _, err := fixture.Runtime.Exec(ctx, "UPDATE sessions SET expiry = current_timestamp + interval '1 minute' WHERE token = $1", token); err != nil {
+			t.Fatal("could not shorten idle-expiry fixture")
+		}
+		if w := authRequest(router, http.MethodGet, "/auth/me", "", cookie); w.Code != 200 || len(w.Result().Cookies()) != 0 {
+			t.Fatal("successful refresh emitted a browser cookie")
+		}
 		if err := fixture.Runtime.QueryRow(ctx, "SELECT data FROM sessions WHERE token = $1", token).Scan(&data); err != nil {
 			t.Fatal("could not read refreshed session")
 		}
 		refreshed, _, err := app.sessions.Codec.Decode(data)
 		if err != nil || !deadline.Equal(refreshed) {
 			t.Fatal("idle refresh changed the absolute lifetime")
+		}
+		if err := fixture.Runtime.QueryRow(ctx, "SELECT expiry FROM sessions WHERE token = $1", token).Scan(&expiry); err != nil ||
+			expiry.Before(time.Now().Add(29*time.Minute)) || expiry.After(deadline) {
+			t.Fatal("cookie-free refresh did not preserve server-side idle/absolute bounds")
+		}
+		if cookie.MaxAge < int(settings.Lifetime.Seconds())-5 {
+			t.Fatal("browser cookie would expire before the absolute session lifetime")
 		}
 		body, _ := json.Marshal(map[string]string{"username": accounts[0].Username, "password": accounts[0].Password})
 		w := authRequest(router, http.MethodPost, "/auth/login", string(body), cookie)
@@ -147,6 +166,42 @@ func TestAuthenticationPostgresIntegration(t *testing.T) {
 		_, restarted := newApp()
 		if w := authRequest(restarted, http.MethodGet, "/auth/me", "", cookie); w.Code != 200 {
 			t.Fatal("session did not survive session-manager recreation")
+		}
+	})
+
+	t.Run("refresh is capped by a near absolute deadline", func(t *testing.T) {
+		cookie := login(accounts[0])
+		token := storedToken(cookie)
+		var data []byte
+		if err := fixture.Runtime.QueryRow(ctx, "SELECT data FROM sessions WHERE token = $1", token).Scan(&data); err != nil {
+			t.Fatal("could not read deadline fixture")
+		}
+		_, values, err := app.sessions.Codec.Decode(data)
+		if err != nil {
+			t.Fatal("could not decode deadline fixture")
+		}
+		deadline := time.Now().Add(time.Minute).UTC().Truncate(time.Microsecond)
+		data, err = app.sessions.Codec.Encode(deadline, values)
+		if err != nil {
+			t.Fatal("could not encode deadline fixture")
+		}
+		if _, err := fixture.Runtime.Exec(ctx, "UPDATE sessions SET data = $2, expiry = $3 WHERE token = $1", token, data, deadline); err != nil {
+			t.Fatal("could not set near absolute deadline")
+		}
+		w := authRequest(router, http.MethodGet, "/auth/me", "", cookie)
+		if w.Code != 200 || len(w.Result().Cookies()) != 0 {
+			t.Fatal("near-deadline session was denied or cookie was rewritten")
+		}
+		var expiry time.Time
+		if err := fixture.Runtime.QueryRow(ctx, "SELECT expiry FROM sessions WHERE token = $1", token).Scan(&expiry); err != nil || !expiry.Equal(deadline) {
+			t.Fatal("refresh extended the absolute deadline")
+		}
+		if _, err := fixture.Runtime.Exec(ctx, "UPDATE sessions SET expiry = current_timestamp - interval '1 second' WHERE token = $1", token); err != nil {
+			t.Fatal("could not expire retained-cookie fixture")
+		}
+		w = authRequest(router, http.MethodGet, "/auth/me", "", cookie)
+		if w.Code != 401 || len(w.Result().Cookies()) != 0 {
+			t.Fatal("retained cookie bypassed expiry or triggered deletion")
 		}
 	})
 

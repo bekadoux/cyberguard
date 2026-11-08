@@ -5,13 +5,20 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
 	"github.com/bekadoux/cyberguard/backend/go/internal/sessionstore"
 )
 
 type sessionStateKey struct{}
-type sessionState struct{ failed, revoked bool }
+type sessionState struct {
+	failed, revoked bool
+	// Only successful, explicit login/logout handlers request a cookie change.
+	// Preserve the SCS context until persistence completes; never emit early.
+	cookieContext context.Context
+	cookieExpiry  time.Time
+}
 
 // The three auth endpoints return small JSON responses, not streams. Buffer them
 // until SCS finishes committing: LoadAndSave otherwise continues writing the
@@ -32,6 +39,13 @@ func (a *Authentication) withSession(next http.Handler) http.Handler {
 		if state.failed || buffer.overflow {
 			a.authError(w, nil)
 			return
+		}
+		// Even a completed 200 refresh or an automatic SCS deletion can arrive
+		// after a newer login. Passive/error responses must never mutate cookies.
+		buffer.header.Del("Set-Cookie")
+		if state.cookieContext != nil {
+			a.sessions.WriteSessionCookie(state.cookieContext, buffer,
+				a.sessions.Token(state.cookieContext), state.cookieExpiry)
 		}
 		for name, values := range buffer.header {
 			for _, value := range values {

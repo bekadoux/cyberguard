@@ -3,7 +3,9 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,47 +14,64 @@ import (
 	"github.com/alexedwards/scs/v2"
 	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
 	"github.com/bekadoux/cyberguard/backend/go/internal/config"
+	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Pause only the first successful load, after persistence has returned its data.
-// The other application/store is independent and can complete revocation first.
+// Pause either before lookup or after a successful load. These are different
+// orderings: a missing old token and a loaded-but-subsequently-revoked token.
 type pausedSessionStore struct {
 	scs.CtxStore
-	paused atomic.Bool
-	loaded chan struct{}
-	resume chan struct{}
+	paused       atomic.Bool
+	beforeLookup bool
+	loaded       chan struct{}
+	resume       chan struct{}
 }
 
 func (s *pausedSessionStore) FindCtx(ctx context.Context, token string) ([]byte, bool, error) {
+	if s.beforeLookup && s.paused.CompareAndSwap(false, true) {
+		if err := s.pause(ctx); err != nil {
+			return nil, false, err
+		}
+	}
 	data, found, err := s.CtxStore.FindCtx(ctx, token)
-	if err == nil && found && s.paused.CompareAndSwap(false, true) {
-		close(s.loaded)
-		select {
-		case <-s.resume:
-		case <-ctx.Done():
-			return nil, false, ctx.Err()
+	if !s.beforeLookup && err == nil && found && s.paused.CompareAndSwap(false, true) {
+		if err := s.pause(ctx); err != nil {
+			return nil, false, err
 		}
 	}
 	return data, found, err
 }
 
+func (s *pausedSessionStore) pause(ctx context.Context) error {
+	close(s.loaded)
+	select {
+	case <-s.resume:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func concurrencyApp(t *testing.T, users auth.Users, settings config.AuthConfig, store scs.Store) (*Authentication, *chi.Mux) {
+	t.Helper()
+	app, err := NewAuthentication(users, store, settings, 10*time.Second, testLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.limiter = auth.NewLoginLimiter(1000, time.Minute, 1000)
+	router := NewRouter(testLogger(), nil, time.Second)
+	app.Mount(router)
+	return app, router
+}
+
 func concurrentSessionRevocation(t *testing.T, users auth.Users, settings config.AuthConfig, first, second scs.CtxStore, loginBody string, rotate bool) *http.Cookie {
 	t.Helper()
-	newApp := func(store scs.Store) (*Authentication, *chi.Mux) {
-		t.Helper()
-		app, err := NewAuthentication(users, store, settings, 10*time.Second, testLogger())
-		if err != nil {
-			t.Fatal(err)
-		}
-		app.limiter = auth.NewLoginLimiter(1000, time.Minute, 1000)
-		router := NewRouter(testLogger(), nil, time.Second)
-		app.Mount(router)
-		return app, router
-	}
-	app, revoker := newApp(first)
+	app, revoker := concurrencyApp(t, users, settings, first)
 	paused := &pausedSessionStore{CtxStore: second, loaded: make(chan struct{}), resume: make(chan struct{})}
-	_, refresher := newApp(paused)
+	_, refresher := concurrencyApp(t, users, settings, paused)
 	login := authRequest(revoker, http.MethodPost, "/auth/login", loginBody, nil)
 	if login.Code != 200 {
 		t.Fatal("initial login failed")
@@ -120,6 +139,134 @@ func concurrentSessionRevocation(t *testing.T, users auth.Users, settings config
 		t.Fatal("revocation affected an independent session")
 	}
 	return old
+}
+
+type missingCurrentUser struct{ auth.Users }
+
+func (u missingCurrentUser) GetUserByID(context.Context, pgtype.UUID) (identity.User, error) {
+	return identity.User{}, pgx.ErrNoRows
+}
+
+// Model browser response delivery explicitly: finish/apply the new login first,
+// then apply an older response. Independent stores model separate API instances.
+func sessionCookieOrdering(t *testing.T, users auth.Users, settings config.AuthConfig, first, second scs.CtxStore, loginBody, ordering string) {
+	t.Helper()
+	app, router := concurrencyApp(t, users, settings, first)
+	login := authRequest(router, http.MethodPost, "/auth/login", loginBody, nil)
+	if login.Code != 200 {
+		t.Fatal("initial login failed")
+	}
+	old := sessionCookie(t, login, app.sessions.Cookie.Name)
+	var delayed *httptest.ResponseRecorder
+	want := http.StatusUnauthorized
+	var finish func() *httptest.ResponseRecorder
+	if ordering == "before_lookup" {
+		paused := &pausedSessionStore{CtxStore: second, beforeLookup: true, loaded: make(chan struct{}), resume: make(chan struct{})}
+		_, staleRouter := concurrencyApp(t, users, settings, paused)
+		done := make(chan *httptest.ResponseRecorder, 1)
+		go func() { done <- authRequest(staleRouter, http.MethodGet, "/auth/me", "", old) }()
+		resumed, finished := false, false
+		defer func() {
+			if !resumed {
+				close(paused.resume)
+			}
+			if !finished {
+				select {
+				case <-done:
+				case <-time.After(5 * time.Second):
+					t.Error("paused lookup did not stop")
+				}
+			}
+		}()
+		select {
+		case <-paused.loaded:
+		case <-time.After(5 * time.Second):
+			t.Fatal("lookup did not reach the pre-load barrier")
+		}
+		finish = func() *httptest.ResponseRecorder {
+			close(paused.resume)
+			resumed = true
+			select {
+			case w := <-done:
+				finished = true
+				return w
+			case <-time.After(5 * time.Second):
+				t.Fatal("paused lookup did not finish")
+				return nil
+			}
+		}
+	} else {
+		staleUsers := users
+		if ordering == "destroyed_identity" {
+			staleUsers = missingCurrentUser{Users: users}
+		}
+		_, staleRouter := concurrencyApp(t, staleUsers, settings, second)
+		if ordering == "failed_login" {
+			delayed = authRequest(staleRouter, http.MethodPost, "/auth/login", `{"username":"employee_a","password":"incorrect"}`, old)
+		} else {
+			delayed = authRequest(staleRouter, http.MethodGet, "/auth/me", "", old)
+			if ordering == "completed_me" {
+				want = http.StatusOK
+			}
+		}
+	}
+	rotated := authRequest(router, http.MethodPost, "/auth/login", loginBody, old)
+	if rotated.Code != 200 {
+		t.Fatal("concurrent login failed")
+	}
+	fresh := sessionCookie(t, rotated, app.sessions.Cookie.Name)
+	if fresh.Value == old.Value {
+		t.Fatal("login did not rotate the token")
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheme := "http"
+	if settings.CookieSecure {
+		scheme = "https"
+	}
+	origin, err := url.Parse(scheme + "://127.0.0.1:8080/auth/me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jar.SetCookies(origin, rotated.Result().Cookies())
+	if finish != nil {
+		delayed = finish()
+	}
+	if delayed.Code != want {
+		t.Fatalf("delayed response: got %d, want %d", delayed.Code, want)
+	}
+	jar.SetCookies(origin, delayed.Result().Cookies())
+	cookies := jar.Cookies(origin)
+	if len(cookies) != 1 || cookies[0].Name != fresh.Name || cookies[0].Value != fresh.Value {
+		t.Fatal("delayed response deleted or replaced the fresh login cookie")
+	}
+	if len(delayed.Result().Cookies()) != 0 {
+		t.Fatal("passive or failed authentication response emitted Set-Cookie")
+	}
+	if authRequest(router, http.MethodGet, "/auth/me", "", cookies[0]).Code != 200 {
+		t.Fatal("fresh browser session no longer authenticates")
+	}
+	if authRequest(router, http.MethodGet, "/auth/me", "", old).Code != 401 {
+		t.Fatal("old cookie remained valid")
+	}
+}
+
+func TestAuthHTTPCookieResponseOrdering(t *testing.T) {
+	for _, secure := range []bool{false, true} {
+		for _, ordering := range []string{"before_lookup", "completed_me", "failed_login", "destroyed_identity"} {
+			environment := "development"
+			if secure {
+				environment = "production"
+			}
+			t.Run(environment+"/"+ordering, func(t *testing.T) {
+				f := newAuthHTTPFixture(t, &config.AuthConfig{Environment: environment, CookieSecure: secure, Lifetime: time.Hour, IdleTimeout: 30 * time.Minute})
+				store := f.app.sessions.Store.(scs.CtxStore)
+				sessionCookieOrdering(t, f.users, f.app.settings, store, store, validLogin, ordering)
+			})
+		}
+	}
 }
 
 func TestAuthHTTPConcurrentSessionRevocation(t *testing.T) {

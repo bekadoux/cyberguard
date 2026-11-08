@@ -178,6 +178,11 @@ func (a *Authentication) login(w http.ResponseWriter, r *http.Request) {
 	_ = a.sessions.Clear(r.Context())
 	a.sessions.Put(r.Context(), "user_id", user.ID)
 	a.sessions.Put(r.Context(), "auth_version", user.AuthVersion)
+	state := r.Context().Value(sessionStateKey{}).(*sessionState)
+	state.cookieContext = r.Context()
+	// The browser cookie lasts to the absolute deadline. Idle expiry is enforced
+	// and refreshed in PostgreSQL without passive responses rewriting cookies.
+	state.cookieExpiry = a.sessions.Deadline(r.Context())
 	writeJSON(w, http.StatusOK, responseUser(user))
 }
 
@@ -202,8 +207,6 @@ func (a *Authentication) requireUser(next http.Handler) http.Handler {
 						a.authError(w, auth.ErrUnavailable)
 						return
 					}
-				} else if _, err := r.Cookie(a.sessions.Cookie.Name); err == nil {
-					a.sessions.WriteSessionCookie(r.Context(), w, "", time.Time{})
 				}
 			}
 			a.authError(w, err)
@@ -225,9 +228,10 @@ func (a *Authentication) logout(w http.ResponseWriter, r *http.Request) {
 			a.authError(w, auth.ErrUnavailable)
 			return
 		}
-	} else {
-		a.sessions.WriteSessionCookie(r.Context(), w, "", time.Time{})
 	}
+	state := r.Context().Value(sessionStateKey{}).(*sessionState)
+	state.cookieContext = r.Context()
+	// The zero expiry requests a deletion cookie only for explicit logout.
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
 }
