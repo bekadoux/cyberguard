@@ -147,16 +147,43 @@ func (u missingCurrentUser) GetUserByID(context.Context, pgtype.UUID) (identity.
 	return identity.User{}, pgx.ErrNoRows
 }
 
+// Model an account-version change consistently for both login and current-user
+// queries, without mutating the underlying fixture shared with other tests.
+type versionedUsers struct {
+	auth.Users
+	offset atomic.Int64
+}
+
+func (u *versionedUsers) GetUserByID(ctx context.Context, id pgtype.UUID) (identity.User, error) {
+	user, err := u.Users.GetUserByID(ctx, id)
+	user.AuthVersion += u.offset.Load()
+	return user, err
+}
+
+func (u *versionedUsers) GetUserByUsername(ctx context.Context, username string) (identity.User, error) {
+	user, err := u.Users.GetUserByUsername(ctx, username)
+	user.AuthVersion += u.offset.Load()
+	return user, err
+}
+
 // Model browser response delivery explicitly: finish/apply the new login first,
 // then apply an older response. Independent stores model separate API instances.
 func sessionCookieOrdering(t *testing.T, users auth.Users, settings config.AuthConfig, first, second scs.CtxStore, loginBody, ordering string) {
 	t.Helper()
+	var account *versionedUsers
+	if ordering == "old_account_version" {
+		account = &versionedUsers{Users: users}
+		users = account
+	}
 	app, router := concurrencyApp(t, users, settings, first)
 	login := authRequest(router, http.MethodPost, "/auth/login", loginBody, nil)
 	if login.Code != 200 {
 		t.Fatal("initial login failed")
 	}
 	old := sessionCookie(t, login, app.sessions.Cookie.Name)
+	if account != nil {
+		account.offset.Store(1)
+	}
 	var delayed *httptest.ResponseRecorder
 	want := http.StatusUnauthorized
 	var finish func() *httptest.ResponseRecorder
@@ -201,9 +228,13 @@ func sessionCookieOrdering(t *testing.T, users auth.Users, settings config.AuthC
 			staleUsers = missingCurrentUser{Users: users}
 		}
 		_, staleRouter := concurrencyApp(t, staleUsers, settings, second)
-		if ordering == "failed_login" {
+		switch ordering {
+		case "failed_login":
 			delayed = authRequest(staleRouter, http.MethodPost, "/auth/login", `{"username":"employee_a","password":"incorrect"}`, old)
-		} else {
+		case "invalid_body":
+			delayed = authRequest(staleRouter, http.MethodPost, "/auth/login", "{", old)
+			want = http.StatusBadRequest
+		default:
 			delayed = authRequest(staleRouter, http.MethodGet, "/auth/me", "", old)
 			if ordering == "completed_me" {
 				want = http.StatusOK
@@ -255,7 +286,7 @@ func sessionCookieOrdering(t *testing.T, users auth.Users, settings config.AuthC
 
 func TestAuthHTTPCookieResponseOrdering(t *testing.T) {
 	for _, secure := range []bool{false, true} {
-		for _, ordering := range []string{"before_lookup", "completed_me", "failed_login", "destroyed_identity"} {
+		for _, ordering := range []string{"before_lookup", "completed_me", "failed_login", "invalid_body", "old_account_version", "destroyed_identity"} {
 			environment := "development"
 			if secure {
 				environment = "production"

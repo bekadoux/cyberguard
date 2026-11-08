@@ -114,7 +114,8 @@ expiry: handle 401 regardless of cookie presence, and clear frontend identity st
 
 Cookie-jar regression tests cover a lookup paused **before** storage, a completed
 successful `/me` delivered late, a failed login delivered late, and SCS destruction
-of an invalid identity. Apply the new login response first, then the stale response;
+of an invalid identity. Explicit cases include incorrect-password 401, invalid-body
+400, and old-account-version 401. Apply the new login response first, then the stale response;
 the fresh cookie must survive and authenticate. Tests cover both cookie environments
 and, separately, independent PostgreSQL pools/managers.
 

@@ -79,7 +79,7 @@ func TestAuthenticationPostgresIntegration(t *testing.T) {
 			}
 		})
 	}
-	for _, ordering := range []string{"before_lookup", "completed_me", "failed_login", "destroyed_identity"} {
+	for _, ordering := range []string{"before_lookup", "completed_me", "failed_login", "invalid_body", "old_account_version", "destroyed_identity"} {
 		t.Run("cookie_ordering/"+ordering, func(t *testing.T) {
 			body, _ := json.Marshal(map[string]string{"username": accounts[0].Username, "password": accounts[0].Password})
 			sessionCookieOrdering(t, queries, settings, sessionstore.NewPostgres(fixture.Runtime),

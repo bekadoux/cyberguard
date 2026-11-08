@@ -35,8 +35,8 @@ grant access to an idle-expired token retained in a browser.
 | Refresh vs logout/rotation after load | Deleted old row stays absent; old cookie gets 401; new/independent sessions work | `TestAuthHTTPConcurrentSessionRevocation`, PostgreSQL `concurrent_*` |
 | Stale lookup before rotation | Apply new login response, then delayed 401; new browser cookie survives | `TestAuthHTTPCookieResponseOrdering/*/before_lookup`, PostgreSQL `cookie_ordering/before_lookup` |
 | Already completed successful read delivered late | No old Set-Cookie can replace the new cookie | `completed_me` cases in both suites |
-| Failed login delivered late | Existing session refresh must not emit a cookie on an error response | `failed_login` cases; `TestAuthHTTPFailedLoginDoesNotChangeExistingCookie` |
-| Loaded identity subsequently denied | Delete invalid server session but never let SCS delete a newer browser cookie | `destroyed_identity` cases; `TestAuthHTTPPassiveDenialsNeverSetCookies` |
+| Failed login delivered late | Existing session refresh must not emit a cookie on an error response | `failed_login` (incorrect-password 401), `invalid_body` (400); `TestAuthHTTPFailedLoginDoesNotChangeExistingCookie` |
+| Loaded identity subsequently denied | Delete invalid server session but never let SCS delete a newer browser cookie | `old_account_version`, `destroyed_identity`; `TestAuthHTTPPassiveDenialsNeverSetCookies` |
 | Browser and server expiry | Cookie uses absolute deadline; idle refresh preserves absolute deadline; server expiry rejects retained cookie | `TestAuthHTTPCookieExpiryAndIdleRefresh`, PostgreSQL payload/expiry and housekeeping tests |
 | Blocking, password reset, role change | Read current account/auth_version; unblock cannot restore old sessions | service, HTTP and PostgreSQL revocation tests |
 | DB read/write failure | Safe 503; no user data or cookie success leak; logout never falsely succeeds | HTTP store-failure tests; actual INSERT/UPDATE permission failures in PostgreSQL |
@@ -47,6 +47,11 @@ grant access to an idle-expired token retained in a browser.
 | Credential work | Validate inputs/hash costs; uniform credential failures; fresh account recheck; bounded parallel work | service tests including unsafe hashes, recheck, cancellation and capacity |
 | Login attempts | Concurrent requests cannot bypass per-peer window; bounded peer map | limiter window/capacity/concurrency tests |
 | Transport/response hygiene | Secure host-only production cookie, HttpOnly/Lax/Path=/; no-store; safe DTO/errors/logs; buffer before persistence | secure defaults, response/cookie, store-failure and log-exclusion tests |
+
+All five reported cookie-ordering paths have explicit cookie-jar regressions in the
+unit and PostgreSQL suites. The account-version ordering case advances the version
+at the user-query boundary for both managers; the separate PostgreSQL revocation
+suite also exercises actual SQL password/block/role updates and version increments.
 
 Validation commands are in [authentication handoff](authentication-handoff.md#7-engineer-checks-and-next-frontend-contract).
 The follow-up validation includes `make go-check`, `make go-build`, real PostgreSQL
