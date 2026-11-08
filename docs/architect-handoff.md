@@ -7,8 +7,9 @@ identity migrations, sqlc queries, explicit demo seed, and tests.
 
 The subsequent authentication increment adds HTTP login/logout/current-user, SCS and
 current-account checks; see [authentication handoff](authentication-handoff.md) for
-its settings and integration/review tasks. Incident/AI tables or APIs, Python database
-role, frontend and deployment automation remain outside these increments.
+its settings and integration/review tasks. The [incident core handoff](incidents-handoff.md)
+adds incident migration/create/read; AI/job tables and enqueueing, Python database role,
+frontend and deployment automation remain outside these increments.
 
 - **Architect:** Dockerfile/Compose, networking, volumes, secret delivery, health checks,
   orchestration of one-off setup commands.
@@ -22,6 +23,8 @@ role, frontend and deployment automation remain outside these increments.
 - Module: `backend/go`; build `./cmd/api`, `./cmd/migrate`, `./cmd/seed` as separate binaries.
 - `make go-build` builds all three; `make go-check` runs local quality checks.
 - Copy/mount `db/migrations/identity` and pass the actual directory to `migrate -dir PATH`.
+- Also mount `db/migrations/incidents`; run `migrate -database incidents -dir PATH`
+  with only `INCIDENT_MIGRATION_DATABASE_URL` for that controlled migration step.
 - Bootstrap requires psql 15+, normally available in PostgreSQL images; no additional
   permanently running bootstrap service is needed.
 
@@ -64,6 +67,7 @@ with psql on the correct instance. Preserve ON_ERROR_STOP and propagate failures
 Repeat bootstrap resets managed passwords but preserves data; do not run on every API restart.
 
 **Migration only:** `IDENTITY_MIGRATION_DATABASE_URL` as `identity_migrator`.
+Incident migration only: `INCIDENT_MIGRATION_DATABASE_URL` as `incidents_migrator`.
 
 **Explicit demo seed only:** migration URL plus the four `DEV_*_PASSWORD` variables
 in [database setup](database-setup.md). Never routine production startup.
@@ -77,7 +81,7 @@ working credentials. Handle password URL encoding and deployment TLS explicitly.
 Start two PostgreSQL instances with persistent volumes
   → wait for administrator connections
   → controlled bootstrap: databases and restricted roles
-  → migrate identity database with the one-off migrate binary
+  → migrate identity and incident databases with separate one-off migrate invocations
   → optionally seed an explicitly requested local/demo setup
   → start API with runtime credentials only
   → verify readiness
@@ -90,6 +94,8 @@ make db-bootstrap-identity
 make db-bootstrap-incidents
 make db-migrate-identity
 make db-status-identity
+make db-migrate-incidents
+make db-status-incidents
 # Only for an explicitly requested demo:
 make db-seed-demo
 ```

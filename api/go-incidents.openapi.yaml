@@ -1,0 +1,334 @@
+openapi: 3.1.0
+info:
+  title: CyberGuard Go Incident Core API
+  version: 0.1.0
+  description: >-
+    Intermediate create/list/detail foundation. POST currently saves an incident only,
+    not an assessment job. Atomic initial-job enqueueing remains dependent on Issue #3
+    and is required before accepting the full vertical slice. No workflow mutation,
+    comments, archive API, AI endpoint or frontend is included. All routes require
+    current-account server-side sessions and never emit Set-Cookie. Use credentials:
+    include; handle 401 independently of cookie presence. Exact trusted origins and
+    CSRF policy are shared with authentication. Responses are JSON and no-store.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Explicit local development only; production requires HTTPS.
+security:
+  - productionSession: []
+  - developmentSession: []
+paths:
+  /incidents:
+    post:
+      operationId: createIncident
+      summary: Save a submitted incident (initial assessment enqueueing not yet integrated)
+      description: >-
+        No query parameters. Reporter comes from the session. UUID/timestamps/status are server-managed;
+        category/severity/assignment/resolution start null. Source title/description
+        are immutable. Only the three submission fields are accepted. Maximum body:
+        128 KiB; text limits count Unicode code points, not bytes. Original nonblank
+        text is preserved. Refresh/authentication completes before business writes;
+        already-authorized in-flight operations may finish after logout. No POST retry
+        idempotency guarantee. No job ID or queued state is fabricated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title, description]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: Must contain non-whitespace text; NUL is rejected.
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+                  description: Must contain non-whitespace text; NUL is rejected. Never log.
+                affected_system:
+                  type: [string, 'null']
+                  maxLength: 500
+                  description: Omitted/null/whitespace-only becomes null. NUL is rejected.
+      responses:
+        '201':
+          description: Incident committed; this core response does not imply AI-job creation.
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Relative path /incidents/{UUID}.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/BodyTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      operationId: listIncidents
+      summary: List the caller's permitted, non-archived incidents
+      description: >-
+        Employees see only own reports; analysts/admins may read the company queue.
+        Access is applied in SQL before pagination. Fixed order: created_at DESC,
+        id DESC. Cursors are continuation positions, not access tokens or snapshots;
+        changing filters starts a fresh traversal. Unknown/duplicate/empty parameters
+        are rejected. No reporter_id, severity, company-access or sort overrides.
+        List omits description and resolution text; use detail for analyst username.
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: cursor
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+          description: Previous next_cursor, validated base64url timestamp/UUID continuation.
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/IncidentStatus'
+        - in: query
+          name: category
+          schema:
+            $ref: '#/components/schemas/IncidentCategory'
+      responses:
+        '200':
+          description: Permitted summaries; empty collection is [], not null.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [incidents, next_cursor]
+                properties:
+                  incidents:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: '#/components/schemas/IncidentSummary'
+                  next_cursor:
+                    type: [string, 'null']
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /incidents/{id}:
+    get:
+      operationId: getIncident
+      summary: Read permitted incident detail
+      description: >-
+        Missing, malformed, inaccessible and archived IDs share 404. No query parameters.
+        Reporter-visible fields are returned on own incidents regardless of role.
+        Severity is omitted, not just hidden by the UI. Analysts/admins reading another
+        reporter's incident receive severity, which may be null. No internal comments,
+        AI output, archive reason, credential data or session metadata is returned.
+        Assigned analyst username is resolved safely through identity; missing account
+        yields null username, lookup failure yields 503 without partial incident data.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Permitted incident detail, without Set-Cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    productionSession:
+      type: apiKey
+      in: cookie
+      name: __Host-cyberguard_session
+    developmentSession:
+      type: apiKey
+      in: cookie
+      name: cyberguard_session
+  schemas:
+    IncidentStatus:
+      type: string
+      enum: [submitted, triage, investigating, awaiting_reporter, resolved, closed, false_positive]
+    IncidentCategory:
+      type: string
+      enum: [phishing, malware, account_compromise, data_exposure, lost_device, policy_violation, service_disruption, other]
+    NullableCategory:
+      oneOf:
+        - $ref: '#/components/schemas/IncidentCategory'
+        - type: 'null'
+    IncidentFields:
+      type: object
+      required: [id, reporter_id, title, status, category, assigned_analyst_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        reporter_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 200
+        status:
+          $ref: '#/components/schemas/IncidentStatus'
+        category:
+          $ref: '#/components/schemas/NullableCategory'
+        assigned_analyst_id:
+          type: [string, 'null']
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+          description: UTC RFC 3339.
+        updated_at:
+          type: string
+          format: date-time
+          description: UTC RFC 3339.
+        severity:
+          type: [string, 'null']
+          enum: [low, medium, high, critical, null]
+          description: Present only for analyst/admin reading another reporter's incident; otherwise absent.
+    IncidentSummary:
+      allOf:
+        - $ref: '#/components/schemas/IncidentFields'
+      unevaluatedProperties: false
+    IncidentDetail:
+      allOf:
+        - $ref: '#/components/schemas/IncidentFields'
+        - type: object
+          required: [description, affected_system, resolution_note, assigned_analyst]
+          properties:
+            description:
+              type: string
+              maxLength: 10000
+            affected_system:
+              type: [string, 'null']
+              maxLength: 500
+            resolution_note:
+              type: [string, 'null']
+              description: Full reporter-facing resolution, not internal technical notes.
+            assigned_analyst:
+              oneOf:
+                - type: 'null'
+                - type: object
+                  additionalProperties: false
+                  required: [id, username]
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    username:
+                      type: [string, 'null']
+      unevaluatedProperties: false
+    IncidentResponse:
+      type: object
+      additionalProperties: false
+      required: [incident]
+      properties:
+        incident:
+          $ref: '#/components/schemas/IncidentDetail'
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [invalid_request, authentication_required, csrf_rejected, forbidden, not_found, body_too_large, unsupported_media_type, auth_unavailable, incidents_unavailable, internal_error]
+            message:
+              type: string
+  responses:
+    InvalidRequest:
+      description: Invalid input, server-field injection, unsupported/duplicate/empty filter or malformed cursor.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing, expired or revoked session/current identity; no Set-Cookie.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Untrusted unsafe browser origin or forbidden actor; no mutation/cookie change.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Incident absent, malformed, non-visible or archived; indistinguishable response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    BodyTooLarge:
+      description: POST body exceeds 128 KiB.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnsupportedMediaType:
+      description: POST requires application/json.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unavailable:
+      description: Safe identity/session or incident dependency failure; no success data or Set-Cookie.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Unexpected internal error, without sensitive details.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

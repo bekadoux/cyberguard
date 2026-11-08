@@ -2,8 +2,9 @@
 
 ## Dev environment tips
 
-- The only implemented service is the Go API; frontend, Python/AI and incident APIs
-  in `docs/project-plan.md` are planned, not existing functionality. Application
+- The only implemented service is the Go API, including incident core create/read.
+  Frontend, Python/AI, assessment enqueueing and investigation mutations remain
+  planned; see `docs/incidents-handoff.md` for the explicit integration gap. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
   contracts are in `docs/architect-handoff.md`.
 - The Go module is `backend/go` (Go 1.27.3). Run Make targets from the repository
@@ -27,8 +28,9 @@
   `go test -race ./internal/httpapi -run '^TestAuthHTTPCookieExpiryAndIdleRefresh$' -count=1`.
 - `make go-test-integration` requires **two separate disposable PostgreSQL
   instances**, bootstrapped roles, and `TEST_IDENTITY_DATABASE_URL`,
-  `TEST_INCIDENT_DATABASE_URL`, `TEST_IDENTITY_MIGRATION_DATABASE_URL`.
-  Missing settings fail tests, not skip them. Identity fixtures migrate into random
+  `TEST_INCIDENT_DATABASE_URL`, `TEST_IDENTITY_MIGRATION_DATABASE_URL` and
+  `TEST_INCIDENT_MIGRATION_DATABASE_URL`.
+  Missing settings fail tests, not skip them. Persistence fixtures migrate into random
   schemas and drop those schemas afterward; do not point them at ordinary dev or
   deployed data. See `docs/database-setup.md` for preparation.
 
@@ -44,13 +46,14 @@
   and IP hosts. Trusted origins are exact; CORS does not override cookie policy.
 - API startup does not bootstrap, migrate or seed. For fresh instances, run
   `make db-bootstrap-identity` and `make db-bootstrap-incidents`, then
-  `make db-migrate-identity`; `make db-seed-demo` is optional and development-only.
+  `make db-migrate-identity` and `make db-migrate-incidents`; `make db-seed-demo` is
+  optional and development-only.
   Credentials, grants and setup details: `docs/database-setup.md`.
-- Identity migrations live in `db/migrations/identity/`; add numbered migrations
+- Migrations live in `db/migrations/identity/` and `db/migrations/incidents/`; add numbered migrations
   rather than editing shared/applied ones. New tables need explicit runtime grants.
-- Edit handwritten queries in `backend/go/sql/identity/` and schema migrations,
+- Edit handwritten queries in `backend/go/sql/{identity,incidents}/` and schema migrations,
   then run `make go-sqlc` and commit the generated changes. Never hand-edit
-  `backend/go/internal/db/identity/`. `make go-sqlc-check` checks without rewriting.
+  `backend/go/internal/db/{identity,incidents}/`. `make go-sqlc-check` checks without rewriting.
 
 ## Authentication safeguards
 
@@ -62,6 +65,10 @@
   explicit login/logout may emit Set-Cookie; `/auth/me` and failed auth responses
   must not replace/delete cookies. Login cookie expiry is the absolute deadline;
   idle expiry is enforced server-side. These rules prevent stale-response races.
+- Incident routes explicitly load/check/refresh before business operations, never
+  emit cookies and never save sessions after writes. Do not apply the small auth
+  LoadAndSave response buffer to incident payloads or reintroduce late session-save
+  errors after a committed business operation.
 - Protected requests must check current account status/role and `auth_version`,
   not trust cached session roles. Password, block/unblock and role changes increment
   `auth_version`. Generated `identity.User` includes the password hash: return safe

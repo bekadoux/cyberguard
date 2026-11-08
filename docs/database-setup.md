@@ -3,7 +3,8 @@
 Implemented: PostgreSQL bootstrap SQL, versioned identity migrations, generated sqlc
 queries, and explicit development-account seeding. The subsequent
 [authentication increment](authentication-handoff.md) adds HTTP authentication using
-this schema. Incident tables, assessment tables and Python database access remain deferred.
+this schema. [Incident core](incidents-handoff.md) adds the incident table and scoped
+create/read queries. Assessment tables and Python database access remain deferred.
 
 ## Ownership and versions
 
@@ -12,8 +13,9 @@ this schema. Incident tables, assessment tables and Python database access remai
 | PostgreSQL processes, networks, volumes | Architect's Compose | Architect |
 | Database and SQL-role creation | `db/bootstrap/*.sql` | Engineer |
 | Identity schema and grants | `db/migrations/identity/*.sql` | Engineer, architect review |
-| Handwritten queries | `backend/go/sql/identity/users.sql` | Engineer |
-| Generated queries | `backend/go/internal/db/identity/` | sqlc; never hand-edit |
+| Incident schema and grants | `db/migrations/incidents/*.sql` | Engineer, architect review |
+| Handwritten queries | `backend/go/sql/{identity,incidents}/` | Engineer |
+| Generated queries | `backend/go/internal/db/{identity,incidents}/` | sqlc; never hand-edit |
 | Demo accounts | `backend/go/cmd/seed`, `internal/demoseed` | Engineer |
 
 Use two separate PostgreSQL instances. Validation used PostgreSQL 17.6 and psql 17.9;
@@ -35,8 +37,9 @@ receive database CONNECT and schema USAGE, not database/schema CREATE or databas
 
 After migration, `go_identity` has SELECT/INSERT/UPDATE on `users` (**no DELETE**), and
 SELECT/INSERT/UPDATE/DELETE on `sessions`, as SCS requires. It cannot read the goose
-version table. New tables receive no automatic runtime grants. `go_incidents` has no
-business-table permissions yet because incident tables do not exist. Python receives
+version table. New tables receive no automatic runtime grants. `go_incidents` can
+SELECT incidents and INSERT only reporter/title/description/affected_system. It cannot
+UPDATE, DELETE, or explicitly INSERT server-managed fields. Python receives
 no identity credentials; its restricted role waits for the agreed AI schema.
 
 ### Separate environments
@@ -133,6 +136,25 @@ from loaded-token UPDATE so concurrent refresh cannot recreate a revoked session
 See [authentication handoff](authentication-handoff.md#concurrent-refresh-logout-and-rotation).
 The schema and runtime grants are unchanged.
 
+## Incident migrations
+
+Set `INCIDENT_MIGRATION_DATABASE_URL` to the separate `incidents_migrator` connection:
+
+```sh
+make db-migrate-incidents
+make db-status-incidents
+```
+
+The same binary uses `-database incidents`; identity remains its default. Both targets
+check the exact migration role, use bounded locks/deadlines and expose up/status only.
+The first incident migration creates the real `incidents` table, allowed domain value
+checks, Unicode-aware text-length/blank checks, nullable investigation fields, archive
+marker and queue/reporter indexes. Runtime INSERT defaults to submitted/unassessed;
+immutable source fields have no UPDATE grant. Cross-database user references are UUIDs
+without foreign keys. `status_reason` history and all job/result tables are deferred
+to their coordinated increments. See [incident handoff](incidents-handoff.md) for
+read visibility, field ownership and the pending atomic initial-job integration.
+
 ## Explicit demo accounts
 
 Supply four distinct non-placeholder passwords of 12–128 bytes:
@@ -168,10 +190,9 @@ make go-check
 make go-build
 ```
 
-`go-sqlc` regenerates `internal/db/identity` from migrations and handwritten queries.
+`go-sqlc` regenerates `internal/db/identity` and `internal/db/incidents` from migrations and handwritten queries.
 `go-sqlc-check` uses the non-mutating sqlc `diff` command and is included in `go-check`.
-Commit generated output, but edit only SQL inputs/config. There is no empty incident
-sqlc package: it will be added with the real incident schema.
+Commit generated output, but edit only SQL inputs/config.
 
 Generated `identity.User` contains the password hash and is persistence-only. Future
 HTTP handlers must return safe API DTOs, never serialize this struct directly.
@@ -181,6 +202,7 @@ HTTP handlers must return safe API DTOs, never serialize this struct directly.
 ```sh
 backend/go/bin/migrate -dir db/migrations/identity
 backend/go/bin/migrate -dir db/migrations/identity -status
+backend/go/bin/migrate -database incidents -dir db/migrations/incidents
 ```
 
 The architect can include all binaries in one Go application image and run migrate as
@@ -194,6 +216,7 @@ Prepare bootstrap roles on **dedicated disposable instances**, then set:
 export TEST_IDENTITY_DATABASE_URL='postgres://go_identity:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15433/cyberguard_identity?sslmode=disable'
 export TEST_INCIDENT_DATABASE_URL='postgres://go_incidents:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15434/cyberguard_incidents?sslmode=disable'
 export TEST_IDENTITY_MIGRATION_DATABASE_URL='postgres://identity_migrator:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15433/cyberguard_identity?sslmode=disable'
+export TEST_INCIDENT_MIGRATION_DATABASE_URL='postgres://incidents_migrator:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15434/cyberguard_incidents?sslmode=disable'
 make go-test-integration
 ```
 

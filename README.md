@@ -21,3 +21,9 @@ The [authentication handoff](docs/authentication-handoff.md) covers the implemen
 login/logout/current-user API, sessions and browser security, with separate architect,
 AI specialist and domain expert review tasks. Its [OpenAPI contract](api/go-authentication.openapi.yaml)
 is available for the later frontend integration.
+
+The [incident core handoff](docs/incidents-handoff.md) and
+[OpenAPI contract](api/go-incidents.openapi.yaml) cover incident create/list/detail,
+validation and access-controlled views based on the
+[domain specification](docs/domain-specification.md). Initial assessment-job enqueueing
+is **not yet integrated**; this is not the complete first vertical slice.

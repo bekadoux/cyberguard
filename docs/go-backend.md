@@ -5,7 +5,8 @@ PostgreSQL pools, liveness/readiness probes, and tests. The SQL increment adds d
 role bootstrap, identity migrations, generated queries and demo accounts; see
 [database setup](database-setup.md) and the [architect handoff](architect-handoff.md).
 The [authentication increment](authentication-handoff.md) adds login/logout/current-user
-and session security. Incident/assessment APIs are not implemented yet. This is not
+and session security. [Incident core](incidents-handoff.md) adds create/list/detail;
+assessment enqueueing and workflow mutations are not implemented yet. This is not
 the complete first milestone in the
 [engineer handoff](software-engineer-handoff.md).
 
@@ -164,11 +165,12 @@ data. Provision the database names and restricted runtime roles before running:
 export TEST_IDENTITY_DATABASE_URL='postgres://go_identity:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15433/cyberguard_identity?sslmode=disable'
 export TEST_INCIDENT_DATABASE_URL='postgres://go_incidents:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15434/cyberguard_incidents?sslmode=disable'
 export TEST_IDENTITY_MIGRATION_DATABASE_URL='postgres://identity_migrator:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15433/cyberguard_identity?sslmode=disable'
+export TEST_INCIDENT_MIGRATION_DATABASE_URL='postgres://incidents_migrator:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15434/cyberguard_incidents?sslmode=disable'
 make go-test-integration
 ```
 
 Replace placeholders with the dedicated test credentials. The suite fails clearly if
-either variable is missing. It checks actual connectivity, configured database/user,
+any required variable is missing. It checks actual connectivity, configured database/user,
 restricted runtime role attributes, and readiness failure after closing one pool.
 The identity persistence suite also applies migrations and tests users/SCS/seeding in
 a newly created isolated schema, removing only that schema on cleanup. It does not
@@ -182,6 +184,6 @@ liveness stays `200`; restart it and confirm readiness recovers. Python need not
 ## Next increment
 
 Integrate SQL/authentication setup with the architect and complete their deployment
-acceptance checks. Incident create/read and atomic assessment enqueueing follow;
-assessment schema requires the engineer–AI specialist agreement first. Frontend
+acceptance checks. Incident core create/read is implemented separately; atomic
+assessment enqueueing still requires the engineer–AI specialist agreement first. Frontend
 authentication is a separate later increment, not part of the backend auth branch.
