@@ -9,8 +9,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/alexedwards/scs/pgxstore"
+	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
 	"github.com/bekadoux/cyberguard/backend/go/internal/config"
 	"github.com/bekadoux/cyberguard/backend/go/internal/database"
+	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
 	"github.com/bekadoux/cyberguard/backend/go/internal/httpapi"
 )
 
@@ -35,12 +38,25 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer pools.Close()
 	router := httpapi.NewRouter(logger, pools.Check, cfg.DatabaseTimeout)
+	sessionStore := pgxstore.NewWithCleanupInterval(pools.Identity, 0)
+	authentication, err := httpapi.NewAuthentication(identity.New(pools.Identity), sessionStore, cfg.Auth, cfg.DatabaseTimeout, logger)
+	if err != nil {
+		return err
+	}
+	authentication.Mount(router)
 	server := httpapi.NewServer(cfg.HTTPAddr, router, logger)
 	listener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {
 		return fmt.Errorf("listen HTTP: %w", err)
 	}
 	logger.Info("API listening", "address", listener.Addr().String())
+	cleanupCtx, stopCleanup := context.WithCancel(ctx)
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		auth.RunSessionCleanup(cleanupCtx, pools.Identity, cfg.DatabaseTimeout, logger)
+	}()
+	defer func() { stopCleanup(); <-cleanupDone }()
 	if err := httpapi.Serve(ctx, server, listener, cfg.ShutdownTimeout); err != nil {
 		return err
 	}
