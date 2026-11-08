@@ -25,6 +25,9 @@ paths:
         including successful and malformed attempts. At most two password checks
         run concurrently per Go process. Login clears prior session values and
         invalidates the old token when one was supplied. No public registration.
+        Only a successful login issues a cookie; failed login responses never emit
+        Set-Cookie, even if an existing session was supplied. The persistent cookie
+        expires at the absolute session deadline; idle expiry is enforced in PostgreSQL.
       requestBody:
         required: true
         content:
@@ -88,12 +91,12 @@ paths:
         If logout or rotation deletes this token before its idle refresh is persisted,
         returns 401 authentication_required without Set-Cookie or user data. A stale
         refresh cannot recreate a deleted session or overwrite a new login cookie.
+        No /auth/me response emits Set-Cookie, including successful refreshes and
+        missing, expired or revoked identity responses. Clients must handle 401
+        independently of cookie presence. Discard stale responses after auth changes.
       responses:
         '200':
           description: Current safe identity; idle expiry refreshed without extending absolute lifetime.
-          headers:
-            Set-Cookie:
-              $ref: '#/components/headers/SessionCookie'
           content:
             application/json:
               schema:
@@ -146,6 +149,9 @@ components:
         Opaque session token or deletion cookie. Environment selects the cookie name.
         Never expose it to frontend JavaScript or place it in URLs/logs. Successful
         auth responses use Cache-Control: no-store and include X-Request-ID.
+        Only successful login/logout responses emit this header. Login uses absolute
+        expiry, not the shorter server-side idle expiry. The browser may retain an
+        opaque cookie after server expiry; that cookie does not authorize requests.
       schema:
         type: string
     RetryAfter:

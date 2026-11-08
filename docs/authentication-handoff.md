@@ -67,7 +67,8 @@ Architect review identified that pgxstore's default commit upsert could recreate
 session deleted by a concurrent logout or token rotation. Production now uses
 `internal/sessionstore`, a context-aware SCS persistence adapter:
 
-- SCS still generates/hashes tokens, serializes values and controls expiry/cookies.
+- SCS still generates/hashes tokens, serializes values and computes session expiry.
+  The HTTP response policy below controls when its cookie writer may emit a cookie.
 - Request-local bookkeeping distinguishes loaded tokens from newly generated tokens.
   Install `sessionstore.WithRequest` outside SCS `LoadAndSave`, as `withSession` does;
   missing request state fails closed. It must not be reset between load and save.
@@ -89,6 +90,38 @@ logout or rotation on another manager, then release the refresh. Both cases fail
 before the fix (the old cookie returned 200). PostgreSQL tests use independent stores
 and connection pools to verify the same behavior without shared process locks, check
 that the old row is absent, and check both the new token and an independent session.
+
+### Browser response ordering and cookie policy
+
+A second review found a separate client-side race: a stale `/me` missing-token 401
+could delete a fresh login cookie. Cookies are replaced/deleted by name/domain/path,
+not by comparing their previous value. Suppressing only the explicit deletion was
+insufficient: SCS automatic deletion, a completed 200 refresh, and a failed login
+with an existing session could also overwrite a new login cookie on late delivery.
+
+The auth response buffer now discards all automatic SCS Set-Cookie headers. After
+successful persistence, only explicit successful login/logout handlers authorize
+one replacement/deletion cookie. `/me` responses (including 200, 401, 503) and failed
+login/logout responses never emit Set-Cookie. Server-side deletion of invalid identity
+sessions still occurs; cookie suppression does not weaken revocation.
+
+Login issues a persistent cookie until SCS's **absolute deadline** (8h by default),
+not its current idle expiry. This avoids losing an active browser session at the first
+30m idle interval now that passive requests no longer rewrite cookies. PostgreSQL
+still rejects sessions after 30m inactivity, refreshes idle expiry on activity, and
+never extends the absolute deadline. A cookie may remain in the browser after server
+expiry: handle 401 regardless of cookie presence, and clear frontend identity state.
+
+Cookie-jar regression tests cover a lookup paused **before** storage, a completed
+successful `/me` delivered late, a failed login delivered late, and SCS destruction
+of an invalid identity. Apply the new login response first, then the stale response;
+the fresh cookie must survive and authenticate. Tests cover both cookie environments
+and, separately, independent PostgreSQL pools/managers.
+
+See [authentication security review](authentication-security-review.md) for the
+review matrix, evidence and remaining deployment/frontend responsibilities. This
+does not impose an ordering on two explicit concurrent login/logout operations;
+the frontend must serialize those mutations and ignore obsolete identity responses.
 
 ### Operational limits
 
@@ -130,7 +163,8 @@ and all existing bootstrap/migration steps remain as documented in database setu
 
 Secure cookies are named **`__Host-cyberguard_session`**; the explicit insecure local
 HTTP exception is named **`cyberguard_session`**. Both are HttpOnly, SameSite=Lax,
-host-only (no Domain), Path=/, with expiry constrained by the server session. Do not
+host-only (no Domain), Path=/, with browser expiry at the absolute session deadline;
+server idle expiry can reject them earlier. Do not
 weaken Domain/SameSite to work around a routing mistake. Different-host/cross-site
 frontend/Python deployment requires a separate review; CORS permission alone does
 not make SameSite cookies travel across sites.
@@ -231,7 +265,8 @@ Focused concurrency checks (integration requires the same dedicated test DB URLs
 ```sh
 cd backend/go
 go test -race ./internal/httpapi -run TestAuthHTTPConcurrentSessionRevocation -count=20
-go test -race -tags=integration ./internal/httpapi -run 'TestAuthenticationPostgresIntegration/concurrent_' -count=20
+go test -race ./internal/httpapi -run 'TestAuthHTTP(Cookie|Concurrent|Passive|Rejected|FailedLogin)' -count=20
+go test -race -tags=integration ./internal/httpapi -run 'TestAuthenticationPostgresIntegration/(concurrent_|cookie_ordering)' -count=20
 go test -race -tags=integration ./internal/sessionstore -count=20
 ```
 
@@ -247,4 +282,6 @@ Frontend is a later separate branch, also engineer-owned. It will use
 `credentials: 'include'`, obtain identity through `/auth/me`, never store the token
 in localStorage, and distinguish 401 (session/credentials), 403 (request policy),
 429 (respect Retry-After), and 503 (temporary failure, not proof of logout).
+Serialize login/logout and discard obsolete in-flight identity responses after an
+authentication change. Cookie presence is never proof of a live server session.
 No frontend implementation or internal Python endpoint is included here.
