@@ -9,3 +9,12 @@ sql:
         out: internal/db/identity
         sql_package: pgx/v5
         emit_empty_slices: true
+  - engine: postgresql
+    schema: ../../db/migrations/incidents
+    queries: sql/incidents
+    gen:
+      go:
+        package: incidents
+        out: internal/db/incidents
+        sql_package: pgx/v5
+        emit_empty_slices: true

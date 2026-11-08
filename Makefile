@@ -7,7 +7,7 @@ SQLC_VERSION := v1.31.1
 .DEFAULT_GOAL := help
 .PHONY: help go-run go-build go-fmt go-fmt-check go-test go-test-race go-vet go-vuln go-check go-test-integration
 .PHONY: db-bootstrap-identity db-bootstrap-incidents
-.PHONY: go-sqlc go-sqlc-check db-migrate-identity db-status-identity db-seed-demo
+.PHONY: go-sqlc go-sqlc-check db-migrate-identity db-status-identity db-seed-demo db-migrate-incidents db-status-incidents
 
 help:
 	@printf '%s\n' \
@@ -29,6 +29,8 @@ help:
 	  'go-sqlc-check       Check generated code without editing it' \
 	  'db-migrate-identity Apply pending identity migrations (migration connection)' \
 	  'db-status-identity  Report current and target identity migration versions' \
+	  'db-migrate-incidents Apply incident schema migrations (migration connection)' \
+	  'db-status-incidents Report current and target incident migration versions' \
 	  'db-seed-demo        Explicitly create the four development accounts'
 
 go-run:
@@ -82,6 +84,12 @@ db-migrate-identity:
 
 db-status-identity:
 	cd $(GO_DIR) && $(GO) run ./cmd/migrate -dir ../../db/migrations/identity -status
+
+db-migrate-incidents:
+	cd $(GO_DIR) && $(GO) run ./cmd/migrate -database incidents -dir ../../db/migrations/incidents
+
+db-status-incidents:
+	cd $(GO_DIR) && $(GO) run ./cmd/migrate -database incidents -dir ../../db/migrations/incidents -status
 
 db-seed-demo:
 	cd $(GO_DIR) && $(GO) run ./cmd/seed -demo
