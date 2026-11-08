@@ -1,8 +1,9 @@
 # SQL Foundation and Identity Persistence
 
 Implemented: PostgreSQL bootstrap SQL, versioned identity migrations, generated sqlc
-queries, and explicit development-account seeding. HTTP authentication, incident tables,
-assessment tables, and Python database access are not implemented yet.
+queries, and explicit development-account seeding. The subsequent
+[authentication increment](authentication-handoff.md) adds HTTP authentication using
+this schema. Incident tables, assessment tables and Python database access remain deferred.
 
 ## Ownership and versions
 
@@ -121,12 +122,16 @@ Primary-key and unique-username constraints provide lookup indexes. sqlc queries
 `updated_at` explicitly and increment `auth_version` on password, blocked-state and
 role changes. Unblocking also increments it, preventing restoration of old session
 versions. Future middleware must compare the session's version with the current user;
-these SQL queries alone do **not** implement HTTP authentication or revocation.
+these SQL queries alone do **not** implement HTTP authentication or revocation. The
+authentication increment now supplies those checks for its protected `/auth/me` route.
 
 **`sessions`:** documented SCS/pgxstore layout: `token TEXT PRIMARY KEY`, `data BYTEA
 NOT NULL`, `expiry TIMESTAMPTZ NOT NULL`, and an expiry index. SCS owns serialization
-and storage operations, not sqlc. The pinned pgxstore requires its context-aware API
-(`CommitCtx`, `FindCtx`, `DeleteCtx`); SCS selects this interface automatically.
+and lifecycle, not sqlc. Production uses a context-aware SCS adapter over pgxstore:
+lookup/delete retain pgxstore behavior, while commit distinguishes new-token INSERT
+from loaded-token UPDATE so concurrent refresh cannot recreate a revoked session.
+See [authentication handoff](authentication-handoff.md#concurrent-refresh-logout-and-rotation).
+The schema and runtime grants are unchanged.
 
 ## Explicit demo accounts
 

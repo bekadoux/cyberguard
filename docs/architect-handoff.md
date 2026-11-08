@@ -5,9 +5,10 @@
 Delivered: Go HTTP foundation, two PostgreSQL pools, health/readiness, bootstrap SQL,
 identity migrations, sqlc queries, explicit demo seed, and tests.
 
-Not delivered: HTTP login/logout/current-user, session/role middleware, incident/AI
-tables or APIs, Python database role, frontend, deployment automation. Tables existing
-does not mean authentication is implemented.
+The subsequent authentication increment adds HTTP login/logout/current-user, SCS and
+current-account checks; see [authentication handoff](authentication-handoff.md) for
+its settings and integration/review tasks. Incident/AI tables or APIs, Python database
+role, frontend and deployment automation remain outside these increments.
 
 - **Architect:** Dockerfile/Compose, networking, volumes, secret delivery, health checks,
   orchestration of one-off setup commands.
