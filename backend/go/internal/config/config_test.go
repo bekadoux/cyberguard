@@ -58,6 +58,12 @@ func TestLoadFromEnvironment(t *testing.T) {
 	t.Setenv("HTTP_ADDR", "127.0.0.1:9090")
 	t.Setenv("DATABASE_TIMEOUT", "1s")
 	t.Setenv("SHUTDOWN_TIMEOUT", "2s")
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("SESSION_COOKIE_SECURE", "true")
+	t.Setenv("TRUSTED_ORIGINS", "")
+	t.Setenv("TRUSTED_PROXY_CIDRS", "")
+	t.Setenv("SESSION_LIFETIME", "8h")
+	t.Setenv("SESSION_IDLE_TIMEOUT", "30m")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)

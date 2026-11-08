@@ -18,6 +18,7 @@ type Config struct {
 	IncidentDatabaseURL string
 	DatabaseTimeout     time.Duration
 	ShutdownTimeout     time.Duration
+	Auth                AuthConfig
 }
 
 func Load() (Config, error) {
@@ -54,6 +55,10 @@ func load(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, err
 	}
 	cfg.ShutdownTimeout, err = duration(lookup, "SHUTDOWN_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Auth, err = loadAuth(lookup)
 	if err != nil {
 		return Config{}, err
 	}
