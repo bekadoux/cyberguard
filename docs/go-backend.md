@@ -4,7 +4,8 @@ This increment provides a runnable HTTP service, typed configuration, two indepe
 PostgreSQL pools, liveness/readiness probes, and tests. The SQL increment adds database/
 role bootstrap, identity migrations, generated queries and demo accounts; see
 [database setup](database-setup.md) and the [architect handoff](architect-handoff.md).
-HTTP authentication and incident/assessment APIs are not implemented yet. This is not
+The [authentication increment](authentication-handoff.md) adds login/logout/current-user
+and session security. Incident/assessment APIs are not implemented yet. This is not
 the complete first milestone in the
 [engineer handoff](software-engineer-handoff.md).
 
@@ -133,8 +134,8 @@ Responses are JSON, use `Cache-Control: no-store`, and include `X-Request-ID` an
 - JSON logs go to stdout. Request logs contain route templates, status, duration and
   request ID, not raw URLs/query strings, bodies, cookies or authorization headers.
   Driver errors and panic values are not exposed in probe responses or routine logs.
-- No authentication or browser CORS/CSRF policy exists yet. Add the agreed policies
-  before introducing state-changing application routes, not after deploying them.
+- The subsequent authentication increment adds SCS and explicit CORS/CSRF policy
+  on its `/auth` routes; see its handoff. Probes remain session-independent.
 
 ## Checks
 
@@ -180,6 +181,7 @@ liveness stays `200`; restart it and confirm readiness recovers. Python need not
 
 ## Next increment
 
-Integrate the provided SQL setup with the architect, then implement login/logout/
-current-user with SCS sessions and Argon2id. Incident create/read and atomic assessment enqueueing
-follow; assessment schema requires the engineer–AI specialist agreement first.
+Integrate SQL/authentication setup with the architect and complete their deployment
+acceptance checks. Incident create/read and atomic assessment enqueueing follow;
+assessment schema requires the engineer–AI specialist agreement first. Frontend
+authentication is a separate later increment, not part of the backend auth branch.

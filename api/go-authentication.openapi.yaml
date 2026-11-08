@@ -1,0 +1,240 @@
+openapi: 3.1.0
+info:
+  title: CyberGuard Go Authentication API
+  version: 0.1.0
+  description: >-
+    Server-side SCS sessions persisted in identity PostgreSQL. Production uses the
+    Secure host-only __Host-cyberguard_session cookie; explicitly configured local
+    HTTP development uses cyberguard_session. Frontends use credentials: include,
+    never read or store the token themselves. Browser mutations require an accepted
+    same-origin request or an exact configured trusted origin. There is no JWT API.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local HTTP development only; deployment must use HTTPS
+paths:
+  /auth/login:
+    post:
+      operationId: login
+      summary: Verify credentials and establish a renewed server-side session
+      security: []
+      description: >-
+        Username is trimmed and lowercased, then must match the existing ASCII
+        username policy. Password is never trimmed. Unknown users, wrong passwords,
+        blocked accounts and unsupported password hashes share the same 401 error.
+        Five POST attempts per peer address per one-minute window are allowed,
+        including successful and malformed attempts. At most two password checks
+        run concurrently per Go process. Login clears prior session values and
+        invalidates the old token when one was supplied. No public registration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                  description: At most 128 UTF-8 bytes before normalization; normalized username is 3–64 ASCII characters.
+                  example: employee_a
+                password:
+                  type: string
+                  format: password
+                  minLength: 1
+                  maxLength: 128
+                  description: At most 128 UTF-8 bytes; never logged or returned.
+      responses:
+        '200':
+          description: Credentials verified and session successfully persisted before exposing the response.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/CSRFRejected'
+        '413':
+          $ref: '#/components/responses/BodyTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      summary: Load the current active account using its current database state
+      security:
+        - productionSession: []
+        - developmentSession: []
+      description: >-
+        Checks session expiry, account existence, blocking and auth_version on every
+        request. No permanently session-cached role is trusted. Block/password/role
+        changes revoke old sessions; unblocking does not restore them. Invalid stored
+        sessions are destroyed when possible. A dependency failure denies access with
+        503, not a successful response or a claim that the credentials were wrong.
+      responses:
+        '200':
+          description: Current safe identity; idle expiry refreshed without extending absolute lifetime.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Destroy the current session and expire its browser cookie
+      security: []
+      description: >-
+        Optional incoming session cookie identifies the session to destroy. Idempotent:
+        no active session also returns 204. Browser CSRF policy still applies. If the
+        session store cannot be read or updated, returns 503 instead of falsely
+        reporting successful logout. Other sessions are not explicitly logged out.
+      responses:
+        '204':
+          description: Current session absent/destroyed and cookie expired; no response body.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
+        '403':
+          $ref: '#/components/responses/CSRFRejected'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    productionSession:
+      type: apiKey
+      in: cookie
+      name: __Host-cyberguard_session
+      description: Production/HTTPS; opaque HttpOnly Secure SameSite=Lax host-only cookie, Path=/.
+    developmentSession:
+      type: apiKey
+      in: cookie
+      name: cyberguard_session
+      description: Explicit local HTTP development exception only; HttpOnly, SameSite=Lax, host-only, Path=/.
+  headers:
+    SessionCookie:
+      description: >-
+        Opaque session token or deletion cookie. Environment selects the cookie name.
+        Never expose it to frontend JavaScript or place it in URLs/logs. Successful
+        auth responses use Cache-Control: no-store and include X-Request-ID.
+      schema:
+        type: string
+    RetryAfter:
+      description: Minimum suggested retry delay in seconds.
+      schema:
+        type: integer
+        minimum: 1
+  schemas:
+    UserResponse:
+      type: object
+      additionalProperties: false
+      required: [user]
+      properties:
+        user:
+          type: object
+          additionalProperties: false
+          required: [id, username, role]
+          properties:
+            id:
+              type: string
+              format: uuid
+            username:
+              type: string
+              pattern: '^[a-z0-9][a-z0-9_.-]{2,63}$'
+            role:
+              type: string
+              enum: [employee, analyst, admin]
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [invalid_request, invalid_credentials, authentication_required, csrf_rejected, body_too_large, unsupported_media_type, login_rate_limited, auth_busy, auth_unavailable, internal_error]
+            message:
+              type: string
+  responses:
+    InvalidRequest:
+      description: One JSON object is required; unknown fields, trailing JSON, missing/non-string/oversized credentials are rejected.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: invalid_credentials for login; authentication_required for missing, expired or revoked session on /me.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    CSRFRejected:
+      description: Unsafe browser request from an untrusted origin; csrf_rejected.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    BodyTooLarge:
+      description: Login request exceeds its 4096-byte read limit; body_too_large.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnsupportedMediaType:
+      description: Login requires application/json; unsupported_media_type.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Per-peer attempt limit or bounded limiter capacity reached; login_rate_limited.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unavailable:
+      description: Dependency failure (auth_unavailable), or login password-check capacity exhausted (auth_busy, Retry-After=1).
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Unexpected handler failure; internal_error without private diagnostics.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

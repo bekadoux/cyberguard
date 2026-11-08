@@ -16,3 +16,8 @@ The [SQL setup guide](docs/database-setup.md) covers database/role bootstrap, id
 migrations, generated queries, and development accounts. The
 [architect handoff](docs/architect-handoff.md) records the Docker integration contract
 and the remaining joint acceptance checks.
+
+The [authentication handoff](docs/authentication-handoff.md) covers the implemented
+login/logout/current-user API, sessions and browser security, with separate architect,
+AI specialist and domain expert review tasks. Its [OpenAPI contract](api/go-authentication.openapi.yaml)
+is available for the later frontend integration.
