@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
 	"github.com/bekadoux/cyberguard/backend/go/internal/config"
 	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
+	"github.com/bekadoux/cyberguard/backend/go/internal/sessionstore"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -49,24 +51,46 @@ func (u *authTestUsers) GetUserByID(ctx context.Context, id pgtype.UUID) (identi
 
 type authTestStore struct {
 	*memstore.MemStore
+	mu                               sync.Mutex
 	failFind, failCommit, failDelete bool
 }
 
 func (s *authTestStore) FindCtx(ctx context.Context, token string) ([]byte, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.failFind {
 		return nil, false, errors.New("sensitive-session-error")
 	}
 	return s.Find(token)
 }
 
-func (s *authTestStore) CommitCtx(ctx context.Context, token string, data []byte, expiry time.Time) error {
+func (s *authTestStore) CreateCtx(ctx context.Context, token string, data []byte, expiry time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.failCommit {
 		return errors.New("sensitive-session-error")
+	}
+	if _, found, err := s.Find(token); err != nil || found {
+		return errors.New("session token collision")
+	}
+	return s.Commit(token, data, expiry)
+}
+
+func (s *authTestStore) RefreshCtx(ctx context.Context, token string, data []byte, expiry time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failCommit {
+		return errors.New("sensitive-session-error")
+	}
+	if _, found, err := s.Find(token); err != nil || !found {
+		return sessionstore.ErrRevoked
 	}
 	return s.Commit(token, data, expiry)
 }
 
 func (s *authTestStore) DeleteCtx(ctx context.Context, token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.failDelete {
 		return errors.New("sensitive-session-error")
 	}
@@ -100,7 +124,7 @@ func newAuthHTTPFixture(t *testing.T, settings *config.AuthConfig) authHTTPFixtu
 			Lifetime: time.Hour, IdleTimeout: 30 * time.Minute,
 		}
 	}
-	app, err := NewAuthentication(users, store, *settings, time.Second, testLogger())
+	app, err := NewAuthentication(users, sessionstore.New(store), *settings, time.Second, testLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +393,7 @@ func TestAuthHTTPLogsExcludeCredentialsAndStoreDetails(t *testing.T) {
 	f := newAuthHTTPFixture(t, nil)
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	app, err := NewAuthentication(f.users, f.store, f.app.settings, time.Second, logger)
+	app, err := NewAuthentication(f.users, sessionstore.New(f.store), f.app.settings, time.Second, logger)
 	if err != nil {
 		t.Fatal(err)
 	}

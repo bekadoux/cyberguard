@@ -5,10 +5,13 @@ import (
 	"context"
 	"io"
 	"net/http"
+
+	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
+	"github.com/bekadoux/cyberguard/backend/go/internal/sessionstore"
 )
 
 type sessionStateKey struct{}
-type sessionState struct{ failed bool }
+type sessionState struct{ failed, revoked bool }
 
 // The three auth endpoints return small JSON responses, not streams. Buffer them
 // until SCS finishes committing: LoadAndSave otherwise continues writing the
@@ -18,8 +21,14 @@ func (a *Authentication) withSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		state := &sessionState{}
 		buffer := &authResponseBuffer{header: make(http.Header)}
-		ctx := context.WithValue(r.Context(), sessionStateKey{}, state)
+		ctx := context.WithValue(sessionstore.WithRequest(r.Context()), sessionStateKey{}, state)
 		loadAndSave.ServeHTTP(buffer, r.WithContext(ctx))
+		if state.revoked {
+			// Do not emit a stale Set-Cookie, including a deletion cookie: a
+			// concurrent login may already have installed a fresh token.
+			a.authError(w, auth.ErrUnauthenticated)
+			return
+		}
 		if state.failed || buffer.overflow {
 			a.authError(w, nil)
 			return

@@ -15,13 +15,14 @@ import (
 	"time"
 
 	"github.com/alexedwards/argon2id"
-	"github.com/alexedwards/scs/pgxstore"
 	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
 	"github.com/bekadoux/cyberguard/backend/go/internal/config"
 	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
 	"github.com/bekadoux/cyberguard/backend/go/internal/demoseed"
+	"github.com/bekadoux/cyberguard/backend/go/internal/sessionstore"
 	"github.com/bekadoux/cyberguard/backend/go/internal/testutil"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestAuthenticationPostgresIntegration(t *testing.T) {
@@ -44,7 +45,7 @@ func TestAuthenticationPostgresIntegration(t *testing.T) {
 	}
 	newApp := func() (*Authentication, *chi.Mux) {
 		t.Helper()
-		app, err := NewAuthentication(queries, pgxstore.NewWithCleanupInterval(fixture.Runtime, 0), settings, 2*time.Second, testLogger())
+		app, err := NewAuthentication(queries, sessionstore.NewPostgres(fixture.Runtime), settings, 2*time.Second, testLogger())
 		if err != nil {
 			t.Fatal("could not initialize authentication")
 		}
@@ -54,6 +55,30 @@ func TestAuthenticationPostgresIntegration(t *testing.T) {
 		return app, router
 	}
 	app, router := newApp()
+	// A separate connection pool and SCS manager model a second API process;
+	// correctness must not depend on a shared Go mutex or session-store object.
+	secondPool, err := pgxpool.NewWithConfig(ctx, fixture.Runtime.Config())
+	if err != nil {
+		t.Fatal("could not create independent session-store pool")
+	}
+	t.Cleanup(secondPool.Close)
+	for _, rotate := range []bool{false, true} {
+		name := "concurrent_logout_refresh"
+		if rotate {
+			name = "concurrent_rotation_refresh"
+		}
+		t.Run(name, func(t *testing.T) {
+			body, _ := json.Marshal(map[string]string{"username": accounts[0].Username, "password": accounts[0].Password})
+			old := concurrentSessionRevocation(t, queries, settings,
+				sessionstore.NewPostgres(fixture.Runtime),
+				sessionstore.NewPostgres(secondPool), string(body), rotate)
+			hash := sha256.Sum256([]byte(old.Value))
+			var rows int
+			if err := fixture.Runtime.QueryRow(ctx, "SELECT count(*) FROM sessions WHERE token = $1", base64.RawURLEncoding.EncodeToString(hash[:])).Scan(&rows); err != nil || rows != 0 {
+				t.Fatal("revoked session row was recreated")
+			}
+		})
+	}
 	login := func(account demoseed.Account) *http.Cookie {
 		t.Helper()
 		body, _ := json.Marshal(map[string]string{"username": account.Username, "password": account.Password})
@@ -64,7 +89,7 @@ func TestAuthenticationPostgresIntegration(t *testing.T) {
 		return sessionCookie(t, w, app.sessions.Cookie.Name)
 	}
 	// Test-only knowledge of the pinned SCS token-hashing format; production
-	// always delegates token storage to SCS/pgxstore.
+	// delegates serialization/hashing to SCS and persistence to sessionstore.
 	storedToken := func(cookie *http.Cookie) string {
 		hash := sha256.Sum256([]byte(cookie.Value))
 		return base64.RawURLEncoding.EncodeToString(hash[:])
@@ -211,6 +236,7 @@ func TestAuthenticationPostgresIntegration(t *testing.T) {
 	})
 
 	t.Run("failed database writes cannot return login success", func(t *testing.T) {
+		cookie := login(accounts[3])
 		if _, err := fixture.Migrator.Exec(ctx, "REVOKE INSERT, UPDATE ON sessions FROM go_identity"); err != nil {
 			t.Fatal("could not prepare session-store failure")
 		}
@@ -223,6 +249,10 @@ func TestAuthenticationPostgresIntegration(t *testing.T) {
 		w := authRequest(router, http.MethodPost, "/auth/login", string(body), nil)
 		if w.Code != 503 || strings.Contains(w.Body.String(), `"user"`) || len(w.Result().Cookies()) != 0 {
 			t.Fatal("a real failed session commit returned success data/cookie")
+		}
+		w = authRequest(router, http.MethodGet, "/auth/me", "", cookie)
+		if w.Code != 503 || strings.Contains(w.Body.String(), `"user"`) || len(w.Result().Cookies()) != 0 {
+			t.Fatal("a real failed session refresh returned identity data/cookie")
 		}
 	})
 

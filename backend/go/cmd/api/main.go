@@ -9,12 +9,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/alexedwards/scs/pgxstore"
 	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
 	"github.com/bekadoux/cyberguard/backend/go/internal/config"
 	"github.com/bekadoux/cyberguard/backend/go/internal/database"
 	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
 	"github.com/bekadoux/cyberguard/backend/go/internal/httpapi"
+	"github.com/bekadoux/cyberguard/backend/go/internal/sessionstore"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer pools.Close()
 	router := httpapi.NewRouter(logger, pools.Check, cfg.DatabaseTimeout)
-	sessionStore := pgxstore.NewWithCleanupInterval(pools.Identity, 0)
+	sessionStore := sessionstore.NewPostgres(pools.Identity)
 	authentication, err := httpapi.NewAuthentication(identity.New(pools.Identity), sessionStore, cfg.Auth, cfg.DatabaseTimeout, logger)
 	if err != nil {
 		return err

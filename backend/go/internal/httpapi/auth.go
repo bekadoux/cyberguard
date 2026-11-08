@@ -15,6 +15,7 @@ import (
 	"github.com/alexedwards/scs/v2"
 	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
 	"github.com/bekadoux/cyberguard/backend/go/internal/config"
+	"github.com/bekadoux/cyberguard/backend/go/internal/sessionstore"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -68,6 +69,14 @@ func NewAuthentication(users auth.Users, store scs.Store, settings config.AuthCo
 	sessions.Cookie.Domain = ""
 	sessions.Cookie.Persist = true
 	sessions.ErrorFunc = func(w http.ResponseWriter, r *http.Request, err error) {
+		if errors.Is(err, sessionstore.ErrRevoked) {
+			if state, ok := r.Context().Value(sessionStateKey{}).(*sessionState); ok {
+				state.revoked = true
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "authentication_required", "Authentication is required.")
+			return
+		}
 		// Never log raw store errors: they may contain connection/session details.
 		logger.Error("session storage failed", "request_id", middleware.GetReqID(r.Context()))
 		if state, ok := r.Context().Value(sessionStateKey{}).(*sessionState); ok {

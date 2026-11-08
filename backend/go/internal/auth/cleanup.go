@@ -8,9 +8,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// CleanupExpiredSessions is maintenance only. SCS/pgxstore still owns all session
-// load/save/delete operations. Its built-in cleaner uses an unbounded background
-// context and raw error logging, so the API disables it in favor of this task.
+// CleanupExpiredSessions is maintenance only. The SCS persistence adapter owns
+// request-time load/save/delete operations. pgxstore's built-in cleaner uses an
+// unbounded background context and raw error logging, so it remains disabled.
 func CleanupExpiredSessions(ctx context.Context, pool *pgxpool.Pool, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
