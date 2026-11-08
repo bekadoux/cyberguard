@@ -1,0 +1,87 @@
+GO ?= go
+PSQL ?= psql
+GO_DIR := backend/go
+GOVULNCHECK_VERSION := v1.9.0
+SQLC_VERSION := v1.31.1
+
+.DEFAULT_GOAL := help
+.PHONY: help go-run go-build go-fmt go-fmt-check go-test go-test-race go-vet go-vuln go-check go-test-integration
+.PHONY: db-bootstrap-identity db-bootstrap-incidents
+.PHONY: go-sqlc go-sqlc-check db-migrate-identity db-status-identity db-seed-demo
+
+help:
+	@printf '%s\n' \
+	  'go-run              Run the API with the current environment' \
+	  'go-build            Build API, migration and seed binaries' \
+	  'go-fmt              Format Go source files' \
+	  'go-fmt-check        Check formatting without modifying files' \
+	  'go-test             Run unit and HTTP tests (no PostgreSQL required)' \
+	  'go-test-race        Run tests with the race detector' \
+	  'go-vet              Run go vet' \
+	  'go-vuln             Run pinned govulncheck (requires network access)' \
+	  'go-check            Check formatting, vet, race tests and vulnerabilities' \
+	  'go-test-integration Run database tests against two dedicated PostgreSQL instances'
+	@printf '%s\n' \
+	  'db-bootstrap-identity  Create identity database and restricted roles (admin connection)' \
+	  'db-bootstrap-incidents Create incident database and restricted roles (admin connection)'
+	@printf '%s\n' \
+	  'go-sqlc             Regenerate committed identity query code' \
+	  'go-sqlc-check       Check generated code without editing it' \
+	  'db-migrate-identity Apply pending identity migrations (migration connection)' \
+	  'db-status-identity  Report current and target identity migration versions' \
+	  'db-seed-demo        Explicitly create the four development accounts'
+
+go-run:
+	cd $(GO_DIR) && $(GO) run ./cmd/api
+
+go-build:
+	cd $(GO_DIR) && $(GO) build -o bin/api ./cmd/api
+	cd $(GO_DIR) && $(GO) build -o bin/migrate ./cmd/migrate
+	cd $(GO_DIR) && $(GO) build -o bin/seed ./cmd/seed
+
+go-fmt:
+	cd $(GO_DIR) && gofmt -w cmd internal
+
+go-fmt-check:
+	@cd $(GO_DIR) && files="$$(gofmt -l cmd internal)" && \
+	  if [ -n "$$files" ]; then printf 'Run make go-fmt:\n%s\n' "$$files"; exit 1; fi
+
+go-test:
+	cd $(GO_DIR) && $(GO) test ./...
+
+go-test-race:
+	cd $(GO_DIR) && $(GO) test -race ./...
+
+go-vet:
+	cd $(GO_DIR) && $(GO) vet ./...
+
+go-vuln:
+	cd $(GO_DIR) && $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+go-check: go-fmt-check go-sqlc-check go-vet go-test-race go-vuln
+
+go-test-integration:
+	cd $(GO_DIR) && $(GO) test -race -tags=integration -count=1 ./...
+
+db-bootstrap-identity:
+	@test -n "$$IDENTITY_ADMIN_DATABASE_URL" || { printf '%s\n' 'IDENTITY_ADMIN_DATABASE_URL is required'; exit 1; }
+	@PGCONNECT_TIMEOUT=5 $(PSQL) -X --no-password --dbname "$$IDENTITY_ADMIN_DATABASE_URL" --file db/bootstrap/identity.sql
+
+db-bootstrap-incidents:
+	@test -n "$$INCIDENT_ADMIN_DATABASE_URL" || { printf '%s\n' 'INCIDENT_ADMIN_DATABASE_URL is required'; exit 1; }
+	@PGCONNECT_TIMEOUT=5 $(PSQL) -X --no-password --dbname "$$INCIDENT_ADMIN_DATABASE_URL" --file db/bootstrap/incidents.sql
+
+go-sqlc:
+	cd $(GO_DIR) && $(GO) run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) generate
+
+go-sqlc-check:
+	cd $(GO_DIR) && $(GO) run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) diff
+
+db-migrate-identity:
+	cd $(GO_DIR) && $(GO) run ./cmd/migrate -dir ../../db/migrations/identity
+
+db-status-identity:
+	cd $(GO_DIR) && $(GO) run ./cmd/migrate -dir ../../db/migrations/identity -status
+
+db-seed-demo:
+	cd $(GO_DIR) && $(GO) run ./cmd/seed -demo
