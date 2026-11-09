@@ -1,7 +1,18 @@
-import { request } from '../../shared/api/client';
-import { parsePage, type IncidentFilters, type IncidentPage } from './model';
+import { ApiError, request } from '../../shared/api/client';
+import {
+  isUUID,
+  parseDetail,
+  parsePage,
+  type IncidentDetail,
+  type IncidentFilters,
+  type IncidentPage,
+} from './model';
 
 export const incidentsApi = {
+  async get(id: string, signal?: AbortSignal): Promise<IncidentDetail> {
+    if (!isUUID(id)) throw new ApiError(404, 'not_found');
+    return parseDetail(await request(`/incidents/${encodeURIComponent(id)}`, { signal }));
+  },
   async list(
     filters: IncidentFilters,
     cursor?: string,

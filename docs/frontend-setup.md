@@ -2,12 +2,12 @@
 
 Implemented: React + TypeScript + Vite + React Router, responsive login, session
 restoration, an authenticated account-confirmation page, logout, and System/Light/Dark
-themes, plus a protected workspace and role-scoped incident list with status/category
+themes, plus a protected workspace and role-scoped incident list/detail with status/category
 filters and cursor pagination. Firefox is the primary test browser; the same browser
 suite also runs on Chromium. Sign-in now lands on `/incidents`; `/account` retains the
 account information screen.
 
-Incident detail and submission screens are the next chunks. This increment does **not**
+The submission screen is the next chunk. This increment does **not**
 implement investigation mutations, account administration, password recovery, notifications or AI.
 The existing Go incident API remains available independently. No assessment job is
 created by the current backend; see [incident handoff](incidents-handoff.md).
@@ -59,7 +59,7 @@ see [containerization handoff](containerization-handoff.md#caddy-and-the-future-
 frontend/
   src/app/                 Router and application-wide providers
   src/features/auth/       Auth API DTOs, session store, login and account screens
-  src/features/incidents/  Safe incident DTOs, scoped list, filters and pagination
+  src/features/incidents/  Safe DTOs, scoped list/detail, filters and pagination
   src/shared/api/          Credentialed, bounded JSON requests and safe API errors
   src/shared/theme/        System/light/dark preference and theme provider
   src/shared/ui/           Shared brand and theme control
@@ -114,6 +114,17 @@ Unknown/duplicate/empty URL filters are rejected visibly, not silently widened. 
 pagination preserves loaded rows and permits retry. Counts describe loaded rows, not
 global totals. No search, severity filtering, ordering controls or staff-only-own filter
 are implied. Severity is never displayed on the reporter's own rows, including staff.
+
+### Incident detail contract
+
+`/incidents/:id` renders original text, affected system, reporter-facing resolution,
+category, analyst identity and timestamps. Null values are explicit, not invented
+assessments or assignment. Analyst accounts missing from identity retain their UUID and
+an unavailable-account label. Severity is shown only to staff reading another person's
+report and only when returned by Go. Missing, malformed, non-visible and archived IDs
+share one concealed not-found view. No partial report is shown on dependency failure.
+Descriptions/resolutions are plain React text with whitespace preserved, never HTML.
+Back navigation retains validated list filters without forwarding them to the detail API.
 
 ### Themes and accessibility
 
@@ -235,3 +246,11 @@ authentication checks passed with the new landing page. `npm audit` reported no 
 vulnerabilities. Checks cover filters/cursors, obsolete responses, pagination retry,
 own-report severity restrictions, identity changes, failed-logout read recovery,
 mobile layout and full accessibility scans in both themes. No Go/SQL behavior changed.
+
+### Incident detail chunk 2 — 9 November 2026
+
+Frontend checks passed with 74 unit/component tests and the static build; all 92
+Firefox/Chromium browser tests passed. Coverage includes reporter/staff projections,
+unknown analyst identities, full resolution/original text, hostile literal markup,
+concealed 404s, dependency recovery, stale-detail cancellation, filter-preserving back
+navigation, long Unicode content, mobile reflow and both palettes' accessibility scans.

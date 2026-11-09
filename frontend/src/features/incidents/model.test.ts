@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { first } from '../../../tests/support/incidents';
-import { parsePage, parseSummary, readFilters } from './model';
+import { analyst, detail, first } from '../../../tests/support/incidents';
+import {
+  incidentListBackLink,
+  parseDetail,
+  parsePage,
+  parseSummary,
+  readFilters,
+} from './model';
 
 describe('incident summary contract', () => {
   it('keeps absent severity distinct from unassessed professional severity', () => {
@@ -48,5 +54,44 @@ describe('incident summary contract', () => {
     expect(
       readFilters(new URLSearchParams('status=submitted&category=phishing')),
     ).toEqual({ status: 'submitted', category: 'phishing' });
+  });
+});
+
+describe('incident detail contract', () => {
+  it('preserves original Unicode text, whitespace and reporter-facing resolution', () => {
+    const original = {
+      ...detail,
+      description: '  Original\n\nŽiadne údaje 🔒  ',
+      resolution_note: 'Full resolution\nSecond line',
+    };
+    expect(parseDetail({ incident: original })).toEqual(original);
+  });
+  it('accepts a missing analyst account with a retained stable ID', () => {
+    expect(
+      parseDetail({
+        incident: {
+          ...detail,
+          assigned_analyst_id: analyst.id,
+          assigned_analyst: { id: analyst.id, username: null },
+        },
+      }).assigned_analyst,
+    ).toEqual({ id: analyst.id, username: null });
+  });
+  it.each([
+    { ...detail, description: null },
+    { ...detail, assigned_analyst: undefined },
+    { ...detail, assigned_analyst_id: analyst.id },
+    { ...detail, resolution_note: 17 },
+  ])('rejects incomplete detail instead of partially rendering it', (incident) => {
+    expect(() => parseDetail({ incident })).toThrow('invalid_response');
+  });
+  it('limits back navigation to implemented incident filters', () => {
+    expect(
+      incidentListBackLink({ listSearch: 'status=submitted&category=phishing' }),
+    ).toBe('/incidents?status=submitted&category=phishing');
+    expect(incidentListBackLink({ listSearch: 'https://evil.invalid' })).toBe(
+      '/incidents',
+    );
+    expect(incidentListBackLink(null)).toBe('/incidents');
   });
 });

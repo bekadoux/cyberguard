@@ -40,6 +40,12 @@ export type IncidentSummary = {
   severity?: IncidentSeverity | null;
 };
 export type IncidentPage = { incidents: IncidentSummary[]; next_cursor: string | null };
+export type IncidentDetail = IncidentSummary & {
+  description: string;
+  affected_system: string | null;
+  resolution_note: string | null;
+  assigned_analyst: { id: string; username: string | null } | null;
+};
 export type IncidentFilters = {
   status: IncidentStatus | '';
   category: IncidentCategory | '';
@@ -104,6 +110,43 @@ export function parsePage(data: unknown): IncidentPage {
     incidents: data.incidents.map(parseSummary),
     next_cursor: data.next_cursor as string | null,
   };
+}
+
+export function parseDetail(data: unknown): IncidentDetail {
+  if (!isRecord(data) || !isRecord(data.incident)) return invalidResponse();
+  const row = data.incident;
+  const summary = parseSummary(row);
+  if (
+    typeof row.description !== 'string' ||
+    (row.affected_system !== null && typeof row.affected_system !== 'string') ||
+    (row.resolution_note !== null && typeof row.resolution_note !== 'string')
+  )
+    return invalidResponse();
+  let assigned: IncidentDetail['assigned_analyst'] = null;
+  if (row.assigned_analyst !== null) {
+    if (
+      !isRecord(row.assigned_analyst) ||
+      !isUUID(row.assigned_analyst.id) ||
+      (row.assigned_analyst.username !== null &&
+        typeof row.assigned_analyst.username !== 'string')
+    )
+      return invalidResponse();
+    assigned = { id: row.assigned_analyst.id, username: row.assigned_analyst.username };
+  }
+  if ((assigned?.id ?? null) !== summary.assigned_analyst_id) return invalidResponse();
+  return {
+    ...summary,
+    description: row.description,
+    affected_system: row.affected_system,
+    resolution_note: row.resolution_note,
+    assigned_analyst: assigned,
+  };
+}
+
+export function incidentListBackLink(state: unknown): string {
+  const search =
+    isRecord(state) && typeof state.listSearch === 'string' ? state.listSearch : '';
+  return `/incidents${search && readFilters(new URLSearchParams(search)) ? `?${search}` : ''}`;
 }
 
 export function readFilters(params: URLSearchParams): IncidentFilters | null {

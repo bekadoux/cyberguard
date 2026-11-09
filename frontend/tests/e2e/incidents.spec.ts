@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { analyst, employee, first, identity, second } from '../support/incidents';
+import { analyst, detail, employee, first, identity, second } from '../support/incidents';
 import { auditIncidents } from '../support/accessibility';
 
 test.beforeEach(async ({ page }) => {
@@ -252,5 +252,178 @@ for (const colorScheme of ['light', 'dark'] as const) {
       });
     }
     expect(await auditIncidents(browserName, baseURL!, colorScheme)).toEqual([]);
+  });
+}
+
+test('opens read-only detail and returns to the same list filters', async ({ page }) => {
+  await page.route('**/api/incidents?*', (route) =>
+    route.fulfill({ json: { incidents: [first], next_cursor: null } }),
+  );
+  await page.route(`**/api/incidents/${first.id}`, (route) => {
+    expect(new URL(route.request().url()).search).toBe('');
+    return route.fulfill({ json: { incident: detail } });
+  });
+  await page.goto('/incidents?status=submitted');
+  await page.getByRole('link', { name: first.title }).click();
+  await expect(page.getByRole('heading', { name: first.title })).toBeVisible();
+  expect(await page.locator('.incident-description').textContent()).toBe(
+    detail.description,
+  );
+  await expect(page.getByText('Unassigned', { exact: true })).toBeVisible();
+  await expect(page.getByText('No resolution has been recorded.')).toBeVisible();
+  await expect(page.getByText('Severity', { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: first.title })).toBeVisible();
+  await page.getByRole('link', { name: 'Back to incidents' }).click();
+  await expect(page).toHaveURL('/incidents?status=submitted');
+});
+
+for (const role of ['analyst', 'admin'] as const) {
+  test(`respects ${role} professional and own-reporter projections`, async ({ page }) => {
+    const user = { ...analyst, role };
+    await identity(page, user);
+    await page.route('**/api/incidents/*', (route) =>
+      route.fulfill({
+        json: {
+          incident: new URL(route.request().url()).pathname.endsWith(first.id)
+            ? {
+                ...detail,
+                severity: 'high',
+                resolution_note: 'Full reporter-facing outcome.',
+                assigned_analyst_id: analyst.id,
+                assigned_analyst: { id: analyst.id, username: null },
+              }
+            : { ...detail, id: second.id, reporter_id: user.id, severity: 'critical' },
+        },
+      }),
+    );
+    await page.goto(`/incidents/${first.id}`);
+    await expect(page.getByText('High', { exact: true })).toBeVisible();
+    await expect(
+      page.getByText('Analyst account unavailable', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('Full reporter-facing outcome.', { exact: true }),
+    ).toBeVisible();
+    await page.goto(`/incidents/${second.id}`);
+    await expect(page.getByRole('heading', { name: first.title })).toBeVisible();
+    await expect(page.getByText('Severity', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Critical', { exact: true })).toHaveCount(0);
+  });
+}
+
+test('uses the same concealed not-found state for invalid and inaccessible IDs', async ({
+  page,
+}) => {
+  await page.route('**/api/incidents/*', (route) =>
+    route.fulfill({ status: 404, json: { error: { code: 'not_found' } } }),
+  );
+  for (const id of ['not-a-uuid', first.id]) {
+    await page.goto(`/incidents/${id}`);
+    await expect(page.getByRole('heading', { name: 'Incident not found' })).toBeVisible();
+    await expect(
+      page.getByText('This report does not exist or is not available to you.'),
+    ).toBeVisible();
+    await expect(page.getByText(detail.description, { exact: true })).toHaveCount(0);
+  }
+});
+
+test('does not partially return a report on dependency failure and supports retry', async ({
+  page,
+}) => {
+  let unavailable = true;
+  await page.route('**/api/incidents/*', (route) =>
+    unavailable
+      ? route.fulfill({ status: 503, json: { error: { code: 'incidents_unavailable' } } })
+      : route.fulfill({ json: { incident: detail } }),
+  );
+  await page.goto(`/incidents/${first.id}`);
+  await expect(
+    page.getByRole('heading', { name: 'Unable to load incident' }),
+  ).toBeVisible();
+  await expect(page.locator('.incident-description')).toHaveCount(0);
+  unavailable = false;
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.getByRole('heading', { name: first.title })).toBeVisible();
+});
+
+test('renders hostile report text literally rather than as markup', async ({ page }) => {
+  const description =
+    '<img id="injected-content" src=x onerror="alert(1)">\n\n  Original whitespace 🔒  ';
+  await page.route('**/api/incidents/*', (route) =>
+    route.fulfill({ json: { incident: { ...detail, description } } }),
+  );
+  await page.goto(`/incidents/${first.id}`);
+  await expect(page.getByRole('heading', { name: first.title })).toBeVisible();
+  expect(await page.locator('.incident-description').textContent()).toBe(description);
+  await expect(page.locator('#injected-content')).toHaveCount(0);
+});
+
+test('does not display an obsolete detail after navigating to another report', async ({
+  page,
+}) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/incidents?*', (route) =>
+    route.fulfill({ json: { incidents: [first, second], next_cursor: null } }),
+  );
+  await page.route('**/api/incidents/*', async (route) => {
+    if (route.request().url().endsWith(first.id)) {
+      await gate;
+      await route.fulfill({ json: { incident: detail } }).catch(() => {});
+    } else
+      await route.fulfill({
+        json: {
+          incident: { ...detail, ...second, description: 'Second report details' },
+        },
+      });
+  });
+  await page.goto('/incidents');
+  await page.getByRole('link', { name: first.title }).click();
+  await page.getByRole('link', { name: 'Back to incidents' }).click();
+  await page.getByRole('link', { name: second.title }).click();
+  await expect(page.getByRole('heading', { name: second.title })).toBeVisible();
+  release();
+  await expect(page.getByRole('heading', { name: first.title })).toHaveCount(0);
+  await expect(page.locator('.incident-description')).toHaveText('Second report details');
+});
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`detail is accessible and reflows in ${colorScheme} mode`, async ({
+    page,
+    browserName,
+    baseURL,
+  }) => {
+    await page.emulateMedia({ colorScheme });
+    await page.route('**/api/incidents/*', (route) =>
+      route.fulfill({
+        json: {
+          incident: {
+            ...detail,
+            title: 'X'.repeat(200),
+            description: 'Ž🔒'.repeat(5000),
+          },
+        },
+      }),
+    );
+    for (const width of [1280, 375, 320]) {
+      await page.setViewportSize({ width, height: 667 });
+      await page.goto(`/incidents/${first.id}`);
+      await expect(page.getByRole('heading', { name: 'X'.repeat(200) })).toBeVisible();
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(width);
+      await page
+        .getByRole('heading', { name: 'Incident information' })
+        .scrollIntoViewIfNeeded();
+      await expect(
+        page.getByRole('heading', { name: 'Incident information' }),
+      ).toBeInViewport();
+    }
+    expect(await auditIncidents(browserName, baseURL!, colorScheme, 'detail')).toEqual(
+      [],
+    );
   });
 }

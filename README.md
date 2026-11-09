@@ -35,6 +35,6 @@ The [containerization handoff](docs/containerization-handoff.md) records ownersh
 acceptance criteria and the later frontend/AI and two-VM deployment boundaries.
 
 The [frontend setup guide](docs/frontend-setup.md) covers the implemented login/session
-UI, light/dark themes, protected incident list, Vite development workflow, and
-Firefox/Chromium tests. Incident detail/submission and compiled frontend serving through
+UI, light/dark themes, protected incident list/detail, Vite development workflow, and
+Firefox/Chromium tests. Incident submission and compiled frontend serving through
 Caddy remain future work.

@@ -7,6 +7,7 @@ export async function auditIncidents(
   browserName: string,
   baseURL: string,
   colorScheme: 'light' | 'dark',
+  screen: 'list' | 'detail' = 'list',
 ): Promise<unknown> {
   const { stdout } = await promisify(execFile)(
     process.execPath,
@@ -15,6 +16,7 @@ export async function auditIncidents(
       browserName,
       baseURL,
       colorScheme,
+      screen,
     ],
     {
       timeout: 45_000,

@@ -6,7 +6,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { useEffect } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useAuth } from '../auth/use-auth';
 import { IncidentStatusBadge } from './IncidentStatusBadge';
 import { incidentErrorMessage } from './messages';
@@ -154,9 +154,13 @@ export function IncidentListPage() {
                     {list.incidents.map((incident) => (
                       <tr key={incident.id}>
                         <td>
-                          <strong className="incident-title text-preserved">
+                          <Link
+                            className="incident-title text-preserved"
+                            to={`/incidents/${incident.id}`}
+                            state={{ listSearch: params.toString() }}
+                          >
                             {incident.title}
-                          </strong>
+                          </Link>
                           <span className="incident-reference">
                             {incident.id.slice(0, 8)}
                             {professional && incident.reporter_id === user?.id

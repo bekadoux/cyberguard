@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { chromium, firefox } from '@playwright/test';
-import { employee, first } from './incidents.ts';
+import { detail, employee, first } from './incidents.ts';
 
 // Synthetic fixtures only. Keep every axe rule enabled; no live secrets or data.
 const browserType = process.argv[2] === 'firefox' ? firefox : chromium;
@@ -22,6 +22,16 @@ try {
       },
     }),
   );
+  await page.route(`**/api/incidents/${first.id}`, (route) =>
+    route.fulfill({
+      json: {
+        incident: {
+          ...detail,
+          description: ('Reported text Ž 🔒 '.repeat(50) + '\n\n').repeat(3),
+        },
+      },
+    }),
+  );
   const failures: unknown[] = [];
   for (const [width, height] of [
     [1280, 720],
@@ -29,8 +39,10 @@ try {
     [320, 568],
   ] as const) {
     await page.setViewportSize({ width, height });
-    await page.goto('/incidents');
-    await page.getByText('1 incident loaded · Newest first').waitFor();
+    const isDetail = process.argv[5] === 'detail';
+    await page.goto(isDetail ? `/incidents/${first.id}` : '/incidents');
+    if (isDetail) await page.getByRole('heading', { name: first.title }).waitFor();
+    else await page.getByText('1 incident loaded · Newest first').waitFor();
     const result = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
       .analyze();

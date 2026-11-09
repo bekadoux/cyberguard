@@ -27,6 +27,14 @@ export const second = {
   title: 'Work laptop missing',
   created_at: '2026-11-08T10:00:00Z',
 };
+export const detail = {
+  ...first,
+  description:
+    'An unexpected email asked me to confirm my company password.\n\nI did not open the link. Žiadne prihlasovacie údaje som neposkytol.',
+  affected_system: 'Company email',
+  resolution_note: null,
+  assigned_analyst: null,
+};
 export async function identity(page: Page, user: User = employee) {
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: { user } }));
 }

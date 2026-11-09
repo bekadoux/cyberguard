@@ -73,12 +73,111 @@
   display: block;
   font-weight: 600;
   line-height: 1.6;
+  color: var(--text);
+  text-decoration: none;
+}
+.incident-title:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 .incident-reference {
   display: block;
   color: var(--text-muted);
   font-size: 11px;
   margin-top: 5px;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  text-decoration: none;
+  margin-bottom: 28px;
+  min-height: 32px;
+}
+.back-link:hover {
+  text-decoration: underline;
+}
+.incident-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 310px);
+  gap: 24px;
+  align-items: start;
+}
+.incident-report-content {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.detail-panel {
+  padding: 28px;
+  min-width: 0;
+}
+.detail-panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 22px;
+}
+.detail-panel h2 svg {
+  color: var(--text-muted);
+}
+.detail-panel h3 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 28px 0 10px;
+}
+.detail-panel p {
+  font-size: 14px;
+  line-height: 1.85;
+}
+.incident-metadata dl {
+  margin: 0;
+}
+.incident-metadata dl > div + div {
+  margin-top: 20px;
+}
+.incident-metadata dt {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 7px;
+}
+.incident-metadata dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.metadata-id {
+  display: block;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+.incident-metadata dd > .metadata-id {
+  margin-top: 3px;
+}
+.incident-metadata .metadata-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 24px;
+}
+.readonly-note {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
+  margin-top: 24px;
+}
+@media (max-width: 850px) {
+  .incident-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .detail-panel {
+    padding: 22px;
+  }
 }
 .incident-status {
   display: inline-flex;
