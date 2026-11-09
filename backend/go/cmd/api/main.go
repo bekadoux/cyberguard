@@ -15,6 +15,7 @@ import (
 	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
 	incidentQueries "github.com/bekadoux/cyberguard/backend/go/internal/db/incidents"
 	"github.com/bekadoux/cyberguard/backend/go/internal/httpapi"
+	"github.com/bekadoux/cyberguard/backend/go/internal/secretconfig"
 	"github.com/bekadoux/cyberguard/backend/go/internal/sessionstore"
 )
 
@@ -50,6 +51,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	incidentAPI.Mount(router)
+	aiToken, err := secretconfig.Value(os.LookupEnv, "AI_INTERNAL_TOKEN")
+	if err != nil {
+		return err
+	}
+	httpapi.MountAIWorkerContext(router, pools.Incidents, aiToken)
 	server := httpapi.NewServer(cfg.HTTPAddr, router, logger)
 	listener, err := net.Listen("tcp", cfg.HTTPAddr)
 	if err != nil {

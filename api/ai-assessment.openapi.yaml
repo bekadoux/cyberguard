@@ -1,0 +1,72 @@
+openapi: 3.1.0
+info:
+  title: CyberGuard AI Assessment API
+  version: 0.1.0
+  description: |
+    Proposed read-only AI assessment API. Intended behind same-origin Caddy /ai.
+    Go owns login and checks current role and incident access on every read.
+    This contract is subject to architect/Go developer review.
+servers:
+  - url: /ai
+paths:
+  /healthz:
+    get:
+      summary: AI process liveness (not model readiness)
+      responses:
+        '200':
+          description: Process running
+  /readyz:
+    get:
+      summary: AI database connection readiness only
+      responses:
+        '200':
+          description: Connected to incident database
+        '503':
+          description: Database inaccessible
+  /incidents/{incident_id}/assessment:
+    get:
+      summary: Read original assessment job and stored result
+      description: |
+        Requires existing Go HttpOnly session and analyst/admin role, plus
+        current incident access. Returns a null result for queued/running/failed jobs.
+        Does not cause inference or write incident fields.
+      parameters:
+        - in: path
+          name: incident_id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Assessment status and saved result, when available
+          headers:
+            Cache-Control:
+              schema: {type: string, enum: [no-store]}
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job, result]
+                properties:
+                  job:
+                    type: object
+                    required: [id, incident_id, status, kind, attempt_count]
+                    properties:
+                      id: {type: string, format: uuid}
+                      incident_id: {type: string, format: uuid}
+                      kind: {type: string}
+                      status: {type: string, enum: [queued, running, completed, failed]}
+                      attempt_count: {type: integer}
+                      error_code: {type: [string, 'null']}
+                  result:
+                    oneOf:
+                      - type: 'null'
+                      - type: object
+                        required: [assessment, source_kind, created_at]
+                        properties:
+                          assessment: {type: object}
+                          source_kind: {type: string, enum: [fake, kev_llm]}
+                          created_at: {type: string, format: date-time}
+        '401': {description: Missing or expired login}
+        '403': {description: Role forbidden}
+        '404': {description: Incident inaccessible or job not found}
+        '503': {description: Go or incident database unavailable}
