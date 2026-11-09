@@ -15,6 +15,7 @@ DOCKER_GO_IMAGE ?= cyberguard-go:local
 .PHONY: docker-caddy-check
 .PHONY: docker-smoke
 .PHONY: docker-test-readiness
+.PHONY: frontend-install frontend-dev frontend-check frontend-test-e2e frontend-test-e2e-live
 
 help:
 	@printf '%s\n' \
@@ -28,6 +29,12 @@ help:
 	  'go-vuln             Run pinned govulncheck (requires network access)' \
 	  'go-check            Check formatting, vet, race tests and vulnerabilities' \
 	  'go-test-integration Run database tests against two dedicated PostgreSQL instances'
+	@printf '%s\n' \
+	  'frontend-install    Install locked frontend dependencies with npm ci' \
+	  'frontend-dev        Run Vite at http://127.0.0.1:5173' \
+	  'frontend-check      Check types, lint, formatting, unit tests and build' \
+	  'frontend-test-e2e   Run isolated Firefox and Chromium browser tests' \
+	  'frontend-test-e2e-live Run real-backend browser auth tests (E2E_PASSWORD_FILE required)'
 	@printf '%s\n' \
 	  'db-bootstrap-identity  Create identity database and restricted roles (admin connection)' \
 	  'db-bootstrap-incidents Create incident database and restricted roles (admin connection)'
@@ -167,3 +174,18 @@ docker-caddy-check:
 
 docker-smoke: docker-build
 	bash docker/smoke.sh
+
+frontend-install:
+	cd frontend && npm ci
+
+frontend-dev:
+	cd frontend && npm run dev
+
+frontend-check:
+	cd frontend && npm run check
+
+frontend-test-e2e:
+	cd frontend && npm run test:e2e
+
+frontend-test-e2e-live:
+	cd frontend && npm run test:e2e:live

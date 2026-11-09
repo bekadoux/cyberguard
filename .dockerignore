@@ -8,6 +8,13 @@
 **/*.key
 **/node_modules
 **/dist
+**/test-results
+**/playwright-report
+**/blob-report
+**/playwright/.auth
+**/coverage
+**/.eslintcache
+**/npm-debug.log*
 **/.venv
 **/__pycache__
 backend/go/bin
