@@ -33,3 +33,7 @@ Go, two PostgreSQL instances, secret-file delivery and disposable lifecycle test
 Start with `make docker-secrets` and follow that guide's explicit setup sequence.
 The [containerization handoff](docs/containerization-handoff.md) records ownership,
 acceptance criteria and the later frontend/AI and two-VM deployment boundaries.
+
+The [frontend setup guide](docs/frontend-setup.md) covers the implemented login/session
+UI, light/dark themes, Vite development workflow, and Firefox/Chromium tests. Incident
+screens and compiled frontend serving through Caddy remain future work.

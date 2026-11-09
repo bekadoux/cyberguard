@@ -3,8 +3,9 @@
 ## Dev environment tips
 
 - The only implemented application backend is the Go API, including incident core create/read.
-  Frontend, Python/AI, assessment enqueueing and investigation mutations remain
-  planned; see `docs/incidents-handoff.md` for the explicit integration gap. Application
+  The frontend implements login/session UI and themes; incident screens, Python/AI,
+  assessment enqueueing and investigation mutations remain planned. See
+  `docs/frontend-setup.md` and `docs/incidents-handoff.md` for the explicit boundaries. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
   contracts are in `docs/architect-handoff.md`.
 - Local Docker runs Caddy, Go and two PostgreSQL instances; commands and prerequisites
@@ -12,7 +13,8 @@
   Bootstrap/migrate/seed are explicit one-off tools, never API startup actions. Do not
   enable the `tools` profile for ordinary `up`, or remove volumes as routine cleanup.
   Caddy exposes Go at `http://127.0.0.1:8088/api`; direct development access on 8080
-  uses the existing unprefixed routes. Frontend/AI paths are not implemented yet.
+  uses the existing unprefixed routes. The frontend runs in Vite at 127.0.0.1:5173;
+  Caddy static frontend serving and AI paths are not implemented yet.
 - Business rules are in `docs/domain-specification.md`. `docs/playbooks.md` and
   `docs/demo-incidents.csv` supply domain reference material and labelled scenarios,
   not an implemented incident importer/seed or measured AI evaluation results.
@@ -29,6 +31,11 @@
 
 ## Testing instructions
 
+- Frontend: Node 24.22.2/npm 12.2.2, `make frontend-install`, then
+  `make frontend-check`. `make frontend-test-e2e` runs Firefox and Chromium with
+  Playwright-managed browsers; the separate live suite requires the running demo
+  backend and `E2E_PASSWORD_FILE`. See `docs/frontend-setup.md`. Never put secrets
+  in frontend configuration, browser storage or test artifacts.
 - No CI workflow is checked in; `Makefile` defines the available checks.
 - `make docker-smoke` builds and tests a fresh disposable four-container project,
   including restart persistence, SQL outages and HTTP access rules. It deletes only
