@@ -62,6 +62,10 @@ func TestRejectUnsafePasswords(t *testing.T) {
 
 func TestLoadAccountsFromEnvironment(t *testing.T) {
 	for key, value := range testPasswords() {
+		t.Setenv(key+"_FILE", "")
+		if err := os.Unsetenv(key + "_FILE"); err != nil {
+			t.Fatal(err)
+		}
 		t.Setenv(key, value)
 	}
 	accounts, err := LoadAccounts()

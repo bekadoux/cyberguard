@@ -23,6 +23,15 @@ func lookup(values map[string]string) func(string) (string, bool) {
 	}
 }
 
+func unsetEnv(t *testing.T, name string) {
+	t.Helper()
+	// Setenv registers cleanup restoring the developer's original environment.
+	t.Setenv(name, "")
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDefaults(t *testing.T) {
 	t.Parallel()
 	env := validEnv()
@@ -55,6 +64,7 @@ func TestOverrides(t *testing.T) {
 
 func TestLoadFromEnvironment(t *testing.T) {
 	for name, value := range validEnv() {
+		unsetEnv(t, name+"_FILE")
 		t.Setenv(name, value)
 	}
 	t.Setenv("HTTP_ADDR", "127.0.0.1:9090")
@@ -134,6 +144,7 @@ func TestMissingDatabaseURL(t *testing.T) {
 }
 
 func TestLoadIdentityMigrationURL(t *testing.T) {
+	unsetEnv(t, "IDENTITY_MIGRATION_DATABASE_URL_FILE")
 	valid := "postgres://identity_migrator:test@127.0.0.1:5433/cyberguard_identity?sslmode=disable"
 	for _, value := range []string{"", "postgres://user:sensitive%zz@localhost/db", valid} {
 		t.Setenv("IDENTITY_MIGRATION_DATABASE_URL", value)
@@ -151,6 +162,7 @@ func TestLoadIdentityMigrationURL(t *testing.T) {
 }
 
 func TestLoadIncidentMigrationURL(t *testing.T) {
+	unsetEnv(t, "INCIDENT_MIGRATION_DATABASE_URL_FILE")
 	valid := "postgres://incidents_migrator:test@127.0.0.1:5434/cyberguard_incidents?sslmode=disable"
 	for _, value := range []string{"", "postgres://user:sensitive%zz@localhost/db", valid} {
 		t.Setenv("INCIDENT_MIGRATION_DATABASE_URL", value)
@@ -197,5 +209,26 @@ func TestDatabaseURLFiles(t *testing.T) {
 	env["IDENTITY_DATABASE_URL"] = ""
 	if _, err := load(lookup(env)); err == nil {
 		t.Fatal("empty direct value silently overrode file configuration")
+	}
+}
+
+func TestLoadMigrationURLFiles(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		load func() (string, error)
+	}{
+		{"IDENTITY_MIGRATION_DATABASE_URL", LoadIdentityMigrationURL},
+		{"INCIDENT_MIGRATION_DATABASE_URL", LoadIncidentMigrationURL},
+	} {
+		unsetEnv(t, test.name)
+		path := filepath.Join(t.TempDir(), "connection")
+		value := "postgres://migrator:secret@127.0.0.1:5432/database?sslmode=disable"
+		if err := os.WriteFile(path, []byte(value+"\r\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(test.name+"_FILE", path)
+		if got, err := test.load(); err != nil || got != value {
+			t.Fatal("migration entry point did not read its own file setting")
+		}
 	}
 }
