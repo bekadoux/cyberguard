@@ -204,7 +204,7 @@ Sources for the remaining playbooks (freely available):
 - CISA — Federal Government Cybersecurity Incident & Vulnerability Response Playbooks.
 - The SANS PICERL model (Preparation, Identification, Containment, Eradication, Recovery, Lessons learned).
 
-The remaining 6 playbooks will be added once the categories are agreed.
+All seven playbooks are in [playbooks.md](playbooks.md).
 
 ## Demo scenarios
 
@@ -222,6 +222,8 @@ Ten synthetic incidents cover all categories and levels, including two hard case
 | 8 | Internal portal is down with a strange message on screen | service_disruption | medium | Availability |
 | 9 | My computer is slow and fan is loud since this morning | other / malware | low | Low confidence → manual assessment |
 | 10 | Supplier asked to change bank details for next invoice payment | phishing | high | Fraud without a link (BEC) |
+
+The full demo set of 40 labelled descriptions (32 English, 8 Slovak) is in [demo-incidents.csv](demo-incidents.csv); the ten above are its first rows.
 
 Presentation scenario: no. 2 goes through the full cycle — report, AI suggestion, question to the employee, analyst corrects severity, resolution, confirmation.
 

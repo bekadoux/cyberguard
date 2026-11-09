@@ -1,0 +1,41 @@
+id,language,description,category,subcategory,severity,indicators,note
+1,en,"Got an email from ""IT support"" asking to confirm my password via link, I didn't click",phishing,,low,,Basic scenario
+2,en,"Clicked the link in a bank email and entered my login, now unsure",phishing,,high,clicked_link;credentials_entered,Presentation scenario
+3,en,All my files now end with .locked and there's a ransom note,malware,ransomware,critical,device_abnormal,Urgent escalation
+4,en,Colleagues received emails from me I never sent,account_compromise,,high,,Login review
+5,en,Sent a spreadsheet with customer data to the wrong address,data_exposure,,high,data_sent_out,Leak without an attack
+6,en,Left my work laptop on the train,lost_device,,medium,,Incident without an attacker
+7,en,Coworker installed remote-access software without approval,policy_violation,,medium,,Policy violation
+8,en,Internal portal is down with a strange message on screen,service_disruption,,medium,,Availability
+9,en,My computer is slow and fan is loud since this morning,other,,low,device_abnormal,"Hard case: low confidence, malware also acceptable"
+10,en,Supplier asked to change bank details for next invoice payment,phishing,,high,,Hard case: fraud without a link (BEC)
+11,en,"got weird email from our ceo asking to buy gift cards asap, is this legit??",phishing,,low,,"Informal writing, nothing done yet"
+12,en,Someone called pretending to be from Microsoft and asked me to install a program to fix my PC. I installed it and then they were moving my mouse,phishing,,high,attachment_opened,Hard case: phone scam leading to remote access
+13,sk,"Prišla mi SMS od kuriéra, že mám zaplatiť clo 1,99 € cez odkaz. Zaplatila som kartou.",phishing,,high,clicked_link;payment_made,Slovak; SMS phishing with payment
+14,en,"I scanned a QR code on a flyer at the parking lot and it asked for my company email login, I typed it in",phishing,,high,credentials_entered,QR code phishing
+15,en,"Opened the invoice attachment from an unknown sender, nothing happened but now I'm worried",phishing,,medium,attachment_opened,"Attachment opened, no visible effect"
+16,en,Lots of pop-up ads keep appearing and my browser homepage changed by itself,malware,,medium,device_abnormal,Adware
+17,en,Shared drive folders for the whole finance team got renamed to .encrypted and there's a README asking for bitcoin. It's still spreading,malware,ransomware,critical,multiple_affected;ongoing,Ransomware spreading across a team
+18,sk,"Antivírus hlási trójskeho koňa v súbore, ktorý som stiahla z internetu, a počítač je veľmi pomalý.",malware,,medium,device_abnormal,Slovak; antivirus alert
+19,en,My laptop shows a red screen saying all files are encrypted and I must pay within 48 hours,malware,ransomware,critical,device_abnormal,Ransomware on one device
+20,en,"Found a USB stick in the parking lot and plugged it in to see whose it is, a window flashed and closed",malware,,medium,device_abnormal,Unknown USB device
+21,en,Got a notification about a login to my account from another country at 3am. It wasn't me,account_compromise,,high,,Suspicious sign-in
+22,sk,"Nemôžem sa prihlásiť do pracovného e-mailu, heslo bolo zmenené a ja som ho nemenila.",account_compromise,,high,,Slovak; password changed by someone else
+23,en,Got like 20 login approval requests on my phone in a row and I accidentally approved one,account_compromise,,high,,Hard case: MFA fatigue
+24,en,My mailbox has a rule forwarding all emails to an external gmail address that I didn't create,account_compromise,,high,data_sent_out;ongoing,Malicious forwarding rule
+25,en,I shared the HR salary folder with 'anyone with the link' and sent the link to an external client by mistake,data_exposure,,high,data_sent_out,Shared link exposure
+26,sk,"Omylom som poslala zmluvu klienta inému klientovi. Už som ho požiadala, aby ju vymazal.",data_exposure,,high,data_sent_out,Slovak; misdirected document
+27,en,A printed customer list was left on the printer in the lobby for a few hours,data_exposure,,medium,,"Physical exposure, damage not confirmed"
+28,en,A developer pushed our database password to a public GitHub repository,data_exposure,,high,data_sent_out,"Hard case: published secret, also an access risk"
+29,en,"My work phone was stolen at the bus stop, it had a PIN",lost_device,,medium,,Stolen device with PIN
+30,sk,"Stratila som USB kľúč s exportom údajov o zákazníkoch, nebol šifrovaný.",lost_device,,high,,Slovak; unencrypted personal data lost
+31,en,"Can't find my company badge and laptop after the conference, maybe I left them at the hotel",lost_device,,medium,,Uncertain loss
+32,en,My manager asked me to give him my password so he can approve things while I'm on vacation,policy_violation,,low,,"Password sharing request, not done"
+33,en,Our team uses a personal Dropbox to share client contracts because the company drive is slow,policy_violation,,high,data_sent_out,Hard case: overlaps data exposure
+34,sk,Kolega má heslo nalepené na monitore.,policy_violation,,low,,Slovak; password on a sticky note
+35,en,Our website keeps going down every few minutes and the hosting provider says there is huge traffic from many countries,service_disruption,,high,ongoing,Likely DDoS described by symptoms
+36,en,Nobody in the office can open the ERP system since 9am and the helpdesk doesn't know why,service_disruption,,high,multiple_affected;ongoing,Hard case: may be an ordinary outage
+37,sk,Interný systém na dochádzku nefunguje a zobrazuje sa správa v cudzom jazyku.,service_disruption,,medium,,Slovak; outage with strange message
+38,en,Not sure if this is a security thing but the door to the server room was left open all night,other,,medium,,Physical security
+39,en,I think someone looked over my shoulder while I was typing my password on the train,other,,low,,Hard case: possible credential exposure
+40,sk,"Neviem, či je to dôležité, ale volal mi niekto a pýtal sa, aké programy vo firme používame.",phishing,,low,,Slovak; phone reconnaissance

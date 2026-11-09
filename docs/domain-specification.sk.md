@@ -204,7 +204,7 @@ Zdroje pre ďalšie playbooky (voľne dostupné):
 - CISA — Federal Government Cybersecurity Incident & Vulnerability Response Playbooks.
 - Model SANS PICERL (Preparation, Identification, Containment, Eradication, Recovery, Lessons learned).
 
-Zvyšných 6 playbookov doplním po odsúhlasení kategórií.
+Všetkých sedem playbookov je v súbore [playbooks.md](playbooks.md) (v angličtine).
 
 ## Demo scenáre
 
@@ -222,6 +222,8 @@ Desať syntetických incidentov pokrýva všetky kategórie a úrovne vrátane d
 | 8 | Internal portal is down with a strange message on screen | service_disruption | medium | Dostupnosť |
 | 9 | My computer is slow and fan is loud since this morning | other / malware | low | Nízka istota → ručné hodnotenie |
 | 10 | Supplier asked to change bank details for next invoice payment | phishing | high | Podvod bez odkazu (BEC) |
+
+Celá demo sada 40 označených popisov (32 anglických, 8 slovenských) je v súbore [demo-incidents.csv](demo-incidents.csv); desať vyššie uvedených sú jej prvé riadky.
 
 Scenár pre prezentáciu: č. 2 prejde celým cyklom — nahlásenie, AI návrh, otázka zamestnancovi, úprava závažnosti analytikom, riešenie, potvrdenie.
 
