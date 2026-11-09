@@ -13,6 +13,7 @@ DOCKER_GO_IMAGE ?= cyberguard-go:local
 .PHONY: docker-secrets docker-build docker-db-up docker-bootstrap docker-migrate docker-status docker-seed-demo docker-up docker-down docker-logs
 .PHONY: docker-config-check docker-test-secrets
 .PHONY: docker-caddy-check
+.PHONY: docker-smoke
 
 help:
 	@printf '%s\n' \
@@ -50,6 +51,7 @@ help:
 	  'docker-logs         Show the last 100 service log lines' \
 	  'docker-config-check Validate Compose configuration, including one-off tools' \
 	  'docker-caddy-check  Validate Caddy configuration in its runtime image' \
+	  'docker-smoke        Build and verify a fresh disposable local Docker environment' \
 	  'docker-test-secrets Test local credential generation (requires openssl)'
 
 go-run:
@@ -157,3 +159,6 @@ docker-caddy-check:
 	  docker run --rm --read-only --network none --user 10001:10001 \
 	  --mount "type=bind,src=$(CURDIR)/docker/caddy/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
 	  "$$image" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+docker-smoke: docker-build
+	bash docker/smoke.sh

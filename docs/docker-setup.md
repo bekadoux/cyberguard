@@ -183,3 +183,29 @@ make docker-caddy-check
 
 For Go changes, also run the checks/build/integration suite in repository instructions.
 Real container lifecycle checks are additional evidence, not a replacement for Go tests.
+
+### Disposable end-to-end checks
+
+```sh
+make docker-smoke
+# Additionally exercise the complete Go/PostgreSQL race suite in that fixture:
+DOCKER_TEST_GO_INTEGRATION=1 make docker-smoke
+```
+
+Requires Bash, curl and jq in addition to normal Docker setup prerequisites. The runner
+creates a fresh `cyberguard-smoke-*` project with separate secrets/volumes. It uses
+loopback test ports 15433/15434 (SQL), 18080 (Go) and 18088 (Caddy), never ordinary dev
+volumes. Override conflicts using `DOCKER_TEST_IDENTITY_PORT`,
+`DOCKER_TEST_INCIDENT_PORT`, `DOCKER_TEST_GO_PORT` and `DOCKER_TEST_WEB_PORT`.
+
+Checks cover repeated setup, all-role login, Unicode payloads, access isolation,
+CORS/CSRF, reserved routes, Location rewriting, rate limits, secret scoping/logs,
+session/data persistence across full container recreation, both database outages and
+graceful shutdown. These are real HTTP/cookie-jar tests, not deployed-browser acceptance.
+
+The runner intentionally removes **its own disposable volumes** on exit, unlike
+`make docker-down`. It removes successful test state; failed diagnostic files are kept
+under protected `.local/cyberguard-smoke-*` directories and may contain secrets/cookies.
+For debugging, `DOCKER_KEEP_TEST_ENV=1` retains that test project and its sensitive state;
+the script prints the project name for explicit later cleanup. Do not reuse its test
+credentials as a normal development environment.
