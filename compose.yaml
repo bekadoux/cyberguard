@@ -8,7 +8,8 @@ x-postgres: &postgres
     POSTGRES_PASSWORD_FILE: /run/secrets/admin_password
     POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
   healthcheck:
-    test: [CMD, pg_isready, -U, bootstrap_admin, -d, postgres]
+    # initdb uses a temporary socket-only server; wait for the final TCP listener.
+    test: [CMD, pg_isready, -h, 127.0.0.1, -U, bootstrap_admin, -d, postgres]
     interval: 5s
     timeout: 3s
     retries: 12

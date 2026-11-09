@@ -64,7 +64,7 @@ wait_ready() {
         --retry-all-errors --retry-delay 1 "$base/api/readyz" > "$state/body"
 }
 
-run_make docker-secrets docker-config-check docker-caddy-check
+run_make docker-secrets docker-config-check docker-caddy-check docker-test-readiness
 run_make docker-db-up docker-bootstrap docker-migrate docker-seed-demo
 run_make docker-migrate docker-seed-demo
 run_make docker-up

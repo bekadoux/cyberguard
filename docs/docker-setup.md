@@ -181,7 +181,12 @@ follow-up; dumps contain password hashes and sessions and need the same care as 
 make docker-test-secrets
 make docker-config-check
 make docker-caddy-check
+make docker-test-readiness
 ```
+
+The readiness regression holds fresh, network-isolated PostgreSQL containers in their
+socket-only initialization phase. The configured probes must reject that temporary
+server and become healthy only once the final TCP server accepts connections.
 
 For Go changes, also run the checks/build/integration suite in repository instructions.
 Real container lifecycle checks are additional evidence, not a replacement for Go tests.
@@ -200,8 +205,9 @@ loopback test ports 15433/15434 (SQL), 18080 (Go) and 18088 (Caddy), never ordin
 volumes. Override conflicts using `DOCKER_TEST_IDENTITY_PORT`,
 `DOCKER_TEST_INCIDENT_PORT`, `DOCKER_TEST_GO_PORT` and `DOCKER_TEST_WEB_PORT`.
 
-Checks cover repeated setup, all-role login, Unicode payloads, access isolation,
-CORS/CSRF, reserved routes, Location rewriting, rate limits, secret scoping/logs,
+Checks cover first-initialization TCP readiness, repeated setup, all-role login,
+Unicode payloads, access isolation, CORS/CSRF, reserved routes, Location rewriting,
+rate limits, secret scoping/logs,
 session/data persistence across full container recreation, both database outages and
 graceful shutdown. These are real HTTP/cookie-jar tests, not deployed-browser acceptance.
 

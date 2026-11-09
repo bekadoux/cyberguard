@@ -14,6 +14,7 @@ DOCKER_GO_IMAGE ?= cyberguard-go:local
 .PHONY: docker-config-check docker-test-secrets
 .PHONY: docker-caddy-check
 .PHONY: docker-smoke
+.PHONY: docker-test-readiness
 
 help:
 	@printf '%s\n' \
@@ -52,7 +53,8 @@ help:
 	  'docker-config-check Validate Compose configuration, including one-off tools' \
 	  'docker-caddy-check  Validate Caddy configuration in its runtime image' \
 	  'docker-smoke        Build and verify a fresh disposable local Docker environment' \
-	  'docker-test-secrets Test local credential generation (requires openssl)'
+	  'docker-test-secrets Test local credential generation (requires openssl)' \
+	  'docker-test-readiness Test PostgreSQL healthchecks during first initialization'
 
 go-run:
 	cd $(GO_DIR) && $(GO) run ./cmd/api
@@ -153,6 +155,9 @@ docker-config-check:
 
 docker-test-secrets:
 	sh docker/test-secrets.sh
+
+docker-test-readiness:
+	$(COMPOSE) config --format json | bash docker/test-readiness.sh
 
 docker-caddy-check:
 	@image="$$($(COMPOSE) config --format json | jq -er '.services.web.image')" && \
