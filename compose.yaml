@@ -40,6 +40,34 @@ x-go: &go
       max-file: '3'
 
 services:
+  web:
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    user: 10001:10001
+    command: [caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs: ['/config:size=1m,mode=1777', '/data:size=1m,mode=1777', '/tmp:size=8m,mode=1777']
+    volumes: [./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro]
+    networks: [edge]
+    depends_on:
+      go-api: {condition: service_started}
+    healthcheck:
+      test: [CMD, wget, -q, --spider, 'http://127.0.0.1:8080/__gateway_health']
+      interval: 5s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+    stop_grace_period: 10s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '3'
+
   identity-db:
     <<: *postgres
     secrets:

@@ -2,14 +2,14 @@
 
 This is the runnable local setup, not an Azure deployment. See the
 [containerization handoff](containerization-handoff.md) for ownership and future
-frontend/AI boundaries. The current database/tooling increment runs Go and two separate
-PostgreSQL instances; Caddy gateway integration follows separately. No frontend,
-Python service or assessment queue is implied by a healthy container.
+frontend/AI boundaries. Four long-running containers provide Caddy, Go and two separate
+PostgreSQL instances. No frontend, Python service or assessment queue is implied by
+a healthy container. Caddy will serve the compiled frontend when it exists.
 
 ## Prerequisites
 
 - Linux containers, a working Docker daemon and Docker Compose v2+.
-- GNU Make, a POSIX shell, OpenSSL and standard Unix tools; use Linux or WSL2.
+- GNU Make, a POSIX shell, OpenSSL, jq and standard Unix tools; use Linux or WSL2.
 - Network access to download pinned images, Go modules and runtime Debian packages.
 - For host Go development/tests, the repository's Go toolchain and normal test tools.
 
@@ -24,6 +24,7 @@ export DOCKER_SECRET_GID="$(id -g)"
 make docker-secrets
 make docker-config-check
 make docker-build
+make docker-caddy-check
 make docker-db-up
 make docker-bootstrap
 make docker-migrate
@@ -31,7 +32,7 @@ make docker-status
 # Optional, explicit development/demo accounts:
 make docker-seed-demo
 make docker-up
-curl --fail http://127.0.0.1:8080/readyz
+curl --fail http://127.0.0.1:8088/api/readyz
 ```
 
 The build produces `cyberguard-go:local`, containing the API, migration and seed
@@ -84,6 +85,7 @@ Optional non-secret settings can be exported before provisioning/startup:
 | `DOCKER_SECRET_GID` | `1000` |
 | `DOCKER_GO_IMAGE` | `cyberguard-go:local` |
 | `DOCKER_GO_PORT` | `8080` |
+| `DOCKER_WEB_PORT` | `8088` |
 | `DOCKER_IDENTITY_PORT` | `5433` |
 | `DOCKER_INCIDENT_PORT` | `5434` |
 
@@ -112,6 +114,35 @@ rejects configuring both sources. Do not run host Go alongside a container publi
 the same HTTP port. For dedicated integration tests, use a **different Compose project,
 secrets directory and database ports**, bootstrap its roles, and supply the four test
 URLs documented in [database setup](database-setup.md). Never use ordinary dev volumes.
+
+## Gateway contract
+
+Caddy listens on `http://127.0.0.1:8088`. Its container runs non-root on port 8080;
+the host port is just development publishing, not another host-installed server.
+
+| Request | Behavior |
+| --- | --- |
+| `/api/auth/*`, `/api/incidents*`, other `/api/*` | Strip `/api` and proxy to existing Go routes |
+| `/__gateway_health` | Caddy process health, independent of Go/database readiness |
+| `/internal` path segments, including `/api/internal/*` | Concealed 404, never forwarded |
+| `/ai`, `/ai/*` | Explicit 503: no AI implementation yet |
+| Other paths | 404: no frontend files or SPA fallback yet |
+
+Go's root-relative `Location` response headers are rewritten with `/api`; session
+cookies keep Path=/ so the future AI API can receive the same host-only cookie.
+Host/Origin and authentication policy are preserved; credentialed Vite requests from
+`http://127.0.0.1:5173` are allowed. Frontend code will use `/api` as the Go base URL;
+the direct `127.0.0.1:8080` API remains available for local diagnostics/tests.
+
+Do not weaken CSRF, cookie scope or SameSite to solve a routing problem. The local
+configuration does not trust forwarded IP headers: Go's per-peer login limit sees
+Caddy as one peer. This is acceptable for loopback-only development; production must
+configure narrowly scoped proxy trust and forwarding policy before public use.
+
+Caddy access-body/cookie logging and its admin API are disabled/not enabled. Local
+HTTP uses no certificate state; `/data` and `/config` are temporary filesystems.
+Future HTTPS deployment needs persistent certificate state, verified private upstream
+connections and a production configuration. Do not expose the development override.
 
 ## Lifecycle and safety
 
@@ -147,6 +178,7 @@ follow-up; dumps contain password hashes and sessions and need the same care as 
 ```sh
 make docker-test-secrets
 make docker-config-check
+make docker-caddy-check
 ```
 
 For Go changes, also run the checks/build/integration suite in repository instructions.

@@ -12,6 +12,7 @@ DOCKER_GO_IMAGE ?= cyberguard-go:local
 .PHONY: go-sqlc go-sqlc-check db-migrate-identity db-status-identity db-seed-demo db-migrate-incidents db-status-incidents
 .PHONY: docker-secrets docker-build docker-db-up docker-bootstrap docker-migrate docker-status docker-seed-demo docker-up docker-down docker-logs
 .PHONY: docker-config-check docker-test-secrets
+.PHONY: docker-caddy-check
 
 help:
 	@printf '%s\n' \
@@ -48,6 +49,7 @@ help:
 	  'docker-down         Remove containers/networks, preserving data volumes' \
 	  'docker-logs         Show the last 100 service log lines' \
 	  'docker-config-check Validate Compose configuration, including one-off tools' \
+	  'docker-caddy-check  Validate Caddy configuration in its runtime image' \
 	  'docker-test-secrets Test local credential generation (requires openssl)'
 
 go-run:
@@ -149,3 +151,9 @@ docker-config-check:
 
 docker-test-secrets:
 	sh docker/test-secrets.sh
+
+docker-caddy-check:
+	@image="$$($(COMPOSE) config --format json | jq -er '.services.web.image')" && \
+	  docker run --rm --read-only --network none --user 10001:10001 \
+	  --mount "type=bind,src=$(CURDIR)/docker/caddy/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
+	  "$$image" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
