@@ -109,6 +109,15 @@ tabs are observed. There are no external fonts, gradients or expensive visual ef
 Keyboard focus, form labels/error associations, password visibility, Caps Lock hints,
 reduced-motion support and small-screen layout are included.
 
+Dark surfaces use neutral black/charcoal rather than blue-tinted backgrounds; teal
+remains the action/focus accent. On narrow screens the brand and theme control share
+one header. Shorter viewports use tighter spacing and omit the decorative login icon,
+without shrinking the form controls. Mobile inputs use 16px text to avoid iOS focus zoom.
+The normal login fits the tested 1024×600 desktop, 320×568 phone and 375×548 reduced
+phone viewports without either scrollbar. Very short viewports, keyboard/zoom and
+validation messages can still grow the page naturally: no content is clipped or
+scrolling disabled to force a fit.
+
 ## Checks
 
 ```sh
@@ -171,8 +180,8 @@ appearance. Do not publish real credentials.
 
 - `make frontend-check`: type checking, lint, formatting, **47** unit/component tests
   and static production build passed.
-- `make frontend-test-e2e`: **46** tests passed across managed Firefox 159 and
-  Chromium 158, including both themes' full WCAG A/AA axe scans.
+- `make frontend-test-e2e`: **52** tests passed across managed Firefox 159 and
+  Chromium 158, including both themes' full WCAG A/AA axe scans on desktop and mobile.
 - Explicit real-backend suite: **4** checks passed: employee and Turkish dotted-I
   `ADMİN` sign-in in each browser. Each check replayed the pre-logout cookie and
   confirmed that Go rejects the revoked session.
@@ -183,6 +192,10 @@ appearance. Do not publish real credentials.
 - Session-outage follow-up: **6** component regressions and **2** browser regressions
   passed, covering sign-out without a confirmed identity, failed/duplicate logout,
   rechecking races and recovery after a canceled check. Protected content remains gated.
+- Responsive/theme follow-up: both palettes fit **12** desktop/phone viewport sizes per
+  browser without scrolling. Regressions also check neutral dark surfaces, readable
+  mobile input sizes, touch targets, and reachable error/form/footer content when a very
+  short viewport needs scrolling. The employee live auth check passed again in both browsers.
 - `npm audit`: no known vulnerabilities reported, including development dependencies.
 - Fresh local Docker setup, migration status and readiness passed; demo accounts were
   explicitly seeded. `make docker-test-secrets` and `make docker-smoke` passed after

@@ -25,7 +25,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
       document
         .querySelector('meta[name="theme-color"]')
-        ?.setAttribute('content', dark ? '#111b24' : '#f5f7fa');
+        ?.setAttribute('content', dark ? '#101010' : '#f5f7fa');
     };
     apply();
     media.addEventListener('change', apply);

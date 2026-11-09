@@ -39,6 +39,9 @@ export function AuthLayout({ children }: { children: ReactNode }) {
       </aside>
       <div className="auth-main">
         <header className="auth-header">
+          <div className="auth-mobile-brand">
+            <Brand />
+          </div>
           <span className="company-label">Company access</span>
           <ThemeSelect />
         </header>

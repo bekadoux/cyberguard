@@ -252,20 +252,117 @@ test('supports system, dark and light themes with persistent preference', async 
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 });
 
-test('fits a narrow mobile viewport and 200% equivalent zoom without horizontal scrolling', async ({
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`fits the complete login in smaller desktop and mobile viewports in ${colorScheme} mode`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme });
+    for (const [width, height] of [
+      [1440, 900],
+      [1366, 820],
+      [1366, 768],
+      [1280, 720],
+      [1024, 600],
+      [800, 600],
+      [720, 600],
+      [390, 844],
+      [375, 667],
+      [360, 640],
+      [320, 568],
+      // Phone viewport after the browser's own chrome consumes vertical space.
+      [375, 548],
+    ] as const) {
+      await test.step(`${width} × ${height}`, async () => {
+        await page.setViewportSize({ width, height });
+        await page.goto('/login');
+        await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+        const dimensions = await page.evaluate(() => ({
+          width: document.documentElement.scrollWidth,
+          height: document.documentElement.scrollHeight,
+        }));
+        expect(dimensions.width).toBeLessThanOrEqual(width);
+        expect(dimensions.height).toBeLessThanOrEqual(height);
+        for (const selector of ['.auth-header', '.login-panel', '.auth-footer']) {
+          await expect(page.locator(selector)).toBeInViewport({ ratio: 1 });
+        }
+        if (width <= 760) {
+          // Readable mobile inputs avoid focus-triggered zoom on iOS browsers.
+          await expect(page.getByLabel('Username', { exact: true })).toHaveCSS(
+            'font-size',
+            '16px',
+          );
+        }
+        const toggle = await page
+          .getByRole('button', { name: 'Show password' })
+          .boundingBox();
+        expect(toggle?.height).toBeGreaterThanOrEqual(44);
+        expect(toggle?.width).toBeGreaterThanOrEqual(44);
+      });
+    }
+  });
+}
+
+test('keeps error messages and controls reachable when the viewport becomes very short', async ({
   page,
 }) => {
-  for (const width of [320, 375, 720]) {
-    await page.setViewportSize({ width, height: 812 });
-    await page.goto('/login');
-    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
-    ).toBe(true);
-    await expect(
-      page.getByRole('button', { name: 'Sign in', exact: true }),
-    ).toBeInViewport();
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/login');
+  // Equivalent available layout space when zoom or an on-screen keyboard reduces it.
+  await page.setViewportSize({ width: 320, height: 360 });
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByText('Enter your username.')).toBeVisible();
+  await expect(page.getByText('Enter your password.')).toBeVisible();
+  for (const target of [
+    page.getByLabel('Username', { exact: true }),
+    page.getByLabel('Password', { exact: true }),
+    page.getByRole('button', { name: 'Sign in', exact: true }),
+    page.locator('.auth-footer'),
+  ]) {
+    await target.scrollIntoViewIfNeeded();
+    await expect(target).toBeInViewport({ ratio: 1 });
   }
+  expect(
+    await page.evaluate(() => document.documentElement.scrollHeight),
+  ).toBeGreaterThan(360);
+  for (const selector of ['html', 'body', '.auth-layout']) {
+    const overflow = await page
+      .locator(selector)
+      .evaluate((element) => getComputedStyle(element).overflowY);
+    expect(['hidden', 'clip']).not.toContain(overflow);
+  }
+});
+
+test('uses neutral charcoal surfaces rather than blue-tinted backgrounds in dark mode', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/login');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+  for (const selector of [
+    'body',
+    '.auth-story',
+    '.auth-story .brand-mark',
+    '.theme-select',
+    '.section-marker',
+    '.input-wrap',
+  ]) {
+    const channels = await page
+      .locator(selector)
+      .first()
+      .evaluate((element) =>
+        getComputedStyle(element).backgroundColor.match(/\d+/g)?.map(Number),
+      );
+    expect(channels?.length).toBe(3);
+    expect(channels?.[0]).toBe(channels?.[1]);
+    expect(channels?.[1]).toBe(channels?.[2]);
+    expect(channels?.[0]).toBeLessThanOrEqual(36);
+  }
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+    'content',
+    '#101010',
+  );
 });
 
 test('synchronizes a theme change made in another tab', async ({ page, context }) => {

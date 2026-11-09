@@ -12,8 +12,8 @@
 }
 .auth-story .brand-mark {
   color: var(--story-accent);
-  background: #1b3d49;
-  border: 1px solid #34525c;
+  background: var(--story-mark);
+  border: 1px solid var(--story-border);
 }
 .auth-story .brand-description {
   color: var(--story-secondary);
@@ -43,7 +43,7 @@
 .story-note {
   display: flex;
   gap: 13px;
-  border-top: 1px solid #34505b;
+  border-top: 1px solid var(--story-border);
   margin-top: 48px;
   padding-top: 28px;
 }
@@ -81,6 +81,9 @@
   align-items: center;
   padding: 36px clamp(28px, 4.1vw, 64px);
   gap: 16px;
+}
+.auth-mobile-brand {
+  display: none;
 }
 .company-label {
   font-size: 12px;
@@ -284,36 +287,67 @@
     padding: 28px;
   }
 }
-@media (max-width: 650px) {
+@media (max-width: 760px) {
   .auth-layout {
     display: flex;
     flex-direction: column;
   }
   .auth-story {
-    padding: 24px;
+    display: none;
   }
-  .auth-story .brand-mark {
+  .auth-mobile-brand {
+    display: block;
+    min-width: 0;
+  }
+  .auth-mobile-brand .brand {
+    gap: 10px;
+  }
+  .auth-mobile-brand .brand-mark {
     width: 40px;
     height: 40px;
+    flex-shrink: 0;
   }
-  .story-content,
-  .story-footer {
+  .auth-mobile-brand .brand-name {
+    font-size: 20px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .auth-mobile-brand .brand-description {
+    font-size: 10px;
+    line-height: 1.4;
+    letter-spacing: 0.4px;
+  }
+  .company-label {
     display: none;
   }
   .auth-main {
     flex: 1;
   }
   .auth-header {
-    padding: 20px 24px 0;
+    padding: 20px;
+    gap: 12px;
+  }
+  .auth-header .theme-select {
+    flex-shrink: 0;
+    padding: 0 8px;
   }
   .auth-content {
-    padding: 36px 24px;
+    padding: 24px;
   }
   .login-panel {
     max-width: 400px;
   }
   .login-panel h1 {
     font-size: 29px;
+    margin-top: 0;
+  }
+  .login-panel > .section-marker {
+    display: none;
+  }
+  .input-wrap input {
+    font-size: 16px;
+    line-height: 1.25;
+    padding: 12px;
   }
   .auth-footer {
     padding: 22px 20px;
@@ -326,5 +360,79 @@
   }
   .account-content {
     margin: 48px auto;
+  }
+}
+
+/* Spend less space on decoration and gaps before reducing usable control sizes.
+   Keep intrinsic page height: errors, keyboard and zoom must remain scrollable. */
+@media (max-height: 850px) {
+  .auth-story {
+    padding-top: 24px;
+    padding-bottom: 24px;
+  }
+  .story-content {
+    padding: 24px 0;
+  }
+  .story-note {
+    margin-top: 24px;
+    padding-top: 20px;
+  }
+  .auth-header {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+  .auth-content {
+    padding-top: 16px;
+    padding-bottom: 20px;
+  }
+  .login-panel > .section-marker {
+    display: none;
+  }
+  .login-panel h1 {
+    margin-top: 0;
+  }
+  .login-panel form {
+    margin-top: 20px;
+  }
+  .form-field {
+    margin-bottom: 16px;
+  }
+  .access-help {
+    margin-top: 20px;
+    padding-top: 16px;
+    line-height: 1.6;
+  }
+  .auth-footer {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+}
+
+@media (max-width: 760px) and (max-height: 650px) {
+  .auth-header {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .auth-content {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .login-panel h1 {
+    font-size: 27px;
+  }
+  .login-intro {
+    margin-top: 8px;
+    line-height: 1.6;
+  }
+  .form-field {
+    margin-bottom: 14px;
+  }
+  .access-help {
+    margin-top: 16px;
+    padding-top: 12px;
+  }
+  .auth-footer {
+    padding-top: 8px;
+    padding-bottom: 8px;
   }
 }
