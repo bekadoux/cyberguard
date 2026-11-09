@@ -80,6 +80,10 @@ Both model services are on the private `ai-inference` Docker network, **not expo
 ## Authorization, secrets and database boundaries
 
 - Go remains the only login authority. Python checks `/auth/me` and `/incidents/{id}` on **every** assessment read; authenticated analyst/admin only, with a current incident-access check. It does not trust the incoming `incident_id`, role or cookie without Go verification. Browser only receives stored results. No write API is exposed.
+- The reporter restriction applies regardless of role: an analyst/admin reading their
+  own report receives 403 and no AI-table reads. Ownership is compared using validated
+  UUIDs from Go, never browser-supplied identity. Missing/malformed Go identity or
+  incident data fails closed; session expiry during the second lookup remains 401.
 - The worker uses `AI_INTERNAL_TOKEN` (or `_FILE`) to call Go's internal context endpoint. **Never** expose direct Go port publicly with this route enabled, or publish `AI_INTERNAL_TOKEN`; use an internal Docker network/private VM interface. This token is not a user session cookie.
 - Python's `python_incidents` role has only limited `SELECT` on AI tables and `EXECUTE` on controlled DB functions. No SELECT on `incidents` or `users`, no UPDATE of analyst fields, no schema write permissions. Password is in a Compose secret.
 - The migration runs using the existing incident **migrator**, not via API/worker startup. `bootstrap-ai` is a separate one-off provisioning step; never use it for every startup or as part of ordinary `up`.
@@ -95,6 +99,13 @@ PYTHONPATH=backend/python python -m pytest -q backend/python/tests
 ```
 
 The unit tests mock external HTTP model/Go services and verify classification JSON, approved playbooks, fake provenance, access checks, stale context, worker persistence and failure paths. **Still required before merge**: run `make go-sqlc` with the pinned generator (the added `context_revision` column changes generated models), review/commit generated code, then actual Postgres migration/role/claim tests (including concurrent claim, lease expiry and transaction rollback), full Go tests with the project's Go 1.27.3 toolchain, Docker Compose integration/smoke, real Kev/Qwen model inference and measured resource usage on Azure. No Docker/PostgreSQL runtime or model weights were available in the generation environment, so those tests are not claimed as completed.
+
+Authorization follow-up (10 November 2026): all 23 Python tests passed with Python
+3.13.18, including analyst/admin own-report denial before storage access and malformed
+Go-response rejection. Scoped Ruff formatting/lint and Pyright checks passed for the
+changed authorization/tests. The suite emits an upstream Starlette/AnyIO deprecation
+warning. These mocked authorization checks do not establish real-model or PostgreSQL
+integration acceptance; the outstanding runtime checks above remain separate.
 
 ## Team decisions for review
 
