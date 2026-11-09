@@ -313,6 +313,99 @@
   color: var(--text-muted);
   margin-top: 24px;
 }
+
+.assessment-panel {
+  margin-top: 24px;
+}
+.assessment-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.assessment-heading h2 {
+  margin: 0;
+}
+.assessment-heading .button {
+  min-height: 42px;
+  font-size: 12px;
+}
+.assessment-panel .assessment-advisory {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 22px;
+}
+.assessment-state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 18px 0;
+}
+.assessment-state > span:last-child {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.assessment-panel .assessment-fixture {
+  display: block;
+  margin: 20px 0;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-color: var(--border);
+}
+.assessment-fixture strong {
+  display: block;
+  margin-bottom: 6px;
+}
+.assessment-panel h3 {
+  font-size: 14px;
+}
+.assessment-panel ul {
+  margin: 12px 0 0;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.assessment-panel li + li {
+  margin-top: 10px;
+}
+.assessment-signals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 18px;
+  margin: 16px 0 24px;
+}
+.assessment-signals dt {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 7px;
+}
+.assessment-signals dd {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.assessment-panel details {
+  margin-top: 24px;
+}
+.assessment-panel summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding-block: 8px;
+}
+.assessment-panel .assessment-disclaimer {
+  margin-top: 24px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.assessment-panel .assessment-time {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 16px;
+}
 @media (max-width: 850px) {
   .incident-detail-grid {
     grid-template-columns: minmax(0, 1fr);

@@ -27,6 +27,7 @@ type RequestOptions = {
   body?: unknown;
   signal?: AbortSignal;
   expectedStatus?: number;
+  service?: 'go' | 'ai';
 };
 
 export async function request(
@@ -38,7 +39,7 @@ export async function request(
   const timeout = AbortSignal.timeout(15_000);
   let response: Response;
   try {
-    response = await fetch(`/api${path}`, {
+    response = await fetch(`${options.service === 'ai' ? '/ai' : '/api'}${path}`, {
       method: options.method ?? 'GET',
       credentials: 'include',
       cache: 'no-store',

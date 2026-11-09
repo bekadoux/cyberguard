@@ -37,5 +37,6 @@ test('real same-origin packaged login, creation, reload, isolation and logout', 
     process.env.E2E_PACKAGED_ORIGIN!,
     process.env.E2E_INCIDENT_SECRETS_DIR!,
     true,
+    process.env.E2E_TEST_ASSESSMENTS === '1',
   );
 });

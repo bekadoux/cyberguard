@@ -4,6 +4,9 @@ import { auditIncidents } from '../support/accessibility';
 
 test.beforeEach(async ({ page }) => {
   await identity(page);
+  await page.route('**/ai/incidents/*/assessment', (route) =>
+    route.fulfill({ status: 503, json: { detail: 'Synthetic assessment outage' } }),
+  );
 });
 
 test('lands on personal incidents, preserves nulls and offers account navigation', async ({

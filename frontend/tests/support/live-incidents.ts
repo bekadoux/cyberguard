@@ -11,6 +11,8 @@ export const incidentChecks = [
   'checking reporter list',
   'checking employee isolation',
   'checking staff visibility',
+  'checking AI assessment',
+  'checking staff reporter restrictions',
   'signing out',
 ] as const;
 
@@ -20,6 +22,7 @@ export async function runLiveIncidents(
   apiOrigin: string,
   secretsDir: string,
   packaged = false,
+  assessments = false,
 ): Promise<void> {
   const code = await new Promise<number | null>((resolveExit) => {
     const child = spawn(
@@ -35,6 +38,7 @@ export async function runLiveIncidents(
           E2E_INCIDENT_API_ORIGIN: apiOrigin,
           E2E_INCIDENT_SECRETS_DIR: resolve(secretsDir),
           E2E_INCIDENT_PACKAGED: packaged ? '1' : '0',
+          E2E_INCIDENT_ASSESSMENTS: assessments ? '1' : '0',
           DEBUG: '',
           DEBUG_FILE: '',
           PWDEBUG: '0',

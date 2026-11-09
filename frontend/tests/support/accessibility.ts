@@ -7,7 +7,7 @@ export async function auditIncidents(
   browserName: string,
   baseURL: string,
   colorScheme: 'light' | 'dark',
-  screen: 'list' | 'detail' | 'new' = 'list',
+  screen: 'list' | 'detail' | 'new' | 'assessment' = 'list',
 ): Promise<unknown> {
   const { stdout } = await promisify(execFile)(
     process.execPath,

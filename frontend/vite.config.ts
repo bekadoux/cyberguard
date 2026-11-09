@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       // Keep /api intact: the existing Caddy gateway owns prefix removal.
       '/api': { target: 'http://127.0.0.1:8088' },
+      '/ai': { target: 'http://127.0.0.1:8088' },
     },
   },
   test: {

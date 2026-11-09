@@ -12,6 +12,7 @@ RUN npm run build
 
 FROM caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
 COPY docker/caddy/Caddyfile /etc/caddy/Caddyfile
+COPY docker/caddy/Caddyfile.ai docker/caddy/Caddyfile.no-ai /etc/caddy/
 COPY --from=build /app/dist/ /srv/
 USER 10001:10001
 EXPOSE 8080

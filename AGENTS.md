@@ -4,6 +4,8 @@
 
 - The Go API implements incident core create/read.
   The frontend implements login/session UI, themes and scoped incident create/list/detail.
+  Eligible analysts/admins can read stored AI assessments on another person's report;
+  reporter views never fetch AI output. Assessment refresh is manual, not a keepalive poll.
   Investigation mutations remain planned. See
   `docs/frontend-setup.md` and `docs/incidents-handoff.md` for the explicit boundaries. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
@@ -23,8 +25,9 @@
   uses the existing unprefixed routes. Caddy serves the packaged frontend at
   `http://127.0.0.1:8088/login`; Vite at 127.0.0.1:5173 remains available for hot reload.
   `make docker-build` builds separate Go and frontend/Caddy images; Node is build-only.
-  The optional AI overlay enables AI paths. Rebuild the web image after frontend/Caddy changes;
-  Compose does not bind-mount application source or the Caddyfile.
+  The optional AI overlay enables AI paths via a baked Caddy snippet selected by
+  `AI_HANDLER`, preserving the same SPA/security handlers. Rebuild the web image after
+  frontend/Caddy changes; Compose does not bind-mount source or the Caddyfile.
 - Business rules are in `docs/domain-specification.md`. `docs/playbooks.md` and
   `docs/demo-incidents.csv` supply domain reference material and labelled scenarios,
   not an implemented incident importer/seed or measured AI evaluation results.
@@ -51,9 +54,13 @@
   `DOCKER_TEST_FRONTEND=1 make docker-smoke` also runs all browser regressions against
   the packaged assets plus real same-origin flows, without Vite or API interception
   in those real flows. Requires host Node/npm, installed dependencies and browsers.
+  Add `DOCKER_TEST_AI=1` to include the real AI API/worker/DB pipeline in explicitly
+  labelled fixture mode. This provisions only disposable AI secrets/roles and never
+  downloads models or enables model profiles. It does not validate real inference.
 - AI candidate tests and outstanding integration checks are documented in
-  `docs/ai-backend.md`. Mocked unit tests or `AI_MODE=fake` do not validate real model
-  inference, PostgreSQL claims/grants, Docker integration or production resource usage.
+  `docs/ai-backend.md`. Mocked unit tests alone do not validate PostgreSQL or Docker.
+  The disposable fixture smoke covers the real happy-path DB/worker/API integration,
+  not concurrent claims, lease expiry, real model inference or production resource usage.
 - No CI workflow is checked in; `Makefile` defines the available checks.
 - `make docker-smoke` builds and tests a fresh disposable four-container project,
   including restart persistence, SQL outages and HTTP access rules. It deletes only

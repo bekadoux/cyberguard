@@ -13,6 +13,11 @@
 
 **Important:** `incident_revision` is checked against the current incident. This MVP *rejects stale context* (HTTP 409). It does NOT save an immutable incident snapshot. Business/API incident text updates are not implemented by the original repository; the new DB trigger increments the revision if a direct migration/privileged update occurs.
 
+On `feat/frontend`, the overlay selects a baked AI proxy snippet via `AI_HANDLER`
+instead of mounting a replacement Caddyfile. The shared gateway retains static files,
+SPA reloads, cache policy and internal-path denial in both modes. Rebuild the web image
+after changing either Caddy snippet; no host Caddyfile mount is required.
+
 ## CPU models and the Jev decision
 
 Original TypeSafe **Jev** is a hosted, proprietary decision model. There is no official self-hosted Jev weight download as of 9 Nov 2026. Using Jev's API would send incident descriptions outside this deployment and would not satisfy the project's self-hosting preference.
@@ -92,6 +97,11 @@ Both model services are on the private `ai-inference` Docker network, **not expo
 
 ## Test plan and honest limitations
 
+The original candidate checklist below predates the frontend integration follow-up.
+The optional disposable fixture smoke now exercises the real PostgreSQL/Go/Python/
+Caddy happy path with `AI_MODE=fake`; it does not establish real inference, concurrent
+claim/lease-expiry/rollback coverage or production acceptance.
+
 ```bash
 # In a Python 3.13 virtual environment, from the repo root:
 python -m pip install -r backend/python/requirements-dev.txt
@@ -106,6 +116,22 @@ Go-response rejection. Scoped Ruff formatting/lint and Pyright checks passed for
 changed authorization/tests. The suite emits an upstream Starlette/AnyIO deprecation
 warning. These mocked authorization checks do not establish real-model or PostgreSQL
 integration acceptance; the outstanding runtime checks above remain separate.
+
+Frontend integration follow-up (10 November 2026): the optional combined smoke now
+provisions a fresh, separate project and verifies the real DB trigger, worker claim,
+Go service context, stored fixture result and staff browser read path:
+
+```sh
+DOCKER_TEST_AI=1 DOCKER_TEST_FRONTEND=1 make docker-smoke
+```
+
+This also verifies employee denial and analyst/admin reporter denial with native
+cookies, preserves the packaged SPA/cache/internal-route boundaries, and runs browser
+checks with no credential-bearing diagnostics in reports. It forces `AI_MODE=fake`
+and never enables model profiles or downloads weights. See
+[frontend evidence](frontend-setup.md#ai-integration-follow-up--10-november-2026).
+Successful happy-path fixture validation does not replace the remaining concurrency,
+lease-expiry/rollback, generated-query, real-model and production review items above.
 
 ## Team decisions for review
 

@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { chromium, firefox } from '@playwright/test';
-import { detail, employee, first } from './incidents.ts';
+import { analyst, detail, employee, first } from './incidents.ts';
+import { completedAssessment } from './assessments.ts';
 
 // Synthetic fixtures only. Keep every axe rule enabled; no live secrets or data.
 const browserType = process.argv[2] === 'firefox' ? firefox : chromium;
@@ -12,7 +13,9 @@ try {
   });
   const page = await context.newPage();
   await page.route('**/api/auth/me', (route) =>
-    route.fulfill({ json: { user: employee } }),
+    route.fulfill({
+      json: { user: process.argv[5] === 'assessment' ? analyst : employee },
+    }),
   );
   await page.route('**/api/incidents?*', (route) =>
     route.fulfill({
@@ -33,6 +36,9 @@ try {
     }),
   );
   const failures: unknown[] = [];
+  await page.route('**/ai/incidents/*/assessment', (route) =>
+    route.fulfill({ json: completedAssessment }),
+  );
   for (const [width, height] of [
     [1280, 720],
     [375, 667],
@@ -41,17 +47,19 @@ try {
     await page.setViewportSize({ width, height });
     const screen = process.argv[5];
     await page.goto(
-      screen === 'detail'
+      screen === 'detail' || screen === 'assessment'
         ? `/incidents/${first.id}`
         : screen === 'new'
           ? '/incidents/new'
           : '/incidents',
     );
-    if (screen === 'detail')
+    if (screen === 'detail' || screen === 'assessment')
       await page.getByRole('heading', { name: first.title }).waitFor();
     else if (screen === 'new')
       await page.getByRole('heading', { name: 'Report an incident' }).waitFor();
     else await page.getByText('1 incident loaded · Newest first').waitFor();
+    if (screen === 'assessment')
+      await page.getByRole('heading', { name: 'Draft summary' }).waitFor();
     const result = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
       .analyze();

@@ -1,0 +1,2 @@
+header Content-Type application/json
+respond `{"error":{"code":"ai_unavailable","message":"AI service is not enabled."}}` 503

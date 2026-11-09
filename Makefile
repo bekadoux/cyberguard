@@ -182,6 +182,9 @@ docker-caddy-check:
 	@image="$$($(COMPOSE) config --format json | jq -er '.services.web.image')" && \
 	  docker run --rm --read-only --network none --user 10001:10001 \
 	  "$$image" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+	@image="$$($(COMPOSE) config --format json | jq -er '.services.web.image')" && \
+	  docker run --rm --read-only --network none --user 10001:10001 -e AI_HANDLER=Caddyfile.ai \
+	  "$$image" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
 docker-smoke: docker-build
 	bash docker/smoke.sh

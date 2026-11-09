@@ -143,7 +143,7 @@ the host port is just development publishing, not another host-installed server.
 | `/api/auth/*`, `/api/incidents*`, other `/api/*` | Strip `/api` and proxy to existing Go routes |
 | `/__gateway_health` | Caddy process health, independent of Go/database readiness |
 | `/internal` path segments, including `/api/internal/*` | Concealed 404, never forwarded |
-| `/ai`, `/ai/*` | Explicit 503: no AI implementation yet |
+| `/ai`, `/ai/*` | Base: explicit 503; optional AI overlay: proxy to the AI API |
 | `/`, `/login`, `/account`, `/incidents`, `/incidents/*` | Built SPA shell for GET/HEAD, including direct navigation/reload |
 | Existing `/assets/*` fingerprinted files | Static assets with one-year immutable caching |
 | `/index.html`, `/theme.js`, `/favicon.svg` | Static files with `Cache-Control: no-store` |
@@ -156,8 +156,13 @@ API/AI/internal matching precedes all static/SPA handlers. When adding a new cli
 route, update the explicit SPA allowlist and `docker/test-web.sh` as needed. The app's
 authentication guard still controls protected screens; static HTML contains no user data.
 
+The AI overlay sets `AI_HANDLER=Caddyfile.ai` to import the baked proxy snippet inside
+the shared `/ai` handler. The base selects `Caddyfile.no-ai`. It does not mount a second
+full Caddyfile or remove static/SPA/security handlers; both configurations are validated
+by `make docker-caddy-check`. Rebuild the web image when changing any Caddy snippet.
+
 Go's root-relative `Location` response headers are rewritten with `/api`; session
-cookies keep Path=/ so the future AI API can receive the same host-only cookie.
+cookies keep Path=/ so the optional AI API can receive the same host-only cookie.
 Host/Origin and authentication policy are preserved; packaged UI/API requests are
 same-origin and need no new trusted-origin exception. Credentialed Vite requests from
 `http://127.0.0.1:5173` remain allowed. Frontend code uses `/api` as the Go base URL;
@@ -225,8 +230,10 @@ Real container lifecycle checks are additional evidence, not a replacement for G
 make docker-smoke
 # Additionally exercise the complete Go/PostgreSQL race suite in that fixture:
 DOCKER_TEST_GO_INTEGRATION=1 make docker-smoke
-# All 118 UI regressions against the built assets, then real same-origin browser flows:
+# All UI regressions against the built assets, then real same-origin browser flows:
 DOCKER_TEST_FRONTEND=1 make docker-smoke
+# Additionally enable the real queue/worker/API using labelled synthetic output:
+DOCKER_TEST_AI=1 DOCKER_TEST_FRONTEND=1 make docker-smoke
 ```
 
 Requires Bash, curl and jq in addition to normal Docker setup prerequisites. The runner
@@ -251,7 +258,15 @@ verify login/cookie flags, account/new/detail reloads, Unicode creation, Locatio
 rewriting, persistence, employee isolation, staff visibility and revoked-session rejection.
 Credentials/cookies remain inside a discarded-output subprocess. It never uses ordinary
 dev data or lowers the login limit; one throttled login may wait for `Retry-After`.
-Both optional flags can be combined. Without the browser flag, smoke remains an
+`DOCKER_TEST_AI=1` provisions separate AI secrets/role in that disposable project,
+starts the API and worker in `AI_MODE=fake`, and verifies trigger enqueueing, completed
+fixture provenance, staff access and employee/staff-reporter denial. The AI API readiness
+probe waits for its DB connection. No model profiles/downloads are enabled. Combined
+with the frontend flag, live browsers verify the visible fixture warning and staff
+reporter restrictions through actual Caddy requests. Normal development services,
+credentials and models are not used. Without this flag, the original four-service
+smoke remains AI-disabled (new DB inserts may still queue jobs after migration).
+All optional flags can be combined. Without the browser flag, smoke remains an
 HTTP/cookie-jar test, not browser acceptance or a production deployment check.
 
 The runner intentionally removes **its own disposable volumes** on exit, unlike

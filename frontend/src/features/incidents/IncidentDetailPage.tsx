@@ -7,6 +7,7 @@ import { IncidentStatusBadge } from './IncidentStatusBadge';
 import { incidentErrorMessage } from './messages';
 import { categoryLabels, incidentListBackLink, isRecord, severityLabels } from './model';
 import { useIncidentDetail } from './use-incident-detail';
+import { AssessmentPanel } from './AssessmentPanel';
 import './incidents.css';
 
 const dateTime = (date: string) =>
@@ -174,6 +175,7 @@ export function IncidentDetailPage() {
               <p className="metadata-hint">Times are shown in your local time zone.</p>
             </aside>
           </div>
+          {professional && <AssessmentPanel incidentId={incident.id} />}
           <p className="readonly-note">
             Read-only record. Editing, comments and investigation actions are not
             available in this release.

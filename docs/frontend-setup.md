@@ -6,10 +6,14 @@ themes, plus a protected workspace, incident submission and role-scoped list/det
 with status/category filters and cursor pagination. Firefox is the primary test browser;
 the same browser suite also runs on Chromium. Sign-in now lands on `/incidents`;
 `/account` retains the account information screen.
+Eligible staff can also read stored AI assessment states and results on another
+person's incident when the optional AI service is enabled.
 
 This increment does **not** implement investigation mutations, comments, account
-administration, password recovery, notifications or AI. No assessment job is
-created by the current backend; see [incident handoff](incidents-handoff.md).
+administration, password recovery, notifications, model execution in the browser or
+assessment retry mutations. The merged AI migration queues an initial job on new
+incident inserts; processing requires the optional AI services. See
+[AI backend setup](ai-backend.md) for candidate-contract and real-inference boundaries.
 
 ## Prerequisites and startup
 
@@ -35,9 +39,9 @@ make docker-build-web docker-caddy-check docker-up
 
 Open **http://127.0.0.1:8088/login**. The separate `cyberguard-web:local` image contains
 only the built static frontend and Caddy runtime/config. It runs non-root/read-only,
-without Node, Vite, secret mounts or source/config bind mounts. Relative `/api` calls
-are same-origin; existing cookie/CSRF policy is unchanged. Build-time inputs exclude
-host `.env` files and Git-local LAN overrides. Rebuild after frontend/Caddyfile changes;
+without Node, Vite, secret mounts or source/config bind mounts. Relative `/api` and
+`/ai` calls are same-origin; existing cookie/CSRF policy is unchanged. Build-time inputs
+exclude host `.env` files and Git-local LAN overrides. Rebuild after frontend/Caddyfile changes;
 the running container does not watch source. No database setup occurs during startup.
 
 ### Vite hot-reload development
@@ -53,9 +57,10 @@ Open **http://127.0.0.1:5173/login**. Vite binds loopback and requires port 5173
 of silently selecting another port: Go trusts that exact frontend origin. Use
 `127.0.0.1` consistently, not a mixture of IP and localhost names.
 
-The browser uses relative `/api/...` URLs. Vite proxies that prefix unchanged to Caddy
-at `http://127.0.0.1:8088`; Caddy removes `/api` before forwarding to Go. Browser
-credentials, Host/Origin policy and root-path HttpOnly cookies are preserved. No
+The browser uses relative `/api/...` and `/ai/...` URLs. Vite proxies both prefixes
+unchanged to Caddy at `http://127.0.0.1:8088`; Caddy removes `/api` before forwarding
+to Go and, with the optional AI overlay, removes `/ai` before forwarding to Python.
+Browser credentials, Host/Origin policy and root-path HttpOnly cookies are preserved. No
 frontend environment variables, database credentials or service tokens are needed.
 
 The explicit demo usernames are `employee_a`, `employee_b`, `analyst` and `admin`.
@@ -167,7 +172,29 @@ retry, and resubmission requires explicit confirmation after checking incidents 
 separate tab. The API has no idempotency-key contract, so exactly-once submission
 across tabs/reloads/network loss is not promised. A current 401 expires the session;
 obsolete results cannot affect a newer identity. New reports are unclassified and
-unassigned; the UI explicitly says that saving does not enqueue an AI assessment.
+unassigned. The merged AI migration queues new reports even without a worker;
+submission guidance does not promise that AI processing is running.
+
+### Stored AI assessment contract
+
+Analyst/admin detail views of another person's report request
+`/ai/incidents/:id/assessment` with the existing HttpOnly session. Employees and staff
+reporters never mount/fetch this panel; Python independently enforces the same ownership
+rule. The `/api` and `/ai` clients share cookie, no-store, timeout, cancellation and
+session-generation safeguards, but retain distinct path prefixes.
+
+Queued/running/completed/failed job states remain separate from incident business
+status. Refresh is explicit: no background loop keeps sessions alive or starts inference.
+Missing jobs (including older reports), forbidden access and disabled/unavailable AI
+show assessment-only messages without hiding the incident. A current 401 expires the
+session; obsolete responses cannot populate a newer identity's screen.
+
+Completed results require validated job/incident pairing, schema, timestamps and
+consistent `is_fake`/`source_kind` provenance. Fake output is prominently labelled;
+all summaries, facts, unknowns, questions and steps render as literal text, never HTML
+or executable instructions. Suggestions never overwrite confirmed incident fields.
+Model impact/probabilities are labelled unconfirmed and not calibrated risk scores.
+Terminal failures offer status refresh only, not an invented requeue mutation.
 
 ### Themes and accessibility
 
@@ -211,12 +238,16 @@ For a freshly provisioned packaged fixture, with no Vite process required:
 
 ```sh
 DOCKER_TEST_FRONTEND=1 make docker-smoke
+# Add the real AI API/worker with synthetic, explicitly labelled output:
+DOCKER_TEST_AI=1 DOCKER_TEST_FRONTEND=1 make docker-smoke
 ```
 
 This runs all default browser regressions against compiled assets, followed by real
 same-origin packaged flows without API interception. The runner builds/provisions and
 cleans up only its disposable project. Host Node/npm, locked dependencies and managed
 Firefox/Chromium must already be installed for this optional browser flag.
+The AI flag provisions a fresh restricted AI role and runs the actual queue/worker/API
+flow in `AI_MODE=fake`; it does not download models or validate real-model accuracy.
 Alternatively, keep a smoke fixture and target its exact nonstandard loopback origin:
 
 ```sh
@@ -405,3 +436,34 @@ development services/data and ignored LAN configuration were untouched. No Go/SQ
 application code or auth policy changed; the separate Go race/integration suite was
 not rerun for this packaging-only increment. Public HTTPS/Azure and the previously
 documented extra Firefox error-state scanner limitation remain outside this acceptance.
+
+### AI integration follow-up — 10 November 2026
+
+The server-side reporter restriction was fixed on `main` first, then merged into
+`feat/frontend`. All **23** Python tests and scoped Ruff/Pyright checks passed. Go's
+unit/HTTP suite also passed after the merge; no Go/SQL files were changed in this
+frontend follow-up.
+
+`make frontend-check` passed **106** unit/component tests, types, lint, formatting and
+the production build. All **146** Firefox/Chromium regressions passed in the Vite
+workflow and against packaged assets. The new coverage includes real job states,
+fake provenance, literal model text, unavailable/missing/forbidden assessments,
+session expiry/isolation, no background polling, both palettes and mobile accessibility.
+
+`DOCKER_TEST_AI=1 DOCKER_TEST_FRONTEND=1 make docker-smoke` passed the actual
+PostgreSQL trigger/claim/worker/Go context/AI API/Caddy pipeline in fixture mode, plus
+**4** packaged shell/live-browser tests. Native requests verified employee denial,
+analyst/admin own-report denial, other-report staff access and completed fake provenance;
+live browsers verified the explicit fixture banner and reporter restrictions. Shared
+SPA/security/cache handling survived the AI overlay. A read-only Vite `/ai/healthz`
+probe also reached the ordinary AI-disabled gateway as JSON 503, not Vite HTML.
+The final `make docker-smoke` also passed separately with AI disabled, including the
+original four-service lifecycle, unavailable AI response and shared gateway checks.
+
+Dependency audit and secret-generation checks passed. Synthetic assessment screenshots
+were reviewed at desktop/mobile widths. Ordinary services/data, protected credentials
+and ignored LAN configuration were not changed; successful fixture resources were
+removed by their owner script. Real model inference/evaluation, concurrent claim/lease
+failure cases, the full Go race/integration/generated-query checks and production
+deployment are not claimed by this follow-up. The existing upstream Python test
+deprecation warning and extra Firefox error-state scanner limitation remain documented.

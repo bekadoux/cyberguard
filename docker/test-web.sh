@@ -64,10 +64,16 @@ for path in /missing /assets/missing.js /assets/missing-12345678.js /assets/inde
     ! html
 done
 for path in /ai /ai/incidents/assessment; do
-    request 503 -H 'Accept: text/html' "$base$path"
+    expected=503
+    if [[ ${2:-0} == 1 ]]; then expected=404; fi
+    request "$expected" -H 'Accept: text/html' "$base$path"
     no_store
     ! html
 done
+if [[ ${2:-0} == 1 ]]; then
+    request 200 "$base/ai/healthz"
+    request 200 "$base/ai/readyz"
+fi
 for path in /login /incidents/new /assets/anything.js; do
     request 405 -X POST "$base$path"
     no_store

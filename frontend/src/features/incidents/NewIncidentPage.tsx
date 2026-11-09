@@ -262,7 +262,10 @@ export function NewIncidentPage() {
             New reports start as Submitted, without an assigned analyst or confirmed
             category.
           </p>
-          <p>This release saves the incident only. No AI assessment is scheduled.</p>
+          <p>
+            AI processing, when available, is separate from incident status. Your security
+            team reviews any suggestions.
+          </p>
         </aside>
       </div>
     </section>

@@ -17,6 +17,7 @@ const requireTrue = (value: boolean) => {
 try {
   const api = new URL(process.env.E2E_INCIDENT_API_ORIGIN ?? '');
   const packaged = process.env.E2E_INCIDENT_PACKAGED === '1';
+  const assessments = process.env.E2E_INCIDENT_ASSESSMENTS === '1';
   const secrets = resolve(process.env.E2E_INCIDENT_SECRETS_DIR ?? '');
   requireTrue(
     api.protocol === 'http:' &&
@@ -171,6 +172,11 @@ try {
     (await page.locator('.incident-description').textContent()) === description,
   );
   requireTrue((await page.getByText('Severity', { exact: true }).count()) === 0);
+  requireTrue((await page.getByTestId('assessment-panel').count()) === 0);
+  if (assessments)
+    requireTrue(
+      (await context.request.get(`/ai/incidents/${row.id}/assessment`)).status() === 403,
+    );
   requireTrue(
     (await page.evaluate(() => localStorage.length + sessionStorage.length)) === 0,
   );
@@ -204,6 +210,32 @@ try {
   requireTrue(
     (await page.locator('.incident-description').textContent()) === description,
   );
+  if (assessments) {
+    check('checking AI assessment');
+    const panel = page.getByTestId('assessment-panel');
+    for (let attempt = 0; attempt < 15; attempt++) {
+      if (await panel.getByText('Test fixture — not AI output.', { exact: true }).count())
+        break;
+      await page.waitForTimeout(1000);
+      await panel.getByRole('button', { name: 'Refresh assessment' }).click();
+    }
+    await panel.getByText('Test fixture — not AI output.', { exact: true }).waitFor();
+    requireTrue((await panel.textContent())?.includes('FAKE ASSESSMENT') === true);
+    check('checking staff reporter restrictions');
+    await page.goto('/incidents/new');
+    const ownTitle = `Staff own browser report ${randomUUID()}`;
+    await page.getByLabel('Title', { exact: true }).fill(ownTitle);
+    await page
+      .getByLabel('Description', { exact: true })
+      .fill('Synthetic staff reporter authorization check.');
+    await page.getByRole('button', { name: 'Submit incident', exact: true }).click();
+    await page.getByRole('heading', { name: ownTitle, exact: true }).waitFor();
+    requireTrue((await page.getByTestId('assessment-panel').count()) === 0);
+    const ownId = new URL(page.url()).pathname.split('/').at(-1);
+    requireTrue(
+      (await context.request.get(`/ai/incidents/${ownId}/assessment`)).status() === 403,
+    );
+  }
   check('signing out');
   await logout();
 } catch {
