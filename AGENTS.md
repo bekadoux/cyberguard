@@ -11,6 +11,14 @@
   are in `docs/docker-setup.md`. Set `DOCKER_SECRET_GID=$(id -g)` for file permissions.
   Bootstrap/migrate/seed are explicit one-off tools, never API startup actions. Do not
   enable the `tools` profile for ordinary `up`, or remove volumes as routine cleanup.
+  Caddy exposes Go at `http://127.0.0.1:8088/api`; direct development access on 8080
+  uses the existing unprefixed routes. Frontend/AI paths are not implemented yet.
+- Business rules are in `docs/domain-specification.md`. `docs/playbooks.md` and
+  `docs/demo-incidents.csv` supply domain reference material and labelled scenarios,
+  not an implemented incident importer/seed or measured AI evaluation results.
+- `docs/assessment-job-contract.md` is a proposal, not an implemented/final contract.
+  Confirm schema, context revision/snapshot, grants and service contracts with the Go
+  engineer, AI specialist and architect before implementing the assessment handoff.
 - The Go module is `backend/go` (Go 1.27.3). Run Make targets from the repository
   root; run direct Go commands from `backend/go`, not the root.
 - Make targets use GNU Make. Database bootstrap requires `psql` 15+ for `\getenv`;
@@ -26,6 +34,10 @@
   including restart persistence, SQL outages and HTTP access rules. It deletes only
   its own test volumes. `DOCKER_TEST_GO_INTEGRATION=1 make docker-smoke` also runs the
   full Go/PostgreSQL race suite there; requires host Go, Bash, curl, jq and OpenSSL.
+- PostgreSQL healthchecks must probe TCP (`pg_isready -h 127.0.0.1`), not the temporary
+  socket-only server used during first initialization. `make docker-test-readiness`
+  deterministically verifies that distinction in isolated containers; it is also
+  included in `make docker-smoke`.
 - `make go-test` runs unit/HTTP tests without PostgreSQL; some tests need permission
   to bind ephemeral loopback ports. `make go-test-race` adds the race detector,
   requiring cgo enabled (`CGO_ENABLED=1`) and, on Linux, a working C compiler.
@@ -92,6 +104,9 @@
 ## PR instructions
 
 - No required PR-title format.
+- For Docker/setup changes, run `make docker-test-secrets` and `make docker-smoke`;
+  the latter includes Compose/Caddy validation and the first-initialization readiness
+  regression. Use `DOCKER_TEST_GO_INTEGRATION=1` when also checking Go/SQL integration.
 - Before submitting Go changes, run `make go-check`, then `make go-build` (API,
   migration and seed binaries under `backend/go/bin/`). For database/session changes,
   also run `make go-test-integration` with the dedicated test instances.
