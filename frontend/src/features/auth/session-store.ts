@@ -77,7 +77,13 @@ export class SessionStore {
       const user = await action();
       this.update({ status: user ? 'authenticated' : 'anonymous', user, error: null });
     } catch (error) {
-      throw asApiError(error);
+      const failure = asApiError(error);
+      if (this.state.status === 'checking') {
+        // The mutation canceled this read. A failed logout must not leave a spinner
+        // waiting for a response that can no longer confirm the session.
+        this.update({ status: 'unavailable', error: failure });
+      }
+      throw failure;
     } finally {
       this.update({ pending: false });
     }

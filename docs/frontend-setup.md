@@ -81,7 +81,10 @@ contracts exist. Client routing/role labels are UX only: Go always authorizes re
   needs a separate protocol if required. Focus revalidation discovers changes elsewhere.
 - A protected 401 clears identity. A 503/network error gates protected content but
   retains identity as unconfirmed, rather than claiming logout. A failed logout shows
-  a retryable warning and never claims the server session was revoked.
+  a retryable warning and never claims the server session was revoked. The session-check
+  outage screen still offers sign-out, even when identity could not be restored; a
+  failing current-user query does not necessarily prevent session deletion. Sign-out
+  remains available while rechecking a previously confirmed identity.
 - Login passwords are never trimmed, logged or persisted. Validation follows the
   backend's byte limits and normalized ASCII username policy. Failed submissions clear
   the password. Only explicit user submission causes a login mutation: no automatic retry.
@@ -173,6 +176,9 @@ appearance. Do not publish real credentials.
   passed across Firefox/Chromium, and the **2** real-backend checks passed with process
   isolation. An intentionally failing synthetic login in each browser produced list,
   JSON and HTML/error-context reports without the synthetic password.
+- Session-outage follow-up: **6** component regressions and **2** browser regressions
+  passed, covering sign-out without a confirmed identity, failed/duplicate logout,
+  rechecking races and recovery after a canceled check. Protected content remains gated.
 - `npm audit`: no known vulnerabilities reported, including development dependencies.
 - Fresh local Docker setup, migration status and readiness passed; demo accounts were
   explicitly seeded. `make docker-test-secrets` and `make docker-smoke` passed after

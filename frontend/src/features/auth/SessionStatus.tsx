@@ -1,9 +1,22 @@
-import { AlertCircle, LoaderCircle } from 'lucide-react';
+import { AlertCircle, LoaderCircle, LogOut } from 'lucide-react';
+import { useState } from 'react';
+import { authErrorMessage } from './messages';
 import { useAuth } from './use-auth';
 
 export function SessionStatus() {
-  const { status, refresh } = useAuth();
+  const { status, user, pending, refresh, logout } = useAuth();
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const unavailable = status === 'unavailable';
+
+  const signOut = async () => {
+    setSignOutError(null);
+    try {
+      await logout();
+    } catch (error) {
+      setSignOutError(authErrorMessage(error, 'logout'));
+    }
+  };
+
   return (
     <section className="session-status" aria-labelledby="session-heading">
       {unavailable ? (
@@ -19,15 +32,34 @@ export function SessionStatus() {
           ? 'The service is temporarily unavailable. This does not mean you have been signed out.'
           : 'One moment while we check your company account.'}
       </p>
-      {unavailable && (
-        <button
-          type="button"
-          className="button button-primary"
-          onClick={() => void refresh()}
-        >
-          Try again
-        </button>
+      {signOutError && (
+        <p className="notice notice-error" role="alert">
+          {signOutError}
+        </p>
       )}
+      <div className="session-actions">
+        {unavailable && (
+          <button
+            type="button"
+            className="button button-primary"
+            disabled={pending}
+            onClick={() => void refresh()}
+          >
+            Try again
+          </button>
+        )}
+        {(unavailable || user) && (
+          <button
+            type="button"
+            className="button button-secondary"
+            disabled={pending}
+            onClick={() => void signOut()}
+          >
+            <LogOut size={17} aria-hidden="true" />
+            {pending ? 'Signing out…' : 'Sign out'}
+          </button>
+        )}
+      </div>
     </section>
   );
 }

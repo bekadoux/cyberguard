@@ -187,6 +187,32 @@ test('handles expired identity when the page becomes visible again', async ({ pa
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
 });
 
+test('allows logout through a session-check outage without exposing account content', async ({
+  page,
+}) => {
+  await page.route('**/api/auth/me', (route) => route.fulfill({ json: { user } }));
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toBeVisible();
+  await page.route('**/api/auth/me', (route) =>
+    route.fulfill({ status: 503, json: error('auth_unavailable') }),
+  );
+  await page.route('**/api/auth/logout', (route) =>
+    route.fulfill({ status: 503, json: error('auth_unavailable') }),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(
+    page.getByRole('heading', { name: 'Unable to check your session' }),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText(
+    'Your session may still be active.',
+  );
+  await page.route('**/api/auth/logout', (route) => route.fulfill({ status: 204 }));
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+});
+
 test('supports system, dark and light themes with persistent preference', async ({
   page,
 }) => {
