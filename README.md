@@ -28,7 +28,8 @@ validation and access-controlled views based on the
 [domain specification](docs/domain-specification.md). Initial assessment-job enqueueing
 is **not yet integrated**; this is not the complete first vertical slice.
 
-The [containerization handoff](docs/containerization-handoff.md) specifies the next
-local Docker increment: Caddy, Go, two PostgreSQL instances, secret-file delivery and
-lifecycle checks. It records the later frontend/AI boundaries and two-VM deployment
-direction without requiring Azure deployment now.
+The [local Docker setup](docs/docker-setup.md) provides runnable commands for Caddy,
+Go, two PostgreSQL instances, secret-file delivery and disposable lifecycle tests.
+Start with `make docker-secrets` and follow that guide's explicit setup sequence.
+The [containerization handoff](docs/containerization-handoff.md) records ownership,
+acceptance criteria and the later frontend/AI and two-VM deployment boundaries.

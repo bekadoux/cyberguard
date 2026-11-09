@@ -2,11 +2,15 @@
 
 ## Dev environment tips
 
-- The only implemented service is the Go API, including incident core create/read.
+- The only implemented application backend is the Go API, including incident core create/read.
   Frontend, Python/AI, assessment enqueueing and investigation mutations remain
   planned; see `docs/incidents-handoff.md` for the explicit integration gap. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
   contracts are in `docs/architect-handoff.md`.
+- Local Docker runs Caddy, Go and two PostgreSQL instances; commands and prerequisites
+  are in `docs/docker-setup.md`. Set `DOCKER_SECRET_GID=$(id -g)` for file permissions.
+  Bootstrap/migrate/seed are explicit one-off tools, never API startup actions. Do not
+  enable the `tools` profile for ordinary `up`, or remove volumes as routine cleanup.
 - The Go module is `backend/go` (Go 1.27.3). Run Make targets from the repository
   root; run direct Go commands from `backend/go`, not the root.
 - Make targets use GNU Make. Database bootstrap requires `psql` 15+ for `\getenv`;
@@ -18,6 +22,10 @@
 ## Testing instructions
 
 - No CI workflow is checked in; `Makefile` defines the available checks.
+- `make docker-smoke` builds and tests a fresh disposable four-container project,
+  including restart persistence, SQL outages and HTTP access rules. It deletes only
+  its own test volumes. `DOCKER_TEST_GO_INTEGRATION=1 make docker-smoke` also runs the
+  full Go/PostgreSQL race suite there; requires host Go, Bash, curl, jq and OpenSSL.
 - `make go-test` runs unit/HTTP tests without PostgreSQL; some tests need permission
   to bind ephemeral loopback ports. `make go-test-race` adds the race detector,
   requiring cgo enabled (`CGO_ENABLED=1`) and, on Linux, a working C compiler.
@@ -40,6 +48,10 @@
   `.env`, then use `make go-run`; `db/.env` is for privileged one-off commands.
   Never launch the API from a shell still exporting administrator/migration/demo
   secrets.
+- Go database URLs and demo passwords accept native `_FILE` alternatives. Configure
+  exactly one source per setting; even an empty direct value conflicts with `_FILE`.
+  Files remove one terminal LF/CRLF only. Compose uses scoped `/run/secrets` mounts;
+  its automatic `.env` interpolation does not inject that file into the API wholesale.
 - Local HTTP authentication requires `APP_ENV=development` and
   `SESSION_COOKIE_SECURE=false`; otherwise defaults are production/Secure.
   Use the consistent `127.0.0.1` addresses in `.env.example`, not mixed localhost

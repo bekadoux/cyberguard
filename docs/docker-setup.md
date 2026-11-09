@@ -44,6 +44,8 @@ memory, process and log limits are local defaults, not measured deployment sizin
 those actions use explicitly invoked, disposable tooling containers. Repeating
 migrations is a no-op; repeating seed preserves existing accounts. Bootstrap is
 repeatable but reapplies managed-role passwords, so it is not routine startup.
+Never enable the `tools` profile for ordinary `up`: invoke its services individually
+through the documented targets, not as parallel runtime dependencies.
 
 ## Secret files and configuration
 
@@ -209,3 +211,24 @@ under protected `.local/cyberguard-smoke-*` directories and may contain secrets/
 For debugging, `DOCKER_KEEP_TEST_ENV=1` retains that test project and its sensitive state;
 the script prints the project name for explicit later cleanup. Do not reuse its test
 credentials as a normal development environment.
+
+### Local validation evidence
+
+Validation on 9 November 2026 used Docker Engine 29.9.3 / Compose 5.7.0 on Linux,
+Go 1.27.3, PostgreSQL 17.11 and Caddy 2.11.9, with the pinned images in source control:
+
+- `make go-check`, then `make go-build` passed. Govulncheck reported no affected called
+  symbols/imported packages; the previously documented unused OpenPGP module advisory
+  remains, not a new containerization finding.
+- `make docker-test-secrets`, Compose validation and Caddy validation passed.
+- All three Go OpenAPI specifications validated with the local Caddy server URL.
+- The full disposable smoke test, including `DOCKER_TEST_GO_INTEGRATION=1`, passed
+  repeatedly with the race detector and real PostgreSQL. Its cleanup removed its own
+  containers/volumes; ordinary development data was not used.
+- An adversarial run supplied parent Make project/secret/Compose overrides. The runner
+  still used its own disposable project and left existing secret files unchanged.
+- Credential-source tests also passed with inherited `_FILE` settings exported, matching
+  the host-development workflow. Direct environment compatibility is retained.
+
+No Azure VM, frontend, Python worker, production TLS or actual browser UI was deployed
+or accepted by these checks. Manual backup/restore tooling is not included.

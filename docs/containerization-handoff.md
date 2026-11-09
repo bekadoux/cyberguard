@@ -1,6 +1,8 @@
 # Containerization Handoff — Local Docker Foundation
 
-Status: agreed direction, 9 November 2026. Implementation is pending.
+Status: local Docker foundation implemented and exercised, 9 November 2026.
+Use [local Docker setup](docker-setup.md) for runnable commands and validation evidence.
+Frontend, AI and Azure deployment remain pending.
 
 ## 1. Objective and scope
 
@@ -21,8 +23,8 @@ This handoff updates the older [project plan](project-plan.md): the frontend wil
 served by Caddy, not Go, and the intended deployment separates application and AI VMs.
 The existing [architect](architect-handoff.md), [database](database-setup.md) and
 [authentication](authentication-handoff.md) contracts still apply unless explicitly
-updated here. This document describes work to deliver, not working Docker commands
-or configuration already checked into the repository.
+updated here. This document retains the design/acceptance contract; the setup guide
+describes delivered commands and known local-only limitations.
 
 ## 2. Agreed architecture
 
@@ -65,7 +67,7 @@ entrypoints. Coordinate the small Go configuration increment with the Go enginee
 
 ## 4. Deliverables and development workflow
 
-Suggested file layout; exact auxiliary paths may follow implementation conventions:
+Implemented layout; additional setup/test helpers live under `docker/`:
 
 ```text
 compose.yaml                  # Reusable services, networks, volumes and tooling
@@ -188,10 +190,10 @@ container environment variables. Neither is automatically a secret-file mechanis
 The existing API and Make targets do not automatically load the repository's `.env`.
 Keep container-specific addresses/configuration distinct from existing host examples.
 
-### Required Go configuration increment
+### Implemented Go configuration
 
-The application currently accepts environment values only. Add and test native file
-alternatives, rather than exporting all mounted secrets into the API environment:
+Go commands now accept native file alternatives, rather than exporting all mounted
+secrets into the API environment:
 
 | Consumer | File-based inputs to support |
 | --- | --- |

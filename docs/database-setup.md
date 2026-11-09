@@ -59,9 +59,7 @@ still exporting administrator/migration secrets.** Use a clean shell or an expli
 scoped process environment. Ignoring privileged variables in Go does not remove them
 from the process environment.
 
-## Bootstrap: databases and roles
-
-### File-backed Go credentials
+## File-backed Go credentials
 
 The API accepts `IDENTITY_DATABASE_URL_FILE` and `INCIDENT_DATABASE_URL_FILE` instead
 of the corresponding direct values. Migration/seed commands accept
@@ -78,7 +76,7 @@ password or reload a process. Keep files out of Git and image build contexts.
 This support is native to the Go commands; the existing psql bootstrap scripts still
 consume their documented environment variables. Compose setup adapters are separate.
 
-### Bootstrap commands
+## Bootstrap: databases and roles
 
 Start the architect's two PostgreSQL instances first. In a dedicated administrative
 shell, load your trusted edited settings and run from the repository root:
