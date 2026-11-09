@@ -18,12 +18,23 @@ export default defineConfig({
   },
   projects: [
     {
+      name: 'incident-live-firefox',
+      testMatch: 'incidents.live.spec.ts',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'incident-live-chromium',
+      testMatch: 'incidents.live.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
       name: 'firefox',
       testMatch: [
         'login.spec.ts',
         'accessibility.spec.ts',
         'live-auth-safety.spec.ts',
         'incidents.spec.ts',
+        'submission.spec.ts',
       ],
       use: { ...devices['Desktop Firefox'] },
     },
@@ -34,6 +45,7 @@ export default defineConfig({
         'accessibility.spec.ts',
         'live-auth-safety.spec.ts',
         'incidents.spec.ts',
+        'submission.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'] },
     },

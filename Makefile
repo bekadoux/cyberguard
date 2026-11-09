@@ -16,6 +16,7 @@ DOCKER_GO_IMAGE ?= cyberguard-go:local
 .PHONY: docker-smoke
 .PHONY: docker-test-readiness
 .PHONY: frontend-install frontend-dev frontend-check frontend-test-e2e frontend-test-e2e-live
+.PHONY: frontend-test-incidents-live
 
 help:
 	@printf '%s\n' \
@@ -34,7 +35,8 @@ help:
 	  'frontend-dev        Run Vite at http://127.0.0.1:5173' \
 	  'frontend-check      Check types, lint, formatting, unit tests and build' \
 	  'frontend-test-e2e   Run isolated Firefox and Chromium browser tests' \
-	  'frontend-test-e2e-live Run real-backend browser auth tests (E2E_PASSWORD_FILE required)'
+	  'frontend-test-e2e-live Run real-backend browser auth tests (E2E_PASSWORD_FILE required)' \
+	  'frontend-test-incidents-live Run browser create/read/isolation against explicit disposable fixture'
 	@printf '%s\n' \
 	  'db-bootstrap-identity  Create identity database and restricted roles (admin connection)' \
 	  'db-bootstrap-incidents Create incident database and restricted roles (admin connection)'
@@ -189,3 +191,6 @@ frontend-test-e2e:
 
 frontend-test-e2e-live:
 	cd frontend && npm run test:e2e:live
+
+frontend-test-incidents-live:
+	cd frontend && npm run test:e2e:incidents-live

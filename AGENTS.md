@@ -3,9 +3,8 @@
 ## Dev environment tips
 
 - The only implemented application backend is the Go API, including incident core create/read.
-  The frontend implements login/session UI, themes and scoped incident list/detail.
-  Incident submission UI, Python/AI, assessment enqueueing and investigation
-  mutations remain planned. See
+  The frontend implements login/session UI, themes and scoped incident create/list/detail.
+  Python/AI, assessment enqueueing and investigation mutations remain planned. See
   `docs/frontend-setup.md` and `docs/incidents-handoff.md` for the explicit boundaries. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
   contracts are in `docs/architect-handoff.md`.
@@ -35,8 +34,9 @@
 - Frontend: Node 24.22.2/npm 12.2.2, `make frontend-install`, then
   `make frontend-check`. `make frontend-test-e2e` runs Firefox and Chromium with
   Playwright-managed browsers; the separate live suite requires the running demo
-  backend and `E2E_PASSWORD_FILE`. See `docs/frontend-setup.md`. Never put secrets
-  in frontend configuration, browser storage or test artifacts.
+  backend and `E2E_PASSWORD_FILE`. `make frontend-test-incidents-live` performs writes
+  only against an explicitly selected disposable fixture. See `docs/frontend-setup.md`.
+  Never put secrets in frontend configuration, browser storage or test artifacts.
 - No CI workflow is checked in; `Makefile` defines the available checks.
 - `make docker-smoke` builds and tests a fresh disposable four-container project,
   including restart persistence, SQL outages and HTTP access rules. It deletes only

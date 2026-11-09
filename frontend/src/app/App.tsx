@@ -7,6 +7,7 @@ import { SessionPage } from '../features/auth/SessionPage';
 import { ThemeProvider } from '../shared/theme/ThemeProvider';
 import { IncidentListPage } from '../features/incidents/IncidentListPage';
 import { IncidentDetailPage } from '../features/incidents/IncidentDetailPage';
+import { NewIncidentPage } from '../features/incidents/NewIncidentPage';
 import { WorkspaceLayout } from './WorkspaceLayout';
 
 export function App() {
@@ -20,6 +21,7 @@ export function App() {
               <Route element={<WorkspaceLayout />}>
                 <Route index element={<Navigate to="/incidents" replace />} />
                 <Route path="/incidents" element={<IncidentListPage />} />
+                <Route path="/incidents/new" element={<NewIncidentPage />} />
                 <Route path="/incidents/:id" element={<IncidentDetailPage />} />
                 <Route path="/account" element={<SessionPage />} />
               </Route>

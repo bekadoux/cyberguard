@@ -26,6 +26,7 @@ type RequestOptions = {
   method?: 'GET' | 'POST';
   body?: unknown;
   signal?: AbortSignal;
+  expectedStatus?: number;
 };
 
 export async function request(
@@ -50,6 +51,13 @@ export async function request(
     throw new ApiError(0, 'network_unavailable');
   }
 
+  if (
+    response.ok &&
+    options.expectedStatus !== undefined &&
+    response.status !== options.expectedStatus
+  ) {
+    throw new ApiError(response.status, 'invalid_response', response.headers);
+  }
   if (response.status === 204) return undefined;
   const data: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {

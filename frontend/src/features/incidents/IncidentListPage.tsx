@@ -2,6 +2,7 @@ import {
   AlertCircle,
   ClipboardList,
   LoaderCircle,
+  Plus,
   RefreshCw,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -45,6 +46,10 @@ export function IncidentListPage() {
               : 'Your reported security incidents, with the latest information available from your security team.'}
           </p>
         </div>
+        <Link className="button button-primary report-incident-link" to="/incidents/new">
+          <Plus size={18} aria-hidden="true" />
+          Report an incident
+        </Link>
       </div>
       <div className="panel incident-list-panel">
         <div className="incident-filters" role="group" aria-label="Filter incidents">

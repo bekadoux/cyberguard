@@ -20,7 +20,7 @@ and the remaining joint acceptance checks.
 The [authentication handoff](docs/authentication-handoff.md) covers the implemented
 login/logout/current-user API, sessions and browser security, with separate architect,
 AI specialist and domain expert review tasks. Its [OpenAPI contract](api/go-authentication.openapi.yaml)
-is available for the later frontend integration.
+is used by the frontend session UI.
 
 The [incident core handoff](docs/incidents-handoff.md) and
 [OpenAPI contract](api/go-incidents.openapi.yaml) cover incident create/list/detail,
@@ -35,6 +35,6 @@ The [containerization handoff](docs/containerization-handoff.md) records ownersh
 acceptance criteria and the later frontend/AI and two-VM deployment boundaries.
 
 The [frontend setup guide](docs/frontend-setup.md) covers the implemented login/session
-UI, light/dark themes, protected incident list/detail, Vite development workflow, and
-Firefox/Chromium tests. Incident submission and compiled frontend serving through
-Caddy remain future work.
+UI, light/dark themes, protected incident submission/list/detail, Vite development
+workflow, and Firefox/Chromium tests. Investigation actions, AI assessment and compiled
+frontend serving through Caddy remain future work.

@@ -5,7 +5,7 @@ import { ApiError } from '../../shared/api/client';
 import { useAuth } from '../auth/use-auth';
 import { IncidentStatusBadge } from './IncidentStatusBadge';
 import { incidentErrorMessage } from './messages';
-import { categoryLabels, incidentListBackLink, severityLabels } from './model';
+import { categoryLabels, incidentListBackLink, isRecord, severityLabels } from './model';
 import { useIncidentDetail } from './use-incident-detail';
 import './incidents.css';
 
@@ -58,6 +58,11 @@ export function IncidentDetailPage() {
         </div>
       ) : (
         <>
+          {isRecord(location.state) && location.state.created === true && (
+            <p className="notice submission-success" role="status">
+              Incident submitted. Your report has been saved.
+            </p>
+          )}
           <div className="page-heading">
             <div>
               <span className="eyebrow">INCIDENT RECORD · {incident.id.slice(0, 8)}</span>

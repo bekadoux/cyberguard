@@ -7,8 +7,18 @@ import {
   type IncidentFilters,
   type IncidentPage,
 } from './model';
+import { submissionBody, type IncidentInput } from './submission';
 
 export const incidentsApi = {
+  async create(input: IncidentInput): Promise<IncidentDetail> {
+    return parseDetail(
+      await request('/incidents', {
+        method: 'POST',
+        expectedStatus: 201,
+        body: submissionBody(input),
+      }),
+    );
+  },
   async get(id: string, signal?: AbortSignal): Promise<IncidentDetail> {
     if (!isUUID(id)) throw new ApiError(404, 'not_found');
     return parseDetail(await request(`/incidents/${encodeURIComponent(id)}`, { signal }));

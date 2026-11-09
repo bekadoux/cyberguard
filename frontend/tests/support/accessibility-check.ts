@@ -39,9 +39,18 @@ try {
     [320, 568],
   ] as const) {
     await page.setViewportSize({ width, height });
-    const isDetail = process.argv[5] === 'detail';
-    await page.goto(isDetail ? `/incidents/${first.id}` : '/incidents');
-    if (isDetail) await page.getByRole('heading', { name: first.title }).waitFor();
+    const screen = process.argv[5];
+    await page.goto(
+      screen === 'detail'
+        ? `/incidents/${first.id}`
+        : screen === 'new'
+          ? '/incidents/new'
+          : '/incidents',
+    );
+    if (screen === 'detail')
+      await page.getByRole('heading', { name: first.title }).waitFor();
+    else if (screen === 'new')
+      await page.getByRole('heading', { name: 'Report an incident' }).waitFor();
     else await page.getByText('1 incident loaded · Newest first').waitFor();
     const result = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])

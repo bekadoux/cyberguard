@@ -2,14 +2,13 @@
 
 Implemented: React + TypeScript + Vite + React Router, responsive login, session
 restoration, an authenticated account-confirmation page, logout, and System/Light/Dark
-themes, plus a protected workspace and role-scoped incident list/detail with status/category
-filters and cursor pagination. Firefox is the primary test browser; the same browser
-suite also runs on Chromium. Sign-in now lands on `/incidents`; `/account` retains the
-account information screen.
+themes, plus a protected workspace, incident submission and role-scoped list/detail
+with status/category filters and cursor pagination. Firefox is the primary test browser;
+the same browser suite also runs on Chromium. Sign-in now lands on `/incidents`;
+`/account` retains the account information screen.
 
-The submission screen is the next chunk. This increment does **not**
-implement investigation mutations, account administration, password recovery, notifications or AI.
-The existing Go incident API remains available independently. No assessment job is
+This increment does **not** implement investigation mutations, comments, account
+administration, password recovery, notifications or AI. No assessment job is
 created by the current backend; see [incident handoff](incidents-handoff.md).
 
 ## Prerequisites and startup
@@ -59,12 +58,12 @@ see [containerization handoff](containerization-handoff.md#caddy-and-the-future-
 frontend/
   src/app/                 Router and application-wide providers
   src/features/auth/       Auth API DTOs, session store, login and account screens
-  src/features/incidents/  Safe DTOs, scoped list/detail, filters and pagination
+  src/features/incidents/  Safe DTOs, submission, scoped list/detail and pagination
   src/shared/api/          Credentialed, bounded JSON requests and safe API errors
   src/shared/theme/        System/light/dark preference and theme provider
   src/shared/ui/           Shared brand and theme control
   src/styles/              Semantic color tokens and shared UI primitives
-  tests/e2e/               Browser UI/failure tests and separate real-backend auth test
+  tests/e2e/               Browser UI/failure tests and opt-in real-backend suites
 ```
 
 Add later domain screens under `src/features/<feature>/` and mount protected routes
@@ -126,6 +125,29 @@ share one concealed not-found view. No partial report is shown on dependency fai
 Descriptions/resolutions are plain React text with whitespace preserved, never HTML.
 Back navigation retains validated list filters without forwarding them to the detail API.
 
+### Incident submission contract
+
+`/incidents/new` accepts only title, description and optional affected system. Required
+text must contain a non-whitespace character using Go-compatible Unicode whitespace
+rules. Limits are **200**, **10,000** and **500** Unicode code points, not UTF-16 units
+or visual grapheme clusters. NUL and unpaired surrogates are rejected. Original text
+is not trimmed or normalized; an empty optional field is omitted, while Go maps
+whitespace-only affected systems to null.
+
+Input stays in component memory, never browser storage, URLs or logs. Leaving/reloading
+the page or losing the confirmed session discards unsaved text. A synchronous lock
+prevents overlapping POSTs; input is disabled while sending. Only HTTP **201** with a
+validated incident DTO confirms success and opens the saved record. Leaving the form
+before completion prevents late navigation, but cannot undo a committed submission.
+
+Definitive 400/403/413/415 rejections retain fields and show safe errors. Network,
+timeout, 5xx and malformed/unexpected success results are ambiguous: no automatic
+retry, and resubmission requires explicit confirmation after checking incidents in a
+separate tab. The API has no idempotency-key contract, so exactly-once submission
+across tabs/reloads/network loss is not promised. A current 401 expires the session;
+obsolete results cannot affect a newer identity. New reports are unclassified and
+unassigned; the UI explicitly says that saving does not enqueue an AI assessment.
+
 ### Themes and accessibility
 
 The theme defaults to the system preference, supports explicit light/dark, and stores
@@ -164,6 +186,37 @@ E2E_PASSWORD_FILE="$PWD/.local/docker-secrets/dev_employee_a_password" \
   make frontend-test-e2e-live
 ```
 
+Incident write/isolation checks require a **separate disposable** backend; do not run
+them against ordinary development data. With Vite running, prepare a fixture and use
+the exact project name printed by the smoke command:
+
+```sh
+DOCKER_KEEP_TEST_ENV=1 make docker-smoke
+# Replace PROJECT with the printed cyberguard-smoke-<number> name:
+E2E_INCIDENT_API_ORIGIN=http://127.0.0.1:18088 \
+E2E_INCIDENT_SECRETS_DIR="$PWD/.local/PROJECT/secrets" \
+  make frontend-test-incidents-live
+```
+
+The helper accepts only an explicit nonstandard loopback HTTP API port and a secrets
+directory under a `cyberguard-smoke-*` or `cyberguard-ui-*` fixture. It forwards only
+browser `/api/` requests to that gateway; UI assets still come from Vite. Passwords
+are read only inside the discarded-output subprocess. Each browser submits synthetic
+Unicode text, verifies reload/list persistence, checks another employee's concealed
+404 and an analyst's professional projection, then signs out. It leaves synthetic
+reports in that fixture and does not modify account definitions. Three logins per
+browser can hit the unchanged five-per-minute peer limit; one throttled login may
+retry after `Retry-After`. Incident POSTs are never retried automatically.
+
+Afterward, remove **only that fixture's** containers/networks/volumes, not the ordinary
+`cyberguard` project. Retained secret files remain sensitive and Git-ignored:
+
+```sh
+COMPOSE_PROJECT_NAME=PROJECT \
+DOCKER_SECRETS_DIR="$PWD/.local/PROJECT/secrets" DOCKER_SECRET_GID=$(id -g) \
+  docker compose -f compose.yaml -f compose.dev.yaml down --volumes
+```
+
 `frontend-check` includes type checking, ESLint, Prettier, unit/component tests and a
 production build. Browser tests are separate; they are not implied by a passing build.
 
@@ -172,10 +225,10 @@ GHSA-g3hv-75wg-m249 in the ESLint/TypeScript lint tooling's transitive 10.x depe
 Remove the override once those packages select a patched version themselves. The
 lint/type/test/build checks exercise this combination; `npm audit` checks all dependencies.
 
-The default browser suite intercepts auth endpoints **in tests only** to deterministically
-exercise form validation, success/failures, duplicate-submit prevention, cooldowns,
-session restoration/expiry/outages, failed logout, themes and narrow layouts. Axe scans
-both themes; automated accessibility checks are not a substitute for manual review.
+The default browser suite intercepts auth and incident endpoints **in tests only** to
+deterministically exercise validation, success/failures, duplicate-submit prevention,
+cooldowns, session restoration/expiry/outages, failed logout, themes and narrow layouts.
+Axe scans both themes; automated accessibility checks are not a substitute for manual review.
 Unit tests additionally exercise response-ordering races and API/validation boundaries.
 
 On the current Arch host, Playwright downloads Ubuntu fallback browser builds. Firefox
@@ -190,6 +243,11 @@ fallback build crashes during native-widget evaluation under the main test runne
 instrumentation. The standalone scan uses the same synthetic fixtures, both palettes,
 desktop/mobile viewports and all WCAG A/AA rules, without altering browser optimizers.
 Normal interaction and layout assertions remain in the main Firefox/Chromium suite.
+Additional standalone scans of inline validation and ambiguous-result confirmation
+pass in Chromium in both palettes at 320px. Firefox scans the inline validation state,
+but its fallback build still crashes during the ambiguous-result scan, where a native
+confirmation checkbox is dynamically shown. That extra scan is not claimed as passing;
+the confirmation controls' interaction regressions pass in both browsers.
 
 The explicit live suite uses real Go/Caddy/PostgreSQL and verifies login, cookie flags,
 reload persistence, no browser-stored identity/token and server-side logout. It requires
@@ -209,7 +267,7 @@ passwords. Test artifacts are Git-ignored; still treat failure reports as potent
 sensitive. Prefer screenshots of the logged-out screen with empty fields when checking
 appearance. Do not publish real credentials.
 
-### Validation evidence — 9 November 2026
+### Authentication increment evidence — 9 November 2026
 
 - `make frontend-check`: type checking, lint, formatting, **47** unit/component tests
   and static production build passed.
@@ -234,9 +292,10 @@ appearance. Do not publish real credentials.
   explicitly seeded. `make docker-test-secrets` and `make docker-smoke` passed after
   excluding frontend test artifacts from Docker contexts.
 
-This is local development/browser evidence, not production HTTPS/Caddy-static, AI,
-incident-screen or manual accessibility acceptance. No Go/SQL behavior was changed;
-the separate full Go/PostgreSQL integration suite was not rerun for this UI increment.
+This section records the earlier authentication increment. The incident-screen evidence
+is below. These are local development/browser checks, not production HTTPS/Caddy-static,
+AI or full manual accessibility acceptance. No Go/SQL behavior was changed; the separate
+full Go/PostgreSQL integration suite was not rerun for these UI increments.
 
 ### Incident workspace chunk 1 — 9 November 2026
 
@@ -254,3 +313,25 @@ Firefox/Chromium browser tests passed. Coverage includes reporter/staff projecti
 unknown analyst identities, full resolution/original text, hostile literal markup,
 concealed 404s, dependency recovery, stale-detail cancellation, filter-preserving back
 navigation, long Unicode content, mobile reflow and both palettes' accessibility scans.
+
+### Incident submission chunk 3 — 9 November 2026
+
+- `make frontend-check` passed: types, lint, formatting, **92** unit/component tests
+  and the production build.
+- `make frontend-test-e2e` passed all **118** Firefox/Chromium tests, including the
+  submission validation, repeated submit-event lock, retained rejection inputs,
+  ambiguous-result review, session expiry, responsive layouts and pristine-form axe scans.
+- `make frontend-test-incidents-live` passed in **both browsers** against a fresh
+  disposable Caddy/Go/two-PostgreSQL project: real creation, Unicode/whitespace fidelity,
+  reload/list persistence, employee isolation and staff visibility. The helper's ordinary
+  development-port rejection was also verified before credential loading.
+- The existing **two** real-auth checks passed again. `npm audit` found no known
+  vulnerabilities; `git diff --check`, `make docker-test-secrets` and the fresh
+  `make docker-smoke` passed. No Go/SQL application behavior changed.
+- Synthetic desktop/mobile screenshots were reviewed in both palettes. Additional
+  error-state axe results and the remaining Firefox scanner limitation are noted above.
+
+Only the disposable project's containers, networks and volumes were removed afterward;
+ordinary development services/data, ignored LAN configuration and protected secret
+files were left intact. This remains incident core create/read, not acceptance of the
+future atomic incident-and-assessment workflow or production deployment.
