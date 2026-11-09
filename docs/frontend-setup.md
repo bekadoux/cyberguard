@@ -85,9 +85,12 @@ contracts exist. Client routing/role labels are UX only: Go always authorizes re
   outage screen still offers sign-out, even when identity could not be restored; a
   failing current-user query does not necessarily prevent session deletion. Sign-out
   remains available while rechecking a previously confirmed identity.
-- Login passwords are never trimmed, logged or persisted. Validation follows the
-  backend's byte limits and normalized ASCII username policy. Failed submissions clear
-  the password. Only explicit user submission causes a login mutation: no automatic retry.
+- Login passwords are never trimmed, logged or persisted. Browser validation enforces
+  nonempty inputs and the backend's raw UTF-8 byte limits; Go alone applies username
+  trimming, lowercasing and the normalized ASCII policy. JavaScript's Unicode rules
+  differ (for example, Turkish dotted `İ`), so the browser submits usernames unchanged.
+  Failed submissions clear the password. Only explicit user submission causes a login
+  mutation: no automatic retry.
 - Safe messages distinguish invalid credentials, CSRF/policy rejection, throttling,
   capacity, dependency and network errors. `Retry-After` disables resubmission until
   its deadline. Raw backend error messages are never rendered.
@@ -166,16 +169,17 @@ appearance. Do not publish real credentials.
 
 ### Validation evidence — 9 November 2026
 
-- `make frontend-check`: type checking, lint, formatting, **35** unit/component tests
+- `make frontend-check`: type checking, lint, formatting, **47** unit/component tests
   and static production build passed.
-- `make frontend-test-e2e`: **38** tests passed across managed Firefox 159 and
+- `make frontend-test-e2e`: **46** tests passed across managed Firefox 159 and
   Chromium 158, including both themes' full WCAG A/AA axe scans.
-- Explicit real-backend suite: **2** tests passed, one per browser. It also replayed
-  the pre-logout cookie and confirmed that Go rejects the revoked session.
+- Explicit real-backend suite: **4** checks passed: employee and Turkish dotted-I
+  `ADMİN` sign-in in each browser. Each check replayed the pre-logout cookie and
+  confirmed that Go rejects the revoked session.
 - Credential-reporting follow-up: **4** disabled-field/stalled-login regression checks
-  passed across Firefox/Chromium, and the **2** real-backend checks passed with process
-  isolation. An intentionally failing synthetic login in each browser produced list,
-  JSON and HTML/error-context reports without the synthetic password.
+  passed across Firefox/Chromium. An intentionally failing synthetic login in each
+  browser produced list, JSON and HTML/error-context reports without the synthetic
+  password.
 - Session-outage follow-up: **6** component regressions and **2** browser regressions
   passed, covering sign-out without a confirmed identity, failed/duplicate logout,
   rechecking races and recovery after a canceled check. Protected content remains gated.

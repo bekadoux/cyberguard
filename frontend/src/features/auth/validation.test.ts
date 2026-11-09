@@ -9,26 +9,35 @@ describe('credential validation', () => {
   });
 
   it('requires both fields', () => {
-    expect(validateCredentials({ username: ' ', password: '' })).toEqual({
+    expect(validateCredentials({ username: '', password: '' })).toEqual({
       username: 'Enter your username.',
       password: 'Enter your password.',
     });
   });
 
-  it.each(['ab', '_employee', 'employee@example.com', 'a'.repeat(65)])(
-    'rejects invalid username %s',
-    (username) => {
-      expect(
-        validateCredentials({ username, password: 'password' }).username,
-      ).toBeTruthy();
-    },
-  );
+  it.each([
+    'ADMİN',
+    '\u0085employee_a\u0085',
+    ' ',
+    'ab',
+    '_employee',
+    'employee@example.com',
+    'a'.repeat(65),
+  ])('defers normalization and normalized username policy to Go for %s', (username) => {
+    expect(validateCredentials({ username, password: 'password' })).toEqual({});
+  });
 
   it('limits the raw username to 128 UTF-8 bytes before normalization', () => {
     expect(
       validateCredentials({ username: ' '.repeat(126) + 'abc', password: 'password' })
         .username,
     ).toBeTruthy();
+    expect(
+      validateCredentials({ username: 'İ'.repeat(64), password: 'password' }),
+    ).toEqual({});
+    expect(
+      validateCredentials({ username: 'İ'.repeat(65), password: 'password' }).username,
+    ).toBe('Your username exceeds 128 UTF-8 bytes.');
   });
 
   it('counts password UTF-8 bytes, not JavaScript UTF-16 length', () => {

@@ -57,6 +57,32 @@ describe('login form', () => {
     });
   });
 
+  it.each(['ADMİN', '\u0085employee_a\u0085'])(
+    'submits %s unchanged for backend normalization',
+    async (username) => {
+      const { api, interaction } = await setup();
+      await interaction.type(screen.getByLabelText('Username'), username);
+      await interaction.type(
+        screen.getByLabelText('Password', { exact: true }),
+        ' password ',
+      );
+      await interaction.click(screen.getByRole('button', { name: 'Sign in' }));
+      await screen.findByRole('heading', { name: 'Account' });
+      expect(api.login).toHaveBeenCalledWith({ username, password: ' password ' });
+    },
+  );
+
+  it('lets the server reject normalized username policy violations generically', async () => {
+    const { api, interaction } = await setup(new ApiError(401, 'invalid_credentials'));
+    await interaction.type(screen.getByLabelText('Username'), 'ab');
+    await interaction.type(screen.getByLabelText('Password', { exact: true }), 'test');
+    await interaction.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(api.login).toHaveBeenCalledWith({ username: 'ab', password: 'test' });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Invalid username or password.',
+    );
+  });
+
   it('shows a generic credential failure, clears password and focuses the alert', async () => {
     const { interaction } = await setup(new ApiError(401, 'invalid_credentials'));
     await interaction.type(screen.getByLabelText('Username'), 'employee_a');

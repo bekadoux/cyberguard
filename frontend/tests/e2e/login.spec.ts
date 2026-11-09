@@ -62,6 +62,26 @@ test('toggles password visibility without submitting', async ({ page }) => {
   );
 });
 
+test('submits Turkish dotted-I usernames unchanged for Go normalization', async ({
+  page,
+}) => {
+  await page.route('**/api/auth/login', (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      username: 'ADMİN',
+      password: 'test-only-password',
+    });
+    return route.fulfill({
+      json: { user: { ...user, username: 'admin', role: 'admin' } },
+    });
+  });
+  await page.goto('/login');
+  await fill(page);
+  await page.getByLabel('Username', { exact: true }).fill('ADMİN');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toBeVisible();
+  await expect(page.getByText('Administrator', { exact: true })).toBeVisible();
+});
+
 for (const [status, code, message] of [
   [401, 'invalid_credentials', 'Invalid username or password.'],
   [403, 'csrf_rejected', 'This sign-in request was not allowed.'],
