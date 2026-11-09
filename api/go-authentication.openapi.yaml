@@ -11,6 +11,8 @@ info:
 servers:
   - url: http://127.0.0.1:8080
     description: Local HTTP development only; deployment must use HTTPS
+  - url: http://127.0.0.1:8088/api
+    description: Local Docker Caddy gateway (HTTP development only)
 paths:
   /auth/login:
     post:

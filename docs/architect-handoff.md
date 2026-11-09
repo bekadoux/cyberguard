@@ -11,11 +11,16 @@ its settings and integration/review tasks. The [incident core handoff](incidents
 adds incident migration/create/read; AI/job tables and enqueueing, Python database role,
 frontend and deployment automation remain outside these increments.
 
+The [local Docker setup](docker-setup.md) now supplies Compose, the Go image, Caddy,
+secret files and one-off tooling. The [containerization handoff](containerization-handoff.md)
+records Caddy serving the future frontend and a later application/AI VM split.
+The build and SQL contracts below remain applicable; Azure deployment is deferred.
+
 - **Architect:** Dockerfile/Compose, networking, volumes, secret delivery, health checks,
   orchestration of one-off setup commands.
 - **Engineer:** SQL roles/grants, goose migrations, sqlc, seed, application code and tests.
 - **Joint:** security/schema review, startup contract, incident/job agreement with domain
-  and AI specialists. No competing Compose or Python migrations are supplied here.
+  and AI specialists. Python must not introduce competing migrations.
 
 ## Build contract
 
@@ -32,6 +37,7 @@ frontend and deployment automation remain outside these increments.
 
 | Component | Development host binding | Container port |
 | --- | --- | --- |
+| Caddy local HTTP gateway | `127.0.0.1:8088` | 8080 |
 | Go HTTP | `127.0.0.1:8080` | 8080 |
 | Identity PostgreSQL | `127.0.0.1:5433` | 5432 |
 | Incident PostgreSQL | `127.0.0.1:5434` | 5432 |
@@ -71,6 +77,10 @@ Incident migration only: `INCIDENT_MIGRATION_DATABASE_URL` as `incidents_migrato
 
 **Explicit demo seed only:** migration URL plus the four `DEV_*_PASSWORD` variables
 in [database setup](database-setup.md). Never routine production startup.
+
+Go commands also accept the corresponding `_FILE` alternatives, exclusively of direct
+values. Compose mounts only each service's required files and reuses the existing SQL
+through a one-off psql adapter. See Docker setup for permission/group requirements.
 
 Never inject admin/migration/demo secrets into API or Python. Templates contain no
 working credentials. Handle password URL encoding and deployment TLS explicitly.
@@ -119,7 +129,9 @@ Readiness is currently connectivity-only, not proof of schema/authentication rea
 Check available probe tooling in the selected runtime image; do not assume curl exists.
 Allow a container stop grace period beyond the configured HTTP shutdown deadline.
 
-Engineer validation used two real temporary PostgreSQL instances without Docker.
-Compose lifecycle/volume persistence remains a joint deployment check. See
+Initial engineer validation used two real temporary PostgreSQL instances without Docker.
+The local Docker increment additionally verified fresh/repeated setup, full container
+recreation with retained data/sessions, database outage/recovery and graceful shutdown.
+This is not public TLS/proxy or deployed-browser acceptance. See
 [database setup](database-setup.md) for schema decisions, exact commands, test isolation
 and the module-only vulnerability scanner note. Public probes are in [OpenAPI](../api/go-foundation.openapi.yaml).

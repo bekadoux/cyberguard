@@ -1,0 +1,16 @@
+.git
+.local
+**/.env
+**/.env.*
+**/secrets
+**/backups
+**/*.dump
+**/*.key
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+backend/go/bin
+backend/go/api
+**/*.test
+**/coverage.out

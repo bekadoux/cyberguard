@@ -226,3 +226,6 @@ __marimo__/
 /backend/go/bin/
 *.test
 coverage.out
+
+# Local Docker credentials, state and optional database dumps
+/.local/

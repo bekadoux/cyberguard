@@ -8,6 +8,12 @@ This document records the current project direction. It distinguishes the planne
 scope from optional extensions and decisions still requiring validation. It is not
 yet a complete specification of screens, API contracts, or incident-state transitions.
 
+**Containerization update, 9 November 2026:** the
+[containerization handoff](containerization-handoff.md) supersedes this snapshot's
+single-VM and Go-served-frontend assumptions. The agreed direction is Caddy serving
+the frontend, Docker databases beside Go, and a separate AI VM. Current work is local
+containerization; Azure deployment is deferred until at least the frontend exists.
+
 ## 1. Purpose
 
 CyberGuard is a web-based enterprise information system for reporting, investigating,

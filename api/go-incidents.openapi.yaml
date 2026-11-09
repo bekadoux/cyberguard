@@ -13,6 +13,8 @@ info:
 servers:
   - url: http://127.0.0.1:8080
     description: Explicit local development only; production requires HTTPS.
+  - url: http://127.0.0.1:8088/api
+    description: Local Docker Caddy gateway (HTTP development only)
 security:
   - productionSession: []
   - developmentSession: []

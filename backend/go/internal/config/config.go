@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bekadoux/cyberguard/backend/go/internal/secretconfig"
 )
 
 type Config struct {
@@ -83,8 +85,11 @@ func validateHTTPAddr(addr string) error {
 }
 
 func databaseURL(lookup func(string) (string, bool), name string) (string, error) {
-	value, ok := lookup(name)
-	if !ok || strings.TrimSpace(value) == "" {
+	value, err := secretconfig.Value(lookup, name)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(value) == "" {
 		return "", fmt.Errorf("%s is required", name)
 	}
 	u, err := url.Parse(value)

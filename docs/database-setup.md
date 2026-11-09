@@ -59,6 +59,23 @@ still exporting administrator/migration secrets.** Use a clean shell or an expli
 scoped process environment. Ignoring privileged variables in Go does not remove them
 from the process environment.
 
+## File-backed Go credentials
+
+The API accepts `IDENTITY_DATABASE_URL_FILE` and `INCIDENT_DATABASE_URL_FILE` instead
+of the corresponding direct values. Migration/seed commands accept
+`IDENTITY_MIGRATION_DATABASE_URL_FILE` or `INCIDENT_MIGRATION_DATABASE_URL_FILE` as
+appropriate. All four demo-password settings also accept a `_FILE` alternative.
+Use only one source per setting: configuring both is an error, even if one is empty.
+
+Files must be readable regular files, nonempty and at most 16 KiB. Exactly one final
+LF or CRLF is removed; other whitespace is preserved, particularly in passwords.
+Existing credential validation still applies. Errors identify settings, not contents
+or file paths. Files are read at startup; editing one does not rotate a PostgreSQL
+password or reload a process. Keep files out of Git and image build contexts.
+
+This support is native to the Go commands; the existing psql bootstrap scripts still
+consume their documented environment variables. Compose setup adapters are separate.
+
 ## Bootstrap: databases and roles
 
 Start the architect's two PostgreSQL instances first. In a dedicated administrative

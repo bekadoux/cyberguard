@@ -3,11 +3,18 @@ PSQL ?= psql
 GO_DIR := backend/go
 GOVULNCHECK_VERSION := v1.9.0
 SQLC_VERSION := v1.31.1
+COMPOSE ?= docker compose -f compose.yaml -f compose.dev.yaml
+DOCKER_GO_IMAGE ?= cyberguard-go:local
 
 .DEFAULT_GOAL := help
 .PHONY: help go-run go-build go-fmt go-fmt-check go-test go-test-race go-vet go-vuln go-check go-test-integration
 .PHONY: db-bootstrap-identity db-bootstrap-incidents
 .PHONY: go-sqlc go-sqlc-check db-migrate-identity db-status-identity db-seed-demo db-migrate-incidents db-status-incidents
+.PHONY: docker-secrets docker-build docker-db-up docker-bootstrap docker-migrate docker-status docker-seed-demo docker-up docker-down docker-logs
+.PHONY: docker-config-check docker-test-secrets
+.PHONY: docker-caddy-check
+.PHONY: docker-smoke
+.PHONY: docker-test-readiness
 
 help:
 	@printf '%s\n' \
@@ -32,6 +39,22 @@ help:
 	  'db-migrate-incidents Apply incident schema migrations (migration connection)' \
 	  'db-status-incidents Report current and target incident migration versions' \
 	  'db-seed-demo        Explicitly create the four development accounts'
+	@printf '%s\n' \
+	  'docker-secrets      Generate local secret files without overwriting existing ones' \
+	  'docker-build        Build the Go API/migrate/seed image' \
+	  'docker-db-up        Start both local databases and wait for health' \
+	  'docker-bootstrap    Explicitly bootstrap database roles with one-off tools' \
+	  'docker-migrate      Explicitly migrate both databases' \
+	  'docker-status       Report migration versions in both databases' \
+	  'docker-seed-demo    Explicitly seed local demo accounts' \
+	  'docker-up           Start the local application without running setup' \
+	  'docker-down         Remove containers/networks, preserving data volumes' \
+	  'docker-logs         Show the last 100 service log lines' \
+	  'docker-config-check Validate Compose configuration, including one-off tools' \
+	  'docker-caddy-check  Validate Caddy configuration in its runtime image' \
+	  'docker-smoke        Build and verify a fresh disposable local Docker environment' \
+	  'docker-test-secrets Test local credential generation (requires openssl)' \
+	  'docker-test-readiness Test PostgreSQL healthchecks during first initialization'
 
 go-run:
 	cd $(GO_DIR) && $(GO) run ./cmd/api
@@ -93,3 +116,54 @@ db-status-incidents:
 
 db-seed-demo:
 	cd $(GO_DIR) && $(GO) run ./cmd/seed -demo
+
+docker-secrets:
+	sh docker/create-secrets.sh
+
+docker-build:
+	docker build -f backend/go/Dockerfile -t "$(DOCKER_GO_IMAGE)" .
+
+docker-db-up:
+	$(COMPOSE) up -d --wait --wait-timeout 60 identity-db incident-db
+
+docker-bootstrap:
+	$(COMPOSE) run --rm bootstrap-identity
+	$(COMPOSE) run --rm bootstrap-incidents
+
+docker-migrate:
+	$(COMPOSE) run --rm migrate-identity
+	$(COMPOSE) run --rm migrate-incidents
+
+docker-status:
+	$(COMPOSE) run --rm migrate-identity /app/migrate -dir /app/migrations/identity -status
+	$(COMPOSE) run --rm migrate-incidents /app/migrate -database incidents -dir /app/migrations/incidents -status
+
+docker-seed-demo:
+	$(COMPOSE) run --rm seed-demo
+
+docker-up:
+	$(COMPOSE) up -d --no-build --wait --wait-timeout 60
+
+docker-down:
+	$(COMPOSE) down
+
+docker-logs:
+	$(COMPOSE) logs --tail 100
+
+docker-config-check:
+	$(COMPOSE) --profile tools config --quiet
+
+docker-test-secrets:
+	sh docker/test-secrets.sh
+
+docker-test-readiness:
+	$(COMPOSE) config --format json | bash docker/test-readiness.sh
+
+docker-caddy-check:
+	@image="$$($(COMPOSE) config --format json | jq -er '.services.web.image')" && \
+	  docker run --rm --read-only --network none --user 10001:10001 \
+	  --mount "type=bind,src=$(CURDIR)/docker/caddy/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
+	  "$$image" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+docker-smoke: docker-build
+	bash docker/smoke.sh
