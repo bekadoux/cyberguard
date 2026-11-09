@@ -1,0 +1,183 @@
+name: cyberguard
+
+x-postgres: &postgres
+  image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+  environment:
+    POSTGRES_USER: bootstrap_admin
+    POSTGRES_DB: postgres
+    POSTGRES_PASSWORD_FILE: /run/secrets/admin_password
+    POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+  healthcheck:
+    test: [CMD, pg_isready, -U, bootstrap_admin, -d, postgres]
+    interval: 5s
+    timeout: 3s
+    retries: 12
+  restart: unless-stopped
+  stop_grace_period: 30s
+  mem_limit: 512m
+  cpus: 1.0
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: '3'
+
+x-go: &go
+  image: ${DOCKER_GO_IMAGE:-cyberguard-go:local}
+  group_add: ['${DOCKER_SECRET_GID:-1000}']
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  mem_limit: 512m
+  cpus: 1.0
+  tmpfs: ['/tmp:size=16m,mode=1777']
+  stop_grace_period: 20s
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: '3'
+
+services:
+  identity-db:
+    <<: *postgres
+    secrets:
+      - source: identity_admin_password
+        target: admin_password
+    volumes: [identity-data:/var/lib/postgresql/data]
+    networks: [identity]
+
+  incident-db:
+    <<: *postgres
+    secrets:
+      - source: incidents_admin_password
+        target: admin_password
+    volumes: [incident-data:/var/lib/postgresql/data]
+    networks: [incidents]
+
+  go-api:
+    <<: *go
+    environment:
+      HTTP_ADDR: :8080
+      IDENTITY_DATABASE_URL_FILE: /run/secrets/identity_runtime_url
+      INCIDENT_DATABASE_URL_FILE: /run/secrets/incidents_runtime_url
+      DATABASE_TIMEOUT: 3s
+      SHUTDOWN_TIMEOUT: 10s
+    secrets: [identity_runtime_url, incidents_runtime_url]
+    networks: [edge, identity, incidents]
+    depends_on:
+      identity-db: {condition: service_healthy}
+      incident-db: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, --max-time, '3', 'http://127.0.0.1:8080/readyz']
+      interval: 5s
+      timeout: 4s
+      retries: 6
+      start_period: 5s
+    restart: unless-stopped
+
+  bootstrap-identity:
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    profiles: [tools]
+    entrypoint: [/bin/sh, /tools/bootstrap.sh, identity]
+    secrets: [identity_admin_password, identity_migration_password, identity_runtime_password]
+    volumes:
+      - ./docker/bootstrap.sh:/tools/bootstrap.sh:ro
+      - ./db/bootstrap/identity.sql:/bootstrap/identity.sql:ro
+    networks: [identity]
+    depends_on:
+      identity-db: {condition: service_healthy}
+
+  bootstrap-incidents:
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    profiles: [tools]
+    entrypoint: [/bin/sh, /tools/bootstrap.sh, incidents]
+    secrets: [incidents_admin_password, incidents_migration_password, incidents_runtime_password]
+    volumes:
+      - ./docker/bootstrap.sh:/tools/bootstrap.sh:ro
+      - ./db/bootstrap/incidents.sql:/bootstrap/incidents.sql:ro
+    networks: [incidents]
+    depends_on:
+      incident-db: {condition: service_healthy}
+
+  migrate-identity:
+    <<: *go
+    profiles: [tools]
+    command: [/app/migrate, -dir, /app/migrations/identity]
+    environment:
+      IDENTITY_MIGRATION_DATABASE_URL_FILE: /run/secrets/identity_migration_url
+    secrets: [identity_migration_url]
+    networks: [identity]
+    healthcheck: {disable: true}
+    depends_on:
+      identity-db: {condition: service_healthy}
+
+  migrate-incidents:
+    <<: *go
+    profiles: [tools]
+    command: [/app/migrate, -database, incidents, -dir, /app/migrations/incidents]
+    environment:
+      INCIDENT_MIGRATION_DATABASE_URL_FILE: /run/secrets/incidents_migration_url
+    secrets: [incidents_migration_url]
+    networks: [incidents]
+    healthcheck: {disable: true}
+    depends_on:
+      incident-db: {condition: service_healthy}
+
+  seed-demo:
+    <<: *go
+    profiles: [tools]
+    command: [/app/seed, -demo]
+    environment:
+      IDENTITY_MIGRATION_DATABASE_URL_FILE: /run/secrets/identity_migration_url
+      DEV_EMPLOYEE_A_PASSWORD_FILE: /run/secrets/dev_employee_a_password
+      DEV_EMPLOYEE_B_PASSWORD_FILE: /run/secrets/dev_employee_b_password
+      DEV_ANALYST_PASSWORD_FILE: /run/secrets/dev_analyst_password
+      DEV_ADMIN_PASSWORD_FILE: /run/secrets/dev_admin_password
+    secrets: [identity_migration_url, dev_employee_a_password, dev_employee_b_password, dev_analyst_password, dev_admin_password]
+    networks: [identity]
+    healthcheck: {disable: true}
+    depends_on:
+      identity-db: {condition: service_healthy}
+
+networks:
+  edge:
+  identity:
+    internal: true
+  incidents:
+    internal: true
+
+volumes:
+  identity-data:
+  incident-data:
+
+secrets:
+  identity_admin_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/identity_admin_password
+  identity_migration_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/identity_migration_password
+  identity_runtime_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/identity_runtime_password
+  identity_runtime_url:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/identity_runtime_url
+  identity_migration_url:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/identity_migration_url
+  incidents_admin_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/incidents_admin_password
+  incidents_migration_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/incidents_migration_password
+  incidents_runtime_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/incidents_runtime_password
+  incidents_runtime_url:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/incidents_runtime_url
+  incidents_migration_url:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/incidents_migration_url
+  dev_employee_a_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/dev_employee_a_password
+  dev_employee_b_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/dev_employee_b_password
+  dev_analyst_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/dev_analyst_password
+  dev_admin_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/dev_admin_password

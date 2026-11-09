@@ -1,0 +1,19 @@
+services:
+  identity-db:
+    ports: ['127.0.0.1:${DOCKER_IDENTITY_PORT:-5433}:5432']
+  incident-db:
+    ports: ['127.0.0.1:${DOCKER_INCIDENT_PORT:-5434}:5432']
+  go-api:
+    ports: ['127.0.0.1:${DOCKER_GO_PORT:-8080}:8080']
+    environment:
+      APP_ENV: development
+      SESSION_COOKIE_SECURE: 'false'
+      TRUSTED_ORIGINS: http://127.0.0.1:5173
+
+# Internal-only Docker networks suppress host port publishing. Development needs
+# loopback access for host Go and disposable integration tests; base stays private.
+networks:
+  identity:
+    internal: false
+  incidents:
+    internal: false
