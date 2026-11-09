@@ -1,6 +1,8 @@
 package demoseed
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -65,5 +67,30 @@ func TestLoadAccountsFromEnvironment(t *testing.T) {
 	accounts, err := LoadAccounts()
 	if err != nil || len(accounts) != 4 {
 		t.Fatal("could not load demo configuration from environment")
+	}
+}
+
+func TestLoadAccountsFromFiles(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{}
+	for name, password := range testPasswords() {
+		path := filepath.Join(t.TempDir(), "password")
+		if err := os.WriteFile(path, []byte(" "+password+" \r\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		env[name+"_FILE"] = path
+	}
+	accounts, err := loadAccounts(mapLookup(env))
+	if err != nil || len(accounts) != 4 || accounts[0].Password != " test-employee-a-password " {
+		t.Fatal("file-backed demo passwords were not preserved")
+	}
+	env["DEV_EMPLOYEE_A_PASSWORD"] = ""
+	if _, err := loadAccounts(mapLookup(env)); err == nil {
+		t.Fatal("ambiguous demo secret configuration accepted")
+	}
+	delete(env, "DEV_EMPLOYEE_A_PASSWORD")
+	env["DEV_EMPLOYEE_A_PASSWORD_FILE"] = env["DEV_EMPLOYEE_B_PASSWORD_FILE"]
+	if _, err := loadAccounts(mapLookup(env)); err == nil {
+		t.Fatal("file-backed duplicate passwords accepted")
 	}
 }

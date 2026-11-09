@@ -2,6 +2,8 @@ package config
 
 import (
 	"maps"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -162,5 +164,38 @@ func TestLoadIncidentMigrationURL(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "INCIDENT_MIGRATION_DATABASE_URL") || strings.Contains(err.Error(), "sensitive") {
 			t.Fatal("expected safe incident migration configuration error")
 		}
+	}
+}
+
+func TestDatabaseURLFiles(t *testing.T) {
+	t.Parallel()
+	env := validEnv()
+	for _, name := range []string{"IDENTITY_DATABASE_URL", "INCIDENT_DATABASE_URL", "IDENTITY_MIGRATION_DATABASE_URL", "INCIDENT_MIGRATION_DATABASE_URL"} {
+		value := "postgres://role:secret@127.0.0.1:5432/database?sslmode=disable"
+		path := filepath.Join(t.TempDir(), "connection")
+		if err := os.WriteFile(path, []byte(value+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		delete(env, name)
+		env[name+"_FILE"] = path
+		if got, err := databaseURL(lookup(env), name); err != nil || got != value {
+			t.Fatal("file-backed database URL not validated")
+		}
+		if err := os.WriteFile(path, []byte("postgres://user:sensitive%zz@host/db"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := databaseURL(lookup(env), name); err == nil || strings.Contains(err.Error(), "sensitive") {
+			t.Fatal("invalid file URL bypassed safe validation")
+		}
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := load(lookup(env)); err != nil {
+		t.Fatal("runtime configuration could not load both file URLs")
+	}
+	env["IDENTITY_DATABASE_URL"] = ""
+	if _, err := load(lookup(env)); err == nil {
+		t.Fatal("empty direct value silently overrode file configuration")
 	}
 }

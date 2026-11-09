@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexedwards/argon2id"
 	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
+	"github.com/bekadoux/cyberguard/backend/go/internal/secretconfig"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -42,7 +43,10 @@ func loadAccounts(lookup func(string) (string, bool)) ([]Account, error) {
 	accounts := make([]Account, 0, len(specs))
 	seen := make(map[string]bool, len(specs))
 	for _, spec := range specs {
-		password, _ := lookup(spec.variable)
+		password, err := secretconfig.Value(lookup, spec.variable)
+		if err != nil {
+			return nil, err
+		}
 		if len(password) < 12 || len(password) > 128 || strings.HasPrefix(password, "REPLACE_") {
 			return nil, fmt.Errorf("%s must be a non-placeholder password of 12 to 128 bytes", spec.variable)
 		}
