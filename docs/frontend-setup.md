@@ -13,13 +13,34 @@ created by the current backend; see [incident handoff](incidents-handoff.md).
 
 ## Prerequisites and startup
 
-- Node **24.22.2** (recorded in `frontend/.node-version`) and npm **12.2.2**. Package
-  engines restrict development to the supported Node 24/npm 12 release lines.
+- For host development/checks: Node **24.22.2** (recorded in `frontend/.node-version`)
+  and npm **12.2.2**. Package engines restrict development to Node 24/npm 12.
+  Docker packaging supplies its own pinned build toolchain; running the packaged UI
+  does not require host Node/npm or Vite.
 - Existing Caddy/Go/two-PostgreSQL stack. Follow the explicit fresh setup sequence in
   [Docker setup](docker-setup.md#fresh-local-environment), including migrations and,
   for a local demonstration, the optional four-account seed. Neither frontend nor API
   startup runs bootstrap, migrations or seeding.
 - A modern browser. Playwright uses its own matching Firefox/Chromium builds for tests.
+
+### Packaged local application
+
+Follow [Docker setup](docker-setup.md#fresh-local-environment) for a fresh environment.
+For existing provisioned databases/secrets, from the repository root:
+
+```sh
+export DOCKER_SECRET_GID=$(id -g)
+make docker-build-web docker-caddy-check docker-up
+```
+
+Open **http://127.0.0.1:8088/login**. The separate `cyberguard-web:local` image contains
+only the built static frontend and Caddy runtime/config. It runs non-root/read-only,
+without Node, Vite, secret mounts or source/config bind mounts. Relative `/api` calls
+are same-origin; existing cookie/CSRF policy is unchanged. Build-time inputs exclude
+host `.env` files and Git-local LAN overrides. Rebuild after frontend/Caddyfile changes;
+the running container does not watch source. No database setup occurs during startup.
+
+### Vite hot-reload development
 
 From the repository root:
 
@@ -44,12 +65,12 @@ With generated Docker secrets their respective passwords are in protected files
 never commit them, paste them into frontend configuration or log them. Repeating the
 seed does not reset existing passwords. Do not seed these accounts in production.
 
-This increment is **host-run Vite development**, not public deployment. Caddy still
-returns 404 for frontend paths: `http://127.0.0.1:8088/login` is not the UI yet.
-`npm run build` produces static `frontend/dist/`. The later packaging step must copy
-those files into a separate Caddy runtime image and add SPA fallback after API/internal
-path handling. Do not serve the frontend through Go or add a permanent Node backend;
-see [containerization handoff](containerization-handoff.md#caddy-and-the-future-frontend).
+Both workflows are local HTTP development, **not public deployment**. Caddy now serves
+the real build with SPA fallback for implemented client routes, after API/internal/AI
+handling. Missing assets/source/config paths do not become HTML 200 responses. HTML
+and unfingerprinted public files are no-store; existing fingerprinted assets are
+immutable. See [gateway contract](docker-setup.md#gateway-contract). Do not serve the
+frontend through Go or add a permanent Node backend.
 `npm run preview` is a local asset preview, not the documented API-integrated server.
 
 ## Structure and extension points
@@ -185,6 +206,30 @@ make frontend-test-e2e
 E2E_PASSWORD_FILE="$PWD/.local/docker-secrets/dev_employee_a_password" \
   make frontend-test-e2e-live
 ```
+
+For a freshly provisioned packaged fixture, with no Vite process required:
+
+```sh
+DOCKER_TEST_FRONTEND=1 make docker-smoke
+```
+
+This runs all default browser regressions against compiled assets, followed by real
+same-origin packaged flows without API interception. The runner builds/provisions and
+cleans up only its disposable project. Host Node/npm, locked dependencies and managed
+Firefox/Chromium must already be installed for this optional browser flag.
+Alternatively, keep a smoke fixture and target its exact nonstandard loopback origin:
+
+```sh
+E2E_PACKAGED_ORIGIN=http://127.0.0.1:18088 \
+E2E_INCIDENT_SECRETS_DIR="$PWD/.local/PROJECT/secrets" \
+  make frontend-test-packaged
+```
+
+The packaged-origin override is restricted to disposable loopback ports and disables
+Playwright's Vite startup. `frontend-test-packaged` verifies the built shell and runs
+credential-safe create/read/isolation checks through actual Caddy requests, including
+deep-link reloads, HttpOnly cookie policy and revoked-cookie rejection. Its write
+helper requires the UI and API to share exactly that origin, not a route.fetch bridge.
 
 Incident write/isolation checks require a **separate disposable** backend; do not run
 them against ordinary development data. With Vite running, prepare a fixture and use
@@ -335,3 +380,28 @@ Only the disposable project's containers, networks and volumes were removed afte
 ordinary development services/data, ignored LAN configuration and protected secret
 files were left intact. This remains incident core create/read, not acceptance of the
 future atomic incident-and-assessment workflow or production deployment.
+
+### Frontend/Caddy packaging — 9 November 2026
+
+- `make frontend-check` passed with **92** unit/component tests, types, lint,
+  formatting and production build; `npm audit` reported no known vulnerabilities.
+- `DOCKER_TEST_FRONTEND=1 make docker-smoke` passed from fresh images/databases.
+  All **118** Firefox/Chromium regressions passed against the compiled assets, plus
+  **4** packaged-shell/real-flow tests through actual same-origin Caddy requests.
+- `make frontend-test-e2e` separately passed all **118** checks using the unchanged
+  Vite hot-reload workflow.
+- HTTP checks passed for direct client routes and reloads, HEAD, existing asset MIME/
+  immutable cache/ETag behavior, no-store HTML/bootstrap files, missing assets/source/
+  config, internal namespaces, API errors and unsupported frontend methods.
+- The full smoke lifecycle passed, including readiness, all-role API checks, secret
+  isolation, persistence, SQL outages and a static shell that still loads while Go is
+  stopped. The runtime is UID/GID 10001 and contains no Node/npm, source or source maps.
+- Packaged write-helper safeguards rejected ordinary API ports and mismatched UI/API
+  origins before loading credentials. Base Compose still has no published ports,
+  insecure-cookie override, source mounts or web secrets.
+
+The disposable project cleaned up its own containers/networks/volumes. Ordinary
+development services/data and ignored LAN configuration were untouched. No Go/SQL
+application code or auth policy changed; the separate Go race/integration suite was
+not rerun for this packaging-only increment. Public HTTPS/Azure and the previously
+documented extra Firefox error-state scanner limitation remain outside this acceptance.

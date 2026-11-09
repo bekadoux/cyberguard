@@ -21,3 +21,6 @@ backend/go/bin
 backend/go/api
 **/*.test
 **/coverage.out
+# Git-local workstation overrides are not image build inputs.
+frontend/vite.lan.config.ts
+frontend/dev-lan.sh

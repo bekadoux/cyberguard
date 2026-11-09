@@ -13,8 +13,11 @@
   Bootstrap/migrate/seed are explicit one-off tools, never API startup actions. Do not
   enable the `tools` profile for ordinary `up`, or remove volumes as routine cleanup.
   Caddy exposes Go at `http://127.0.0.1:8088/api`; direct development access on 8080
-  uses the existing unprefixed routes. The frontend runs in Vite at 127.0.0.1:5173;
-  Caddy static frontend serving and AI paths are not implemented yet.
+  uses the existing unprefixed routes. Caddy serves the packaged frontend at
+  `http://127.0.0.1:8088/login`; Vite at 127.0.0.1:5173 remains available for hot reload.
+  `make docker-build` builds separate Go and frontend/Caddy images; Node is build-only.
+  AI paths remain unimplemented. Rebuild the web image after frontend/Caddy changes;
+  Compose does not bind-mount application source or the Caddyfile.
 - Business rules are in `docs/domain-specification.md`. `docs/playbooks.md` and
   `docs/demo-incidents.csv` supply domain reference material and labelled scenarios,
   not an implemented incident importer/seed or measured AI evaluation results.
@@ -37,6 +40,9 @@
   backend and `E2E_PASSWORD_FILE`. `make frontend-test-incidents-live` performs writes
   only against an explicitly selected disposable fixture. See `docs/frontend-setup.md`.
   Never put secrets in frontend configuration, browser storage or test artifacts.
+  `DOCKER_TEST_FRONTEND=1 make docker-smoke` also runs all browser regressions against
+  the packaged assets plus real same-origin flows, without Vite or API interception
+  in those real flows. Requires host Node/npm, installed dependencies and browsers.
 - No CI workflow is checked in; `Makefile` defines the available checks.
 - `make docker-smoke` builds and tests a fresh disposable four-container project,
   including restart persistence, SQL outages and HTTP access rules. It deletes only

@@ -13,7 +13,7 @@ frontend and deployment automation remain outside these increments.
 
 The [local Docker setup](docker-setup.md) now supplies Compose, the Go image, Caddy,
 secret files and one-off tooling. The [containerization handoff](containerization-handoff.md)
-records Caddy serving the future frontend and a later application/AI VM split.
+records the separately packaged frontend served by Caddy and a later application/AI VM split.
 The build and SQL contracts below remain applicable; Azure deployment is deferred.
 
 - **Architect:** Dockerfile/Compose, networking, volumes, secret delivery, health checks,

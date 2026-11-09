@@ -24,6 +24,7 @@
     "test:e2e": "playwright test --project=firefox --project=chromium",
     "test:e2e:live": "playwright test --project=live-firefox --project=live-chromium",
     "test:e2e:incidents-live": "playwright test --project=incident-live-firefox --project=incident-live-chromium",
+    "test:e2e:packaged": "playwright test --project=packaged-firefox --project=packaged-chromium",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run build"
   },
   "dependencies": {

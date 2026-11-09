@@ -19,6 +19,7 @@ export async function runLiveIncidents(
   baseURL: string,
   apiOrigin: string,
   secretsDir: string,
+  packaged = false,
 ): Promise<void> {
   const code = await new Promise<number | null>((resolveExit) => {
     const child = spawn(
@@ -33,6 +34,7 @@ export async function runLiveIncidents(
           ...process.env,
           E2E_INCIDENT_API_ORIGIN: apiOrigin,
           E2E_INCIDENT_SECRETS_DIR: resolve(secretsDir),
+          E2E_INCIDENT_PACKAGED: packaged ? '1' : '0',
           DEBUG: '',
           DEBUG_FILE: '',
           PWDEBUG: '0',

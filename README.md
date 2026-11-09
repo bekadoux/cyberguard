@@ -35,6 +35,8 @@ The [containerization handoff](docs/containerization-handoff.md) records ownersh
 acceptance criteria and the later frontend/AI and two-VM deployment boundaries.
 
 The [frontend setup guide](docs/frontend-setup.md) covers the implemented login/session
-UI, light/dark themes, protected incident submission/list/detail, Vite development
-workflow, and Firefox/Chromium tests. Investigation actions, AI assessment and compiled
-frontend serving through Caddy remain future work.
+UI, light/dark themes, protected incident submission/list/detail, Vite development,
+and static frontend packaging in a separate Caddy image. `make docker-build` builds
+both application images; the packaged UI is at `http://127.0.0.1:8088/login` after
+the documented setup and `make docker-up`. Investigation actions, AI assessment and
+production HTTPS deployment remain future work.

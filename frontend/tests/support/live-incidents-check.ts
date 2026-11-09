@@ -16,6 +16,7 @@ const requireTrue = (value: boolean) => {
 };
 try {
   const api = new URL(process.env.E2E_INCIDENT_API_ORIGIN ?? '');
+  const packaged = process.env.E2E_INCIDENT_PACKAGED === '1';
   const secrets = resolve(process.env.E2E_INCIDENT_SECRETS_DIR ?? '');
   requireTrue(
     api.protocol === 'http:' &&
@@ -39,22 +40,24 @@ try {
         ? chromium
         : null;
   if (!type || !process.argv[3]) throw new Error('Missing browser settings.');
+  if (packaged) requireTrue(process.argv[3] === api.origin);
   browser = await type.launch();
   const context = await browser.newContext({ baseURL: process.argv[3] });
   context.setDefaultTimeout(10_000);
   const page: Page = await context.newPage();
   // Do not intercept Vite modules such as /src/shared/api/client.ts.
-  await page.route(
-    (url) => url.pathname.startsWith('/api/'),
-    async (route) => {
-      const url = new URL(route.request().url());
-      const response = await route.fetch({
-        url: `${api.origin}${url.pathname}${url.search}`,
-        timeout: 15_000,
-      });
-      await route.fulfill({ response });
-    },
-  );
+  if (!packaged)
+    await page.route(
+      (url) => url.pathname.startsWith('/api/'),
+      async (route) => {
+        const url = new URL(route.request().url());
+        const response = await route.fetch({
+          url: `${api.origin}${url.pathname}${url.search}`,
+          timeout: 15_000,
+        });
+        await route.fulfill({ response });
+      },
+    );
   async function login(username: string) {
     const password = readFileSync(
       join(secrets, `dev_${username}_password`),
@@ -98,8 +101,33 @@ try {
 
   check('signing in reporter');
   await login('employee_a');
+  const cookie = packaged
+    ? (await context.cookies()).find((cookie) => cookie.name === 'cyberguard_session')
+    : undefined;
+  if (packaged) {
+    requireTrue(
+      Boolean(
+        cookie?.httpOnly &&
+        !cookie.secure &&
+        cookie.path === '/' &&
+        cookie.sameSite === 'Lax',
+      ),
+    );
+    requireTrue(
+      !(await page.evaluate(() => document.cookie.includes('cyberguard_session'))),
+    );
+    await page.goto('/account');
+    await page.getByRole('heading', { name: 'You’re signed in.' }).waitFor();
+    await page.reload();
+    await page.getByRole('heading', { name: 'You’re signed in.' }).waitFor();
+    await page.getByRole('link', { name: 'Incidents', exact: true }).click();
+  }
   check('submitting report');
   await page.getByRole('link', { name: 'Report an incident', exact: true }).click();
+  if (packaged) {
+    await page.reload();
+    await page.getByRole('heading', { name: 'Report an incident' }).waitFor();
+  }
   const title = `Browser report ${randomUUID()}`;
   const description = '  Synthetic browser incident.\n\nŽiadne skutočné údaje. 🔒  ';
   await page.getByLabel('Title', { exact: true }).fill(title);
@@ -128,6 +156,7 @@ try {
       };
     }
   ).incident;
+  if (packaged) requireTrue(created.headers()['location'] === `/api/incidents/${row.id}`);
   requireTrue(
     row.status === 'submitted' &&
       row.description === description &&
@@ -155,6 +184,12 @@ try {
   await page.getByRole('link', { name: 'Back to incidents' }).click();
   await page.getByRole('link', { name: title, exact: true }).waitFor();
   await logout();
+  if (packaged) {
+    const revoked = await context.request.get('/api/auth/me', {
+      headers: { Cookie: `cyberguard_session=${cookie?.value ?? ''}` },
+    });
+    requireTrue(revoked.status() === 401);
+  }
   check('checking employee isolation');
   await login('employee_b');
   await page.getByRole('heading', { name: 'No reports yet' }).waitFor();

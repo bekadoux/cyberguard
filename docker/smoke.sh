@@ -71,6 +71,7 @@ run_make docker-up
 [[ $(compose ps --status running --services | wc -l) == 4 ]]
 request 200 "$base/__gateway_health"
 request 200 "$base/api/readyz"
+bash docker/test-web.sh "$base"
 request 401 "$base/api/incidents"
 cookie_free
 
@@ -115,7 +116,7 @@ request 200 -X OPTIONS -H 'Origin: http://127.0.0.1:5173' \
 grep -qi '^Access-Control-Allow-Origin: http://127.0.0.1:5173' "$state/headers"
 grep -qi '^Access-Control-Allow-Credentials: true' "$state/headers"
 
-for path in / /missing /api /api/not-found /internal /api/internal/auth/authorize \
+for path in /missing /api /api/not-found /internal /api/internal/auth/authorize \
     /api/%69nternal/auth/authorize /api//internal/auth/authorize /ai/internal/test; do
     request 404 --path-as-is "$base$path"
 done
@@ -132,7 +133,7 @@ request 429 -H 'Content-Type: application/json' -H 'X-Forwarded-For: 203.0.113.1
 cookie_free
 
 compose exec -T go-api sh -c 'test "$(id -u)" = 10001 && test -r /run/secrets/identity_runtime_url && test ! -e /run/secrets/identity_migration_url && test ! -e /run/secrets/identity_admin_password'
-compose exec -T web sh -c 'test "$(id -u)" = 10001 && test ! -e /run/secrets/identity_runtime_url'
+compose exec -T web sh -c 'test "$(id -u)" = 10001 && test ! -e /run/secrets/identity_runtime_url && test -r /srv/index.html && test ! -e /srv/src && test ! -e /srv/.env && test -z "$(find /srv -name "*.map")" && ! command -v node && ! command -v npm'
 
 if [[ ${DOCKER_TEST_GO_INTEGRATION:-0} == 1 ]]; then
     export TEST_IDENTITY_DATABASE_URL="$(cat "$DOCKER_SECRETS_DIR/identity_runtime_host_url")"
@@ -168,6 +169,9 @@ for database in identity-db incident-db; do
 done
 
 compose stop go-api
+request 200 "$base/login"
+request 200 "$base/__gateway_health"
+request 502 "$base/api/readyz"
 container=$(compose ps -aq go-api)
 [[ $(docker inspect --format '{{.State.ExitCode}}' "$container") == 0 ]]
 compose logs --no-color go-api > "$state/service.log"
@@ -179,6 +183,13 @@ grep -qi '^Set-Cookie: cyberguard_session=' "$state/headers"
 request 401 -b "$state/employee_a.cookies" "$base/api/auth/me"
 cookie_free
 
+if [[ ${DOCKER_TEST_FRONTEND:-0} == 1 ]]; then
+    # Real credentials stay in standalone browser processes, never test reports.
+    export E2E_PACKAGED_ORIGIN="$base" E2E_INCIDENT_SECRETS_DIR="$DOCKER_SECRETS_DIR"
+    run_make frontend-test-e2e frontend-test-packaged
+    unset E2E_PACKAGED_ORIGIN E2E_INCIDENT_SECRETS_DIR
+fi
+
 compose config --format json > "$state/config.json"
 compose logs --no-color > "$state/service.log"
 if grep -Fq -f <(cat "$DOCKER_SECRETS_DIR/"*) "$state/config.json" "$state/service.log"; then
@@ -189,4 +200,4 @@ if grep -Fq -f <(awk '$6 == "cyberguard_session" { print $7 }' "$state/"*.cookie
     echo 'A session cookie was exposed in service logs' >&2
     exit 1
 fi
-printf '%s\n' 'Docker smoke passed: setup, gateway/auth/access, large Unicode report, persistence, outages, graceful shutdown and secret isolation.'
+printf '%s\n' 'Docker smoke passed: packaged SPA/cache/routing, setup, gateway/auth/access, large Unicode report, persistence, outages, graceful shutdown and secret isolation.'

@@ -5,6 +5,7 @@ GOVULNCHECK_VERSION := v1.9.0
 SQLC_VERSION := v1.31.1
 COMPOSE ?= docker compose -f compose.yaml -f compose.dev.yaml
 DOCKER_GO_IMAGE ?= cyberguard-go:local
+DOCKER_WEB_IMAGE ?= cyberguard-web:local
 
 .DEFAULT_GOAL := help
 .PHONY: help go-run go-build go-fmt go-fmt-check go-test go-test-race go-vet go-vuln go-check go-test-integration
@@ -15,6 +16,7 @@ DOCKER_GO_IMAGE ?= cyberguard-go:local
 .PHONY: docker-caddy-check
 .PHONY: docker-smoke
 .PHONY: docker-test-readiness
+.PHONY: docker-build-go docker-build-web frontend-test-packaged
 .PHONY: frontend-install frontend-dev frontend-check frontend-test-e2e frontend-test-e2e-live
 .PHONY: frontend-test-incidents-live
 
@@ -50,7 +52,9 @@ help:
 	  'db-seed-demo        Explicitly create the four development accounts'
 	@printf '%s\n' \
 	  'docker-secrets      Generate local secret files without overwriting existing ones' \
-	  'docker-build        Build the Go API/migrate/seed image' \
+	  'docker-build        Build separate Go and frontend/Caddy images' \
+	  'docker-build-go     Build only the Go API/migrate/seed image' \
+	  'docker-build-web    Build only the static frontend/Caddy image' \
 	  'docker-db-up        Start both local databases and wait for health' \
 	  'docker-bootstrap    Explicitly bootstrap database roles with one-off tools' \
 	  'docker-migrate      Explicitly migrate both databases' \
@@ -64,6 +68,7 @@ help:
 	  'docker-smoke        Build and verify a fresh disposable local Docker environment' \
 	  'docker-test-secrets Test local credential generation (requires openssl)' \
 	  'docker-test-readiness Test PostgreSQL healthchecks during first initialization'
+	@printf '%s\n' 'frontend-test-packaged Run real browser flows through disposable Caddy (explicit E2E settings)'
 
 go-run:
 	cd $(GO_DIR) && $(GO) run ./cmd/api
@@ -129,8 +134,13 @@ db-seed-demo:
 docker-secrets:
 	sh docker/create-secrets.sh
 
-docker-build:
+docker-build: docker-build-go docker-build-web
+
+docker-build-go:
 	docker build -f backend/go/Dockerfile -t "$(DOCKER_GO_IMAGE)" .
+
+docker-build-web:
+	docker build -f frontend/Dockerfile -t "$(DOCKER_WEB_IMAGE)" .
 
 docker-db-up:
 	$(COMPOSE) up -d --wait --wait-timeout 60 identity-db incident-db
@@ -171,7 +181,6 @@ docker-test-readiness:
 docker-caddy-check:
 	@image="$$($(COMPOSE) config --format json | jq -er '.services.web.image')" && \
 	  docker run --rm --read-only --network none --user 10001:10001 \
-	  --mount "type=bind,src=$(CURDIR)/docker/caddy/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
 	  "$$image" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
 docker-smoke: docker-build
@@ -194,3 +203,6 @@ frontend-test-e2e-live:
 
 frontend-test-incidents-live:
 	cd frontend && npm run test:e2e:incidents-live
+
+frontend-test-packaged:
+	cd frontend && npm run test:e2e:packaged

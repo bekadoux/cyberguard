@@ -2,20 +2,21 @@
 
 This is the runnable local setup, not an Azure deployment. See the
 [containerization handoff](containerization-handoff.md) for ownership and future
-frontend/AI boundaries. Four long-running containers provide Caddy, Go and two separate
-PostgreSQL instances. No frontend, Python service or assessment queue is implied by
-a healthy container. Caddy will serve the compiled frontend when it exists.
+AI/deployment boundaries. Four long-running containers provide Caddy with the compiled
+React frontend, Go and two separate PostgreSQL instances. No Python service or
+assessment queue is implied by a healthy container.
 
 ## Prerequisites
 
 - Linux containers, a working Docker daemon and Docker Compose v2+.
 - GNU Make, a POSIX shell, OpenSSL, jq and standard Unix tools; use Linux or WSL2.
-- Network access to download pinned images, Go modules and runtime Debian packages.
+- Network access to download pinned images, Go modules, npm dependencies and runtime
+  Debian packages.
 - For host Go development/tests, the repository's Go toolchain and normal test tools.
 
-Run commands from the repository root. Docker builds use root context and
-`backend/go/Dockerfile`. The Dockerfile also works without Buildx; Docker may warn that
-its legacy builder is deprecated. Building does not require host Go or Node.js.
+Run commands from the repository root. Docker builds use root context with
+`backend/go/Dockerfile` and `frontend/Dockerfile`. Both work without Buildx; Docker may
+warn that its legacy builder is deprecated. Building does not require host Go or Node.js.
 
 ## Fresh local environment
 
@@ -33,12 +34,26 @@ make docker-status
 make docker-seed-demo
 make docker-up
 curl --fail http://127.0.0.1:8088/api/readyz
+# Open http://127.0.0.1:8088/login
 ```
 
-The build produces `cyberguard-go:local`, containing the API, migration and seed
-binaries plus shared SQL migrations. Go runs as UID/GID 10001 with a read-only root
+The build produces two independently rebuildable images:
+
+- `cyberguard-go:local`: API, migration and seed binaries plus shared SQL migrations.
+- `cyberguard-web:local`: static frontend and the baked Caddyfile. Pinned Node 24.22.2
+  and npm 12.2.2 build locked dependencies; only `dist/` is copied into the pinned Caddy
+  runtime. Node, npm, source, tests, `.env`, secrets and host LAN overrides are not served.
+
+Both run as UID/GID 10001 with a read-only root
 filesystem, no Linux capabilities and a small writable temporary filesystem. CPU,
 memory, process and log limits are local defaults, not measured deployment sizing.
+
+For an already provisioned environment, update only the web package with
+`make docker-build-web docker-caddy-check docker-up`; this does not rerun database
+setup or delete volumes. `make docker-build-go` builds only Go. Compose deliberately
+uses prebuilt images (`up --no-build`), with no host source/config mounts into Caddy.
+Rebuild the web image after frontend or Caddyfile changes, then recreate it with
+`make docker-up`. Rebuilding an image alone does not update a running container.
 
 `make docker-up` starts runtime services only. It never bootstraps/migrates/seeds;
 those actions use explicitly invoked, disposable tooling containers. Repeating
@@ -86,6 +101,7 @@ Optional non-secret settings can be exported before provisioning/startup:
 | `DOCKER_SECRETS_DIR` | `.local/docker-secrets` relative to repository root |
 | `DOCKER_SECRET_GID` | `1000` |
 | `DOCKER_GO_IMAGE` | `cyberguard-go:local` |
+| `DOCKER_WEB_IMAGE` | `cyberguard-web:local` |
 | `DOCKER_GO_PORT` | `8080` |
 | `DOCKER_WEB_PORT` | `8088` |
 | `DOCKER_IDENTITY_PORT` | `5433` |
@@ -128,12 +144,23 @@ the host port is just development publishing, not another host-installed server.
 | `/__gateway_health` | Caddy process health, independent of Go/database readiness |
 | `/internal` path segments, including `/api/internal/*` | Concealed 404, never forwarded |
 | `/ai`, `/ai/*` | Explicit 503: no AI implementation yet |
-| Other paths | 404: no frontend files or SPA fallback yet |
+| `/`, `/login`, `/account`, `/incidents`, `/incidents/*` | Built SPA shell for GET/HEAD, including direct navigation/reload |
+| Existing `/assets/*` fingerprinted files | Static assets with one-year immutable caching |
+| `/index.html`, `/theme.js`, `/favicon.svg` | Static files with `Cache-Control: no-store` |
+| Missing assets/source/config files, other paths | 404, never rewritten to the SPA |
+| Non-GET/HEAD requests outside API/AI/internal handling | 405, never served as frontend HTML |
+
+HTML, unfingerprinted public files and errors are no-store; only existing fingerprinted
+assets are immutable. Static responses preserve nosniff and never set session cookies.
+API/AI/internal matching precedes all static/SPA handlers. When adding a new client
+route, update the explicit SPA allowlist and `docker/test-web.sh` as needed. The app's
+authentication guard still controls protected screens; static HTML contains no user data.
 
 Go's root-relative `Location` response headers are rewritten with `/api`; session
 cookies keep Path=/ so the future AI API can receive the same host-only cookie.
-Host/Origin and authentication policy are preserved; credentialed Vite requests from
-`http://127.0.0.1:5173` are allowed. Frontend code will use `/api` as the Go base URL;
+Host/Origin and authentication policy are preserved; packaged UI/API requests are
+same-origin and need no new trusted-origin exception. Credentialed Vite requests from
+`http://127.0.0.1:5173` remain allowed. Frontend code uses `/api` as the Go base URL;
 the direct `127.0.0.1:8080` API remains available for local diagnostics/tests.
 
 Do not weaken CSRF, cookie scope or SameSite to solve a routing problem. The local
@@ -180,6 +207,7 @@ follow-up; dumps contain password hashes and sessions and need the same care as 
 ```sh
 make docker-test-secrets
 make docker-config-check
+# After building the web image; validates its baked config, not a host bind mount:
 make docker-caddy-check
 make docker-test-readiness
 ```
@@ -197,6 +225,8 @@ Real container lifecycle checks are additional evidence, not a replacement for G
 make docker-smoke
 # Additionally exercise the complete Go/PostgreSQL race suite in that fixture:
 DOCKER_TEST_GO_INTEGRATION=1 make docker-smoke
+# All 118 UI regressions against the built assets, then real same-origin browser flows:
+DOCKER_TEST_FRONTEND=1 make docker-smoke
 ```
 
 Requires Bash, curl and jq in addition to normal Docker setup prerequisites. The runner
@@ -209,7 +239,20 @@ Checks cover first-initialization TCP readiness, repeated setup, all-role login,
 Unicode payloads, access isolation, CORS/CSRF, reserved routes, Location rewriting,
 rate limits, secret scoping/logs,
 session/data persistence across full container recreation, both database outages and
-graceful shutdown. These are real HTTP/cookie-jar tests, not deployed-browser acceptance.
+graceful shutdown. `docker/test-web.sh` also verifies the built shell, deep links, HEAD,
+asset MIME/cache/ETag behavior, missing files and reserved-path/method boundaries.
+The shell stays available while Go is stopped, independently of API readiness.
+
+`DOCKER_TEST_FRONTEND=1` additionally requires the host Node/npm versions and browser
+dependencies from [frontend setup](frontend-setup.md). It uses the actual disposable
+Caddy origin, disables Vite startup, runs the normal Firefox/Chromium regressions with
+their synthetic APIs, then packaged live flows **without interception**. Real flows
+verify login/cookie flags, account/new/detail reloads, Unicode creation, Location
+rewriting, persistence, employee isolation, staff visibility and revoked-session rejection.
+Credentials/cookies remain inside a discarded-output subprocess. It never uses ordinary
+dev data or lowers the login limit; one throttled login may wait for `Retry-After`.
+Both optional flags can be combined. Without the browser flag, smoke remains an
+HTTP/cookie-jar test, not browser acceptance or a production deployment check.
 
 The runner intentionally removes **its own disposable volumes** on exit, unlike
 `make docker-down`. It removes successful test state; failed diagnostic files are kept
@@ -236,5 +279,22 @@ Go 1.27.3, PostgreSQL 17.11 and Caddy 2.11.9, with the pinned images in source c
 - Credential-source tests also passed with inherited `_FILE` settings exported, matching
   the host-development workflow. Direct environment compatibility is retained.
 
-No Azure VM, frontend, Python worker, production TLS or actual browser UI was deployed
-or accepted by these checks. Manual backup/restore tooling is not included.
+The preceding bullets record the original foundation checks, before frontend packaging.
+Manual backup/restore tooling is not included.
+
+Frontend packaging was subsequently verified on the same local platform:
+
+- `make docker-build` built the separate Go and web images with the legacy Docker
+  builder. Caddy's baked config and base/development Compose settings validated.
+- `make docker-test-secrets` and `DOCKER_TEST_FRONTEND=1 make docker-smoke` passed.
+  The latter included static/cache/routing HTTP regressions, **118** browser regressions
+  against built assets and **4** packaged shell/real same-origin Firefox/Chromium checks.
+- `make frontend-check` passed **92** unit/component tests and all static/build checks;
+  the separate Vite browser run also passed all **118** checks. `npm audit` reported
+  no known vulnerabilities. No Go/SQL application code changed;
+  Go race/integration checks were not rerun for the packaging-only change.
+- Disposable resources were removed automatically; ordinary development services and
+  volumes were not recreated or removed. The packaged image is ready for an explicit
+  `make docker-up` to update the ordinary local stack.
+
+No Azure VM, Python worker or production TLS was deployed or accepted by these checks.

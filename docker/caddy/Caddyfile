@@ -5,6 +5,7 @@
 }
 
 :8080 {
+	root * /srv
 	header {
 		X-Content-Type-Options nosniff
 		Cache-Control no-store
@@ -31,6 +32,38 @@
 		handle @ai {
 			header Content-Type application/json
 			respond `{"error":{"code":"ai_unavailable","message":"AI service is not implemented."}}` 503
+		}
+		# Only read methods reach static files or SPA fallback, never API mutations.
+		@unsupported not method GET HEAD
+		handle @unsupported {
+			header Allow "GET, HEAD"
+			header Content-Type application/json
+			respond `{"error":{"code":"method_not_allowed","message":"Method not allowed."}}` 405
+		}
+		# Cache only existing, fingerprinted Vite assets. Missing assets stay 404/no-store.
+		@immutable {
+			path_regexp fingerprint ^/assets/.+-[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9]+$
+			file
+		}
+		handle @immutable {
+			header Cache-Control "public, max-age=31536000, immutable"
+			encode zstd gzip
+			file_server
+		}
+		handle /assets/* {
+			file_server
+		}
+		@static file
+		handle @static {
+			encode zstd gzip
+			file_server
+		}
+		# Explicit client routes: source/config/missing-file URLs must not become HTML 200s.
+		@spa path / /login /account /incidents /incidents/*
+		handle @spa {
+			rewrite * /index.html
+			encode zstd gzip
+			file_server
 		}
 		handle {
 			header Content-Type application/json
