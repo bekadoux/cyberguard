@@ -272,26 +272,54 @@ recovery system now. Local dumps and retained volumes are not off-host protectio
 
 ## 10. Acceptance and evidence
 
-- [ ] A clean checkout can build the Go image and run the four-service local stack
+Checked against committed implementation `14d02c7` on 9 November 2026. All eleven
+applicable local-containerization criteria are met; optional dump/restore tooling is
+not supplied and is not accepted by these checks.
+
+- [x] A clean checkout can build the Go image and run the four-service local stack
       using documented prerequisites, secret creation and commands.
-- [ ] Both host-development and containerized workflows use the correct addresses.
-- [ ] Fresh databases bootstrap/migrate; repeat migrations are no-ops; optional repeat
+- [x] Both host-development and containerized workflows use the correct addresses.
+- [x] Fresh databases bootstrap/migrate; repeat migrations are no-ops; optional repeat
       seed preserves existing account IDs, passwords and blocked state.
-- [ ] API/migrator/seed secret grants are separate; rendered configuration and routine
+- [x] API/migrator/seed secret grants are separate; rendered configuration and routine
       logs do not disclose credential values. Secret-file error/ambiguity tests pass.
-- [ ] Go runtime database grants remain restricted; bootstrap credentials are not used
+- [x] Go runtime database grants remain restricted; bootstrap credentials are not used
       as application credentials. Non-root runtime users can read only intended files.
-- [ ] Requests through Caddy exercise login/logout/current-user and incident create,
+- [x] Requests through Caddy exercise login/logout/current-user and incident create,
       list and detail; employee isolation and reporter/professional projections remain.
-- [ ] Allowed frontend origins work; hostile unsafe origins fail. Session cookie rules
+- [x] Allowed frontend origins work; hostile unsafe origins fail. Session cookie rules
       are unchanged. Spoofed forwarded headers cannot bypass the login limiter.
-- [ ] Internal route namespaces are denied through the gateway. Missing API/frontend/AI
+- [x] Internal route namespaces are denied through the gateway. Missing API/frontend/AI
       paths do not masquerade as a working SPA or AI service.
-- [ ] Stopping either database makes Go readiness fail while liveness remains healthy;
+- [x] Stopping either database makes Go readiness fail while liveness remains healthy;
       restarting the database recovers readiness without restarting Go.
-- [ ] Accounts, sessions and incidents survive container recreation with volumes retained.
-- [ ] SIGTERM reaches Go and permits graceful shutdown. Python is not a dependency.
+- [x] Accounts, sessions and incidents survive container recreation with volumes retained.
+- [x] SIGTERM reaches Go and permits graceful shutdown. Python is not a dependency.
 - [ ] If manual dumps are supplied, restore is tested only against disposable databases.
+      **Not applicable:** no manual dump/restore tooling is included; no restore was tested.
+
+Validation supporting the completed criteria:
+
+- `make go-check` and then `make go-build` passed. The Go/PostgreSQL integration/race
+  suite, run through `DOCKER_TEST_GO_INTEGRATION=1 make docker-smoke`, also passed;
+  it covers runtime-role restrictions and repeat-seed ID/password/blocked-state preservation.
+- The disposable smoke suite built the image, provisioned fresh databases, exercised
+  gateway authentication/access/browser-policy contracts, recreated containers with
+  retained sessions/incidents, recovered from both database outages, verified graceful
+  shutdown and checked configuration/logs for secret disclosure.
+- Secret-generation tests and the first-initialization readiness regression passed.
+  The latter rejects PostgreSQL's temporary socket-only server with both base and
+  development Compose configurations. Host URL generation and host-run integration
+  connections verify the host/container address distinction.
+- Additional base-only checks verified private networks, no published ports, secure
+  cookie defaults, scoped secrets, repeat bootstrap/status and runtime-role rejection
+  by the migrator. Gateway checks covered 27 reserved-path variants, Host/query/prefix
+  handling, Location rewriting, forwarded-IP sanitization and error-log redaction.
+
+These are local HTTP/cookie-jar and database checks, not deployed-browser/UI, frontend,
+AI, production TLS or Azure acceptance. See the
+[local validation evidence](docker-setup.md#local-validation-evidence) for environment
+versions and the existing unused-module vulnerability advisory.
 
 Run `make go-check` and `make go-build` for the Go configuration changes. Also run
 `make go-test-integration` with all four dedicated test URLs from database setup;
