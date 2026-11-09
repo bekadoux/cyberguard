@@ -145,16 +145,21 @@ disabled. Recheck this scanner limitation when upgrading Playwright/browser buil
 
 The explicit live suite uses real Go/Caddy/PostgreSQL and verifies login, cookie flags,
 reload persistence, no browser-stored identity/token and server-side logout. It requires
-`E2E_PASSWORD_FILE` (read by the Node test runner, never Vite); `E2E_USERNAME` optionally
-selects the matching demo account. It does not bootstrap or mutate account definitions.
+`E2E_PASSWORD_FILE` (read only by a standalone browser-check subprocess, never the test
+reporter or Vite); `E2E_USERNAME` optionally selects the matching demo account.
+It does not bootstrap or mutate account definitions.
 It uses one login per browser, below the existing five-per-minute per-peer limit if
 run alone. Repeated runs may require waiting for the limit to reset; never weaken it
 for a test. Unit/browser fixtures do not point Go's SQL integration suite at dev data.
 
-Playwright traces, video, screenshots and saved browser state are disabled by default
-because authentication tests handle credentials/cookies. Test artifacts are Git-ignored;
-treat any failure report as potentially sensitive. Prefer screenshots of the logged-out
-screen with empty fields when checking appearance. Do not publish real credentials.
+Playwright traces, video, screenshots and saved browser state are disabled by default.
+Those switches do not disable automatic ARIA failure snapshots or action-error logs.
+The live suite therefore keeps all credential/cookie-bearing browser work in a standalone
+subprocess with discarded stdout/stderr; only fixed checkpoint names reach the reporter.
+The normal browser suite verifies disabled-field and stalled-login failures with synthetic
+passwords. Test artifacts are Git-ignored; still treat failure reports as potentially
+sensitive. Prefer screenshots of the logged-out screen with empty fields when checking
+appearance. Do not publish real credentials.
 
 ### Validation evidence — 9 November 2026
 
@@ -164,6 +169,10 @@ screen with empty fields when checking appearance. Do not publish real credentia
   Chromium 158, including both themes' full WCAG A/AA axe scans.
 - Explicit real-backend suite: **2** tests passed, one per browser. It also replayed
   the pre-logout cookie and confirmed that Go rejects the revoked session.
+- Credential-reporting follow-up: **4** disabled-field/stalled-login regression checks
+  passed across Firefox/Chromium, and the **2** real-backend checks passed with process
+  isolation. An intentionally failing synthetic login in each browser produced list,
+  JSON and HTML/error-context reports without the synthetic password.
 - `npm audit`: no known vulnerabilities reported, including development dependencies.
 - Fresh local Docker setup, migration status and readiness passed; demo accounts were
   explicitly seeded. `make docker-test-secrets` and `make docker-smoke` passed after
