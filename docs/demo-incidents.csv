@@ -39,3 +39,43 @@ id,language,description,category,subcategory,severity,indicators,note
 38,en,Not sure if this is a security thing but the door to the server room was left open all night,other,,medium,,Physical security
 39,en,I think someone looked over my shoulder while I was typing my password on the train,other,,low,,Hard case: possible credential exposure
 40,sk,"Neviem, či je to dôležité, ale volal mi niekto a pýtal sa, aké programy vo firme používame.",phishing,,low,,Slovak; phone reconnaissance
+41,sk,"Dostala som e-mail, že mi vyprší heslo a mám kliknúť na odkaz. Klikla som, ale nič som nezadala.",phishing,,medium,clicked_link,"Slovak; link clicked, nothing entered"
+42,en,Every file on the shared accounting server got a .crypt extension overnight and nobody can open invoices,malware,ransomware,critical,multiple_affected,Ransomware on a key server
+43,en,I ran a 'free PDF converter' I downloaded and now my antivirus keeps showing alerts every few minutes,malware,,medium,attachment_opened;device_abnormal;ongoing,Downloaded program run by the employee
+44,sk,Po otvorení prílohy v Exceli sa spustilo makro a počítač sa sám reštartoval.,malware,,medium,attachment_opened;device_abnormal,Slovak; malicious macro
+45,en,"My mouse moves by itself and windows open and close while I'm not touching anything, right now",malware,,high,device_abnormal;ongoing,"Hard case: active remote control, overlaps account compromise"
+46,en,"The admin account of our HR system was used at night to export all employee records, none of the admins did it",account_compromise,,critical,,Privileged account misuse with mass export
+47,sk,"V odoslanej pošte mám správy, ktoré som nepísala, s odkazmi na neznámu stránku.",account_compromise,,high,,Slovak; mailbox sending spam
+48,en,I entered my password on a fake login page yesterday and today I can't log in anymore,account_compromise,,high,credentials_entered,Hard case: phishing that already led to compromise
+49,en,"Got an email saying my password was changed successfully, but I didn't change it",account_compromise,,high,,Password changed by someone else
+50,en,Our shared team account for the company social media page posted spam links this morning,account_compromise,,medium,,"Shared account, reputational damage"
+51,sk,Do skupinového e-mailu som omylom pridala externého dodávateľa a poslala tam interný cenník.,data_exposure,,high,data_sent_out,Slovak; confidential document to a third party
+52,en,A customer called saying they can see other customers' orders in their account on our website,data_exposure,,critical,multiple_affected;ongoing,Ongoing exposure of many customers' data
+53,en,I posted a screenshot in a public forum asking for help and only later noticed it showed a client's name and address,data_exposure,,high,data_sent_out,Personal data published by mistake
+54,en,Our backup files with customer data were found on an open cloud storage link that anyone can access,data_exposure,,critical,data_sent_out,Mass exposure through public storage
+55,en,"I accidentally put all 200 newsletter subscribers in CC instead of BCC, so everyone sees each other's email",data_exposure,,high,data_sent_out;multiple_affected,Email addresses of many people exposed
+56,en,"Left my work tablet in a taxi, it has a password and the company can track it",lost_device,,low,,Locked and trackable device
+57,sk,V električke mi ukradli batoh s pracovným notebookom. Notebook bol zamknutý heslom.,lost_device,,medium,,Slovak; stolen laptop with password
+58,en,I lost my security key for logging in somewhere in the office,lost_device,,low,,Lost authentication token
+59,en,Our office was broken into last night and two laptops and a server disk are missing,lost_device,,high,multiple_affected,Several devices including server data
+60,en,"Lost my phone, it has my work email and the authenticator app, and I'm not sure it had a screen lock",lost_device,,high,,Unlocked device with access to accounts
+61,sk,"Zabudla som pracovný telefón v reštaurácii, ale čašník mi ho o hodinu vrátil.",lost_device,,low,,Slovak; device returned
+62,en,A colleague pastes client contracts into a public AI chatbot to summarize them,policy_violation,,high,data_sent_out,Hard case: overlaps data exposure
+63,sk,Kolegovia si medzi sebou požičiavajú prístupové karty do budovy.,policy_violation,,low,,Slovak; shared access cards
+64,en,Someone in our team disabled the antivirus on their laptop because it made it slow,policy_violation,,medium,,Security control turned off
+65,en,An intern connected a personal router in the office to get faster Wi-Fi,policy_violation,,medium,,Unapproved network device
+66,en,Our department still uses one shared admin password written in a document on the shared drive,policy_violation,,medium,,Shared password stored in a document
+67,en,A manager asked IT to turn off two-factor login for him because it is annoying,policy_violation,,low,,"Request to bypass a rule, not done yet"
+68,en,The online shop shows 'database error' for all customers and orders are not coming in,service_disruption,,critical,multiple_affected;ongoing,"Hard case: key system down, attack not confirmed"
+69,sk,"VPN od rána nefunguje nikomu, kto pracuje z domu.",service_disruption,,high,multiple_affected;ongoing,Slovak; remote access outage
+70,en,Email server is extremely slow and IT says thousands of messages are being sent from our domain,service_disruption,,high,ongoing,Hard case: may be a compromised account sending spam
+71,en,The company website shows a page saying 'hacked by' with a strange logo instead of our homepage,service_disruption,,high,ongoing,Website defacement
+72,en,All printers on the second floor print pages full of random characters,service_disruption,,medium,multiple_affected;device_abnormal,Hard case: may be an ordinary fault
+73,sk,Firemná webstránka sa načítava veľmi pomaly a občas úplne spadne.,service_disruption,,medium,ongoing,Slovak; intermittent outage
+74,en,A stranger without a badge followed me through the office door this morning,other,,medium,,Physical security: tailgating
+75,sk,Na parkovisku sa už niekoľko dní zdržiava neznáme auto a niekto z neho fotí vchod do budovy.,other,,low,,Slovak; physical surveillance
+76,en,Is it safe to use the hotel Wi-Fi for work emails? I'm on a business trip,other,,low,,"Question, not an incident: likely false positive"
+77,en,"The badge reader at the main entrance lets anyone in, it seems broken",other,,medium,,Physical access control failure
+78,sk,"Neviem, či je to problém, ale prehliadač mi ukázal varovanie, že certifikát stránky nie je dôveryhodný.",other,,low,device_abnormal,Slovak; hard case: certificate warning
+79,en,My colleague received a threatening call from someone claiming to know our system passwords,other,,medium,,Hard case: possible extortion or social engineering
+80,en,The smoke detector in the server room keeps beeping,other,,low,,Not a cyber incident: hand over to facilities
