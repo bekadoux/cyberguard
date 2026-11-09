@@ -2,12 +2,19 @@
 
 ## Dev environment tips
 
-- The only implemented application backend is the Go API, including incident core create/read.
+- The Go API implements incident core create/read.
   The frontend implements login/session UI, themes and scoped incident create/list/detail.
-  Python/AI, assessment enqueueing and investigation mutations remain planned. See
+  Investigation mutations remain planned. See
   `docs/frontend-setup.md` and `docs/incidents-handoff.md` for the explicit boundaries. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
   contracts are in `docs/architect-handoff.md`.
+- An AI implementation candidate under `backend/python/` adds FastAPI, PostgreSQL job
+  processing and optional CPU models. AI services are not enabled in base Compose.
+  Applying `db/migrations/incidents/00002_ai_assessments.sql` installs a trigger that
+  enqueues an initial job in the incident INSERT transaction, even without a running
+  worker; existing incidents are not backfilled. Processing requires the optional AI
+  services. See `docs/ai-backend.md` for setup, pending approvals and unverified runtime
+  checks. This is not production or complete vertical-slice acceptance.
 - Local Docker runs Caddy, Go and two PostgreSQL instances; commands and prerequisites
   are in `docs/docker-setup.md`. Set `DOCKER_SECRET_GID=$(id -g)` for file permissions.
   Bootstrap/migrate/seed are explicit one-off tools, never API startup actions. Do not
@@ -16,14 +23,15 @@
   uses the existing unprefixed routes. Caddy serves the packaged frontend at
   `http://127.0.0.1:8088/login`; Vite at 127.0.0.1:5173 remains available for hot reload.
   `make docker-build` builds separate Go and frontend/Caddy images; Node is build-only.
-  AI paths remain unimplemented. Rebuild the web image after frontend/Caddy changes;
+  The optional AI overlay enables AI paths. Rebuild the web image after frontend/Caddy changes;
   Compose does not bind-mount application source or the Caddyfile.
 - Business rules are in `docs/domain-specification.md`. `docs/playbooks.md` and
   `docs/demo-incidents.csv` supply domain reference material and labelled scenarios,
   not an implemented incident importer/seed or measured AI evaluation results.
 - `docs/assessment-job-contract.md` is a proposal, not an implemented/final contract.
-  Confirm schema, context revision/snapshot, grants and service contracts with the Go
-  engineer, AI specialist and architect before implementing the assessment handoff.
+  The AI candidate selects trigger-based enqueueing and stale-revision rejection rather
+  than immutable snapshots. Confirm these choices, schema, grants and service contracts
+  with the Go engineer, AI specialist and architect before accepting the handoff.
 - The Go module is `backend/go` (Go 1.27.3). Run Make targets from the repository
   root; run direct Go commands from `backend/go`, not the root.
 - Make targets use GNU Make. Database bootstrap requires `psql` 15+ for `\getenv`;
@@ -43,6 +51,9 @@
   `DOCKER_TEST_FRONTEND=1 make docker-smoke` also runs all browser regressions against
   the packaged assets plus real same-origin flows, without Vite or API interception
   in those real flows. Requires host Node/npm, installed dependencies and browsers.
+- AI candidate tests and outstanding integration checks are documented in
+  `docs/ai-backend.md`. Mocked unit tests or `AI_MODE=fake` do not validate real model
+  inference, PostgreSQL claims/grants, Docker integration or production resource usage.
 - No CI workflow is checked in; `Makefile` defines the available checks.
 - `make docker-smoke` builds and tests a fresh disposable four-container project,
   including restart persistence, SQL outages and HTTP access rules. It deletes only

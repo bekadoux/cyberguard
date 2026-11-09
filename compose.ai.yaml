@@ -1,0 +1,135 @@
+# Optional AI deployment overlay. Do NOT enable the 'tools' profile during 'up'.
+services:
+  web:
+    volumes: [./docker/caddy/Caddyfile.ai:/etc/caddy/Caddyfile:ro]
+  go-api:
+    environment:
+      AI_INTERNAL_TOKEN_FILE: /run/secrets/ai_internal_token
+    secrets: [identity_runtime_url, incidents_runtime_url, ai_internal_token]
+  ai-api:
+    build:
+      context: .
+      dockerfile: backend/python/Dockerfile
+    image: cyberguard-ai:local
+    command: [uvicorn, cyberguard_ai.api:app, --host, 0.0.0.0, --port, '8090', --workers, '1', --no-access-log]
+    group_add: ['${DOCKER_SECRET_GID:-1000}']
+    environment:
+      AI_DATABASE_URL_FILE: /run/secrets/ai_runtime_url
+      AI_INTERNAL_TOKEN_FILE: /run/secrets/ai_internal_token
+      AI_GO_URL: http://go-api:8080
+    secrets: [ai_runtime_url, ai_internal_token]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 48
+    tmpfs: ['/tmp:size=8m,mode=1777']
+    networks: [edge, incidents]
+    depends_on:
+      incident-db: {condition: service_healthy}
+      go-api: {condition: service_started}
+    restart: unless-stopped
+  ai-worker:
+    build:
+      context: .
+      dockerfile: backend/python/Dockerfile
+    image: cyberguard-ai:local
+    command: [python, -m, cyberguard_ai.worker]
+    group_add: ['${DOCKER_SECRET_GID:-1000}']
+    environment:
+      AI_DATABASE_URL_FILE: /run/secrets/ai_runtime_url
+      AI_INTERNAL_TOKEN_FILE: /run/secrets/ai_internal_token
+      AI_GO_URL: http://go-api:8080
+      AI_MODE: ${AI_MODE:-models}
+      AI_KEV_URL: http://ai-kev:8009
+      AI_LLM_URL: http://ai-llm:8081
+      AI_KEV_MODEL: kev-latest
+      AI_LLM_MODEL: qwen2.5-1.5b-instruct
+      AI_PLAYBOOKS_PATH: /app/docs/playbooks.md
+      AI_POLL_SECONDS: '3'
+      AI_LEASE_SECONDS: '900'
+      AI_MAX_ATTEMPTS: '3'
+    secrets: [ai_runtime_url, ai_internal_token]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 48
+    tmpfs: ['/tmp:size=8m,mode=1777']
+    networks: [edge, incidents, ai-inference]
+    depends_on:
+      incident-db: {condition: service_healthy}
+      go-api: {condition: service_started}
+    restart: unless-stopped
+  ai-kev:
+    profiles: [ai-models]
+    build:
+      context: .
+      dockerfile: docker/ai/Dockerfile.kev
+    command:
+      - /opt/kev/.venv/bin/python
+      - -m
+      - kev.serve
+      - --run
+      - jaredpalmer/kev-0.8b@v1.0
+      - --device
+      - cpu
+      - --host
+      - 0.0.0.0
+      - --port
+      - '8009'
+    cpus: 1.0
+    mem_limit: 4g
+    pids_limit: 256
+    environment:
+      HF_HOME: /model-cache/hf
+      HF_HUB_OFFLINE: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      KEV_DTYPE: fp32
+    volumes: [kev-cache:/model-cache]
+    networks: [ai-inference]
+    restart: unless-stopped
+  ai-llm:
+    profiles: [ai-models]
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command: [--model, /models/qwen2.5-1.5b-instruct-q4_k_m.gguf, --host, 0.0.0.0,
+              --port, '8081', --threads, '1', --threads-batch, '1',
+              --parallel, '1', --ctx-size, '2048', --no-webui]
+    volumes: [./.local/models:/models:ro]
+    cpus: 1.0
+    mem_limit: 2g
+    pids_limit: 128
+    networks: [ai-inference]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+  bootstrap-ai:
+    image: postgres:17.11-bookworm
+    profiles: [tools]
+    entrypoint: [/bin/sh, /setup/bootstrap-ai.sh]
+    secrets: [incidents_admin_password, ai_runtime_password]
+    volumes:
+      - ./docker/ai/bootstrap-ai.sh:/setup/bootstrap-ai.sh:ro
+      - ./db/bootstrap/ai-worker.sql:/setup/ai-worker.sql:ro
+    networks: [incidents]
+    depends_on:
+      incident-db: {condition: service_healthy}
+networks:
+  ai-inference:
+    internal: true
+volumes:
+  kev-cache:
+secrets:
+  ai_internal_token:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/ai_internal_token
+  ai_runtime_password:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/ai_runtime_password
+  ai_runtime_url:
+    file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/ai_runtime_url
