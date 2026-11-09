@@ -11,6 +11,11 @@ its settings and integration/review tasks. The [incident core handoff](incidents
 adds incident migration/create/read; AI/job tables and enqueueing, Python database role,
 frontend and deployment automation remain outside these increments.
 
+For the next Docker increment, follow the
+[containerization handoff](containerization-handoff.md): local Compose first, Caddy
+serving the future frontend, secret-file delivery, and a later application/AI VM split.
+The build and SQL contracts below remain applicable; Azure deployment is deferred.
+
 - **Architect:** Dockerfile/Compose, networking, volumes, secret delivery, health checks,
   orchestration of one-off setup commands.
 - **Engineer:** SQL roles/grants, goose migrations, sqlc, seed, application code and tests.
