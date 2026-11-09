@@ -2,9 +2,10 @@
 
 ## Dev environment tips
 
-- The only implemented application backend is the Go API, including incident core create/read.
-  Frontend, Python/AI, assessment enqueueing and investigation mutations remain
-  planned; see `docs/incidents-handoff.md` for the explicit integration gap. Application
+- The Go API implements incident core create/read. An AI implementation candidate under
+  `backend/python/` adds FastAPI, PostgreSQL job processing and optional CPU models;
+  see `docs/ai-backend.md` for unverified integration steps. Frontend and
+  investigation mutations remain planned; see `docs/incidents-handoff.md`. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
   contracts are in `docs/architect-handoff.md`.
 - Local Docker runs Caddy, Go and two PostgreSQL instances; commands and prerequisites

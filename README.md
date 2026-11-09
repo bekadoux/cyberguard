@@ -33,3 +33,13 @@ Go, two PostgreSQL instances, secret-file delivery and disposable lifecycle test
 Start with `make docker-secrets` and follow that guide's explicit setup sequence.
 The [containerization handoff](docs/containerization-handoff.md) records ownership,
 acceptance criteria and the later frontend/AI and two-VM deployment boundaries.
+
+
+## AI Backend (proposed integration)
+
+Python/FastAPI, assessment jobs, a CPU-only Kev-compatible decision adapter and
+llama.cpp/Qwen brief generation are in `backend/python/`, with optional Docker
+services in `compose.ai.yaml`. **Not enabled in the base Compose deployment** and
+**not yet integration-tested on Azure**. See [`docs/ai-backend.md`](docs/ai-backend.md)
+for the schema migration, separate worker database role, explicit fake fixture,
+model setup, and approvals required before merging.

@@ -229,3 +229,6 @@ coverage.out
 
 # Local Docker credentials, state and optional database dumps
 /.local/
+
+# Visual Studio local files
+/.vs/
