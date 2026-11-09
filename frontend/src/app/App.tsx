@@ -1,10 +1,12 @@
-import { BrowserRouter, Link, Route, Routes } from 'react-router';
+import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router';
 import { AuthLayout } from '../features/auth/AuthLayout';
 import { AuthProvider } from '../features/auth/AuthProvider';
 import { LoginPage } from '../features/auth/LoginPage';
 import { RequireSession } from '../features/auth/RequireSession';
 import { SessionPage } from '../features/auth/SessionPage';
 import { ThemeProvider } from '../shared/theme/ThemeProvider';
+import { IncidentListPage } from '../features/incidents/IncidentListPage';
+import { WorkspaceLayout } from './WorkspaceLayout';
 
 export function App() {
   return (
@@ -14,7 +16,11 @@ export function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route element={<RequireSession />}>
-              <Route index element={<SessionPage />} />
+              <Route element={<WorkspaceLayout />}>
+                <Route index element={<Navigate to="/incidents" replace />} />
+                <Route path="/incidents" element={<IncidentListPage />} />
+                <Route path="/account" element={<SessionPage />} />
+              </Route>
             </Route>
             <Route
               path="*"

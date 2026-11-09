@@ -20,6 +20,9 @@ async function fill(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await anonymous(page);
+  await page.route('**/api/incidents?*', (route) =>
+    route.fulfill({ json: { incidents: [], next_cursor: null } }),
+  );
 });
 
 test('validates, supports keyboard sign-in and submits one request', async ({ page }) => {
@@ -37,7 +40,7 @@ test('validates, supports keyboard sign-in and submits one request', async ({ pa
   await expect(page.getByLabel('Username', { exact: true })).toBeFocused();
   await fill(page);
   await page.getByLabel('Password', { exact: true }).press('Enter');
-  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
   expect(calls).toBe(1);
   expect(
     await page.evaluate(() => ({
@@ -78,7 +81,7 @@ test('submits Turkish dotted-I usernames unchanged for Go normalization', async 
   await fill(page);
   await page.getByLabel('Username', { exact: true }).fill('ADMİN');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
   await expect(page.getByText('Administrator', { exact: true })).toBeVisible();
 });
 
@@ -152,7 +155,7 @@ test('disables duplicate login submissions while a request is pending', async ({
   await expect(page.getByRole('button', { name: 'Signing in…' })).toBeDisabled();
   await expect(page.getByLabel('Username', { exact: true })).toBeDisabled();
   release();
-  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
   expect(calls).toBe(1);
 });
 
@@ -164,12 +167,12 @@ test('restores an existing session and never falsely reports failed logout', asy
     route.fulfill({ status: 503, json: error('auth_unavailable') }),
   );
   await page.goto('/login');
-  await expect(page).toHaveURL('/');
+  await expect(page).toHaveURL('/incidents');
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText(
     'Your session may still be active.',
   );
-  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
   await page.route('**/api/auth/logout', (route) => route.fulfill({ status: 204 }));
   await page.route('**/api/auth/me', (route) =>
     route.fulfill({ status: 401, json: error('authentication_required') }),
@@ -193,13 +196,13 @@ test('shows a recoverable session outage rather than assuming logout', async ({
   ).toBeVisible();
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: { user } }));
   await page.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
 });
 
 test('handles expired identity when the page becomes visible again', async ({ page }) => {
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: { user } }));
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
   await page.route('**/api/auth/me', (route) =>
     route.fulfill({ status: 401, json: error('authentication_required') }),
   );
@@ -212,7 +215,7 @@ test('allows logout through a session-check outage without exposing account cont
 }) => {
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: { user } }));
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toBeVisible();
   await page.route('**/api/auth/me', (route) =>
     route.fulfill({ status: 503, json: error('auth_unavailable') }),
   );
@@ -223,7 +226,7 @@ test('allows logout through a session-check outage without exposing account cont
   await expect(
     page.getByRole('heading', { name: 'Unable to check your session' }),
   ).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'Workspace' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText(
     'Your session may still be active.',

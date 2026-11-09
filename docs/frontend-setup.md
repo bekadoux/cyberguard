@@ -1,11 +1,14 @@
-# Frontend — Authentication Increment
+# Frontend — Authentication and Incident Workspace
 
 Implemented: React + TypeScript + Vite + React Router, responsive login, session
 restoration, an authenticated account-confirmation page, logout, and System/Light/Dark
-themes. Firefox is the primary test browser; the same browser suite also runs on Chromium.
+themes, plus a protected workspace and role-scoped incident list with status/category
+filters and cursor pagination. Firefox is the primary test browser; the same browser
+suite also runs on Chromium. Sign-in now lands on `/incidents`; `/account` retains the
+account information screen.
 
-This increment does **not** implement incident screens, account administration, password
-recovery, notifications or AI. The account page explicitly describes that boundary.
+Incident detail and submission screens are the next chunks. This increment does **not**
+implement investigation mutations, account administration, password recovery, notifications or AI.
 The existing Go incident API remains available independently. No assessment job is
 created by the current backend; see [incident handoff](incidents-handoff.md).
 
@@ -56,6 +59,7 @@ see [containerization handoff](containerization-handoff.md#caddy-and-the-future-
 frontend/
   src/app/                 Router and application-wide providers
   src/features/auth/       Auth API DTOs, session store, login and account screens
+  src/features/incidents/  Safe incident DTOs, scoped list, filters and pagination
   src/shared/api/          Credentialed, bounded JSON requests and safe API errors
   src/shared/theme/        System/light/dark preference and theme provider
   src/shared/ui/           Shared brand and theme control
@@ -95,9 +99,21 @@ contracts exist. Client routing/role labels are UX only: Go always authorizes re
   capacity, dependency and network errors. `Retry-After` disables resubmission until
   its deadline. Raw backend error messages are never rendered.
 
-Future protected feature requests must handle their own 401 by refreshing/invalidating
-the session, without letting an obsolete response clear a newer identity. Do not
-assume a successful `/auth/me` authorizes any particular incident.
+Protected feature requests use `runProtected` from the session store. Current-request
+401 clears identity; obsolete responses/denials cannot replace a newer identity.
+Identity/role changes remount the protected workspace to discard previous account data.
+An incident dependency 503 remains a retryable feature error, not proof of logout.
+Do not assume a successful `/auth/me` authorizes any particular incident.
+
+### Incident list contract
+
+Employees see their own reports; analysts/admins see the company queue. The UI uses
+only `status`, `category`, fixed `limit=20` and opaque continuation cursors. Changing
+filters clears old results and restarts pagination; obsolete reads are aborted/ignored.
+Unknown/duplicate/empty URL filters are rejected visibly, not silently widened. Failed
+pagination preserves loaded rows and permits retry. Counts describe loaded rows, not
+global totals. No search, severity filtering, ordering controls or staff-only-own filter
+are implied. Severity is never displayed on the reporter's own rows, including staff.
 
 ### Themes and accessibility
 
@@ -158,6 +174,12 @@ changing the select before scanning. Separate browser tests exercise the theme c
 persistence and tab synchronization. No accessibility rules or browser optimizers are
 disabled. Recheck this scanner limitation when upgrading Playwright/browser builds.
 
+Workspace axe scans additionally run in a standalone Node/browser process: Firefox's
+fallback build crashes during native-widget evaluation under the main test runner's
+instrumentation. The standalone scan uses the same synthetic fixtures, both palettes,
+desktop/mobile viewports and all WCAG A/AA rules, without altering browser optimizers.
+Normal interaction and layout assertions remain in the main Firefox/Chromium suite.
+
 The explicit live suite uses real Go/Caddy/PostgreSQL and verifies login, cookie flags,
 reload persistence, no browser-stored identity/token and server-side logout. It requires
 `E2E_PASSWORD_FILE` (read only by a standalone browser-check subprocess, never the test
@@ -204,3 +226,12 @@ appearance. Do not publish real credentials.
 This is local development/browser evidence, not production HTTPS/Caddy-static, AI,
 incident-screen or manual accessibility acceptance. No Go/SQL behavior was changed;
 the separate full Go/PostgreSQL integration suite was not rerun for this UI increment.
+
+### Incident workspace chunk 1 — 9 November 2026
+
+`make frontend-check` passed (67 unit/component tests plus types, lint, formatting and
+build); `make frontend-test-e2e` passed 74 Firefox/Chromium tests; the two explicit real
+authentication checks passed with the new landing page. `npm audit` reported no known
+vulnerabilities. Checks cover filters/cursors, obsolete responses, pagination retry,
+own-report severity restrictions, identity changes, failed-logout read recovery,
+mobile layout and full accessibility scans in both themes. No Go/SQL behavior changed.

@@ -19,12 +19,22 @@ export default defineConfig({
   projects: [
     {
       name: 'firefox',
-      testMatch: ['login.spec.ts', 'accessibility.spec.ts', 'live-auth-safety.spec.ts'],
+      testMatch: [
+        'login.spec.ts',
+        'accessibility.spec.ts',
+        'live-auth-safety.spec.ts',
+        'incidents.spec.ts',
+      ],
       use: { ...devices['Desktop Firefox'] },
     },
     {
       name: 'chromium',
-      testMatch: ['login.spec.ts', 'accessibility.spec.ts', 'live-auth-safety.spec.ts'],
+      testMatch: [
+        'login.spec.ts',
+        'accessibility.spec.ts',
+        'live-auth-safety.spec.ts',
+        'incidents.spec.ts',
+      ],
       use: { ...devices['Desktop Chrome'] },
     },
     {

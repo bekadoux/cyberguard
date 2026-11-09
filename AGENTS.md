@@ -3,8 +3,9 @@
 ## Dev environment tips
 
 - The only implemented application backend is the Go API, including incident core create/read.
-  The frontend implements login/session UI and themes; incident screens, Python/AI,
-  assessment enqueueing and investigation mutations remain planned. See
+  The frontend implements login/session UI, themes and a scoped incident list.
+  Incident detail/submission, Python/AI, assessment enqueueing and investigation
+  mutations remain planned. See
   `docs/frontend-setup.md` and `docs/incidents-handoff.md` for the explicit boundaries. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
   contracts are in `docs/architect-handoff.md`.
