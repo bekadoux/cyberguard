@@ -72,6 +72,8 @@ We propose 8 categories, phrased around what an employee can notice and describe
 Rules:
 
 - One incident has one main category. The analyst notes anything else in a comment.
+- `ransomware` is a subcategory of `malware`, not a separate main category: it marks malware that encrypts files and demands a ransom. Such incidents are usually `critical`. How the subcategory is stored is an engineering decision.
+- Incident descriptions may be written in English or Slovak. English is the main language for development, documentation and AI tuning.
 - `other` is a legitimate model answer under low confidence, not an error.
 - Basis: a simplified ENISA Reference Incident Classification Taxonomy and the VERIS categories.
 
@@ -206,7 +208,7 @@ The remaining 6 playbooks will be added once the categories are agreed.
 
 ## Demo scenarios
 
-Ten synthetic incidents cover all categories and levels, including two hard cases for the model. Texts are in English (model input), with no real passwords or data.
+Ten synthetic incidents cover all categories and levels, including two hard cases for the model. Texts are in English (the main model input), with no real passwords or data. A few Slovak descriptions will be added to the demo set, because the system also accepts Slovak.
 
 | # | Employee description (short) | Expected category | Expected severity | What it shows |
 | --- | --- | --- | --- | --- |
@@ -236,3 +238,6 @@ Presentation scenario: no. 2 goes through the full cycle — report, AI suggesti
 | Reporter actions | Confirm / request review are ownership rights, for any role | Vitalina, Daniil |
 | Who changes category, severity, `affected_system`, `resolution_note`, AI suggestions | Assigned analyst and admin only | Vitalina, Daniil |
 | Comment visibility | Two types: `public` and `internal` | Vitalina, Daniil |
+| `ransomware` | A subcategory of `malware`, not a main category | SaiLenT |
+| Number of categories | All 8 stay; `other` only for incidents that fit no category | SaiLenT |
+| Description language | English and Slovak accepted; English is the main language | SaiLenT |

@@ -72,6 +72,8 @@ Navrhujeme 8 kategórií formulovaných podľa toho, čo dokáže zamestnanec s�
 Pravidlá:
 
 - Jeden incident má jednu hlavnú kategóriu. Ďalšie súvislosti analytik uvedie v komentári.
+- `ransomware` je podkategória `malware`, nie samostatná hlavná kategória: označuje škodlivý softvér, ktorý šifruje súbory a žiada výkupné. Takéto incidenty sú zvyčajne `critical`. Spôsob uloženia podkategórie je technické rozhodnutie vývojárov.
+- Popisy incidentov môžu byť v angličtine alebo v slovenčine. Angličtina je hlavný jazyk pre vývoj, dokumentáciu a ladenie AI.
 - `other` je legitímna odpoveď modelu pri nízkej istote, nie chyba.
 - Základ: zjednodušená ENISA Reference Incident Classification Taxonomy a kategórie VERIS.
 
@@ -206,7 +208,7 @@ Zvyšných 6 playbookov doplním po odsúhlasení kategórií.
 
 ## Demo scenáre
 
-Desať syntetických incidentov pokrýva všetky kategórie a úrovne vrátane dvoch ťažkých prípadov pre model. Texty sú v angličtine (vstup modelu), bez skutočných hesiel a údajov.
+Desať syntetických incidentov pokrýva všetky kategórie a úrovne vrátane dvoch ťažkých prípadov pre model. Texty sú v angličtine (hlavný vstup modelu), bez skutočných hesiel a údajov. Do demo sady pribudne aj niekoľko slovenských popisov, keďže systém prijíma aj slovenčinu.
 
 | # | Popis zamestnanca (skrátene) | Očakávaná kategória | Očakávaná závažnosť | Čo ukazujeme |
 | --- | --- | --- | --- | --- |
@@ -236,3 +238,6 @@ Scenár pre prezentáciu: č. 2 prejde celým cyklom — nahlásenie, AI návrh,
 | Akcie nahlasovateľa | Potvrdenie / žiadosť o prehodnotenie sú práva vlastníka, pre každú rolu | Vitalina, Daniil |
 | Kto mení kategóriu, závažnosť, `affected_system`, `resolution_note`, AI návrhy | Iba priradený analytik a admin | Vitalina, Daniil |
 | Viditeľnosť komentárov | Dva typy: `public` a `internal` | Vitalina, Daniil |
+| `ransomware` | Podkategória `malware`, nie hlavná kategória | SaiLenT |
+| Počet kategórií | Zostáva všetkých 8; `other` iba pre incidenty, ktoré nepatria nikam inam | SaiLenT |
+| Jazyk popisov | Prijíma sa angličtina aj slovenčina; hlavný jazyk je angličtina | SaiLenT |
