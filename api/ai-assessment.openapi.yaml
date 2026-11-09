@@ -29,6 +29,7 @@ paths:
       description: |
         Requires existing Go HttpOnly session and analyst/admin role, plus
         current incident access. Returns a null result for queued/running/failed jobs.
+        Reporters cannot read AI output for their own incidents, including analysts/admins.
         Does not cause inference or write incident fields.
       parameters:
         - in: path
@@ -67,6 +68,6 @@ paths:
                           source_kind: {type: string, enum: [fake, kev_llm]}
                           created_at: {type: string, format: date-time}
         '401': {description: Missing or expired login}
-        '403': {description: Role forbidden}
+        '403': {description: Role forbidden or caller is the incident reporter}
         '404': {description: Incident inaccessible or job not found}
         '503': {description: Go or incident database unavailable}
