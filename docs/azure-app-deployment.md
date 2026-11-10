@@ -63,6 +63,8 @@ Bootstrap reruns retain files, credentials and installed Docker versions. Confli
 packages/sources, symlinks and unexpected ownership/modes are rejected for review,
 never automatically removed or repaired. Plan OS/Docker security updates separately.
 Use sudo for Docker; Docker-group membership is effectively root access.
+If overriding state/secret paths, provision the corresponding real directories with
+the same owner/group/modes first; bootstrap creates only the documented defaults.
 
 ## 2. Configure and build independently
 
@@ -154,6 +156,9 @@ bash deploy/app-vm/create-secrets.sh --config /etc/cyberguard/app/config.env
 Generation publishes a complete new credential directory, never overwriting an existing
 one or changing database roles. URLs use `verify-full` and `/run/certs/ca.crt`; independent
 random hex passwords need no URL escaping. Do not regenerate after creating databases.
+Management rejects connection files that change the expected role, host, database or
+verified-TLS options. Deliberate password rotation must keep encoded URLs and actual
+database role passwords consistent; editing a file alone does not rotate a role.
 Admin/migration/demo files never enter the API, public web image or AI services.
 
 After certificates/configuration/network review, run with sudo:
@@ -171,6 +176,10 @@ managed role passwords**, including AI bootstrap: never routine startup or a gra
 shortcut. Migration uses separate scoped migrators, checks both current and image target
 versions against the checkout, and exposes no automatic downgrade. Currently identity
 must reach 00003 and incidents 00005. API and worker never migrate themselves.
+Status uses separate file-backed migrator connections with server-side
+`default_transaction_read_only=on`. This is deliberate: Goose can lazily create its
+version table even in status mode. Startup/check must reject an unmigrated database
+without creating that table. Only explicit `migrate` uses the writable migration URLs.
 
 For this synthetic demo only, set `APP_ALLOW_DEMO_SEED=yes`, then explicitly run
 `manage.sh --config ... seed-demo`. Passwords for `employee_a`, `employee_b`, `analyst`
@@ -200,6 +209,7 @@ initializes only empty Caddy certificate-volume ownership, and starts/checks the
 Public ACME needs working DNS and reachable validation ports; initial checks may fail
 until issuance completes. Fix the cause and rerun `check`, never use insecure curl.
 Persistent `/data` retains account/certificate state for renewals and recreation.
+Listeners use HTTP/1.1 and HTTP/2 over TCP; HTTP/3 is not advertised on internal port 8443.
 
 Application checks do **not** depend on AI being online. Unreachable AI produces an
 assessment-only gateway error; login and incident operations remain usable. `check-ai`
@@ -290,6 +300,57 @@ make ai-vm-smoke
 The smoke owns only `cyberguard-app-vm-smoke-*` resources and protected `.local/app-vm-smoke.*`
 state; it removes only its own disposable volumes. Failures retain protected diagnostics
 which may contain synthetic credentials. Never reuse them for deployment.
+The default smoke additionally creates a separate AI fixture project and a disposable
+routed Docker transit network, preserving an exact source `/32` for HBA rejection tests.
+It requires a Linux Docker host supporting routed bridge mode (Docker 28+ recommended),
+host `ip`, and the pinned Python image build, but downloads no models. `APP_TEST_AI=0`
+runs only application/AI-offline checks; do not describe that as AI integration acceptance.
+Default host test ports are 18089/18446/18447/15435; explicit `APP_TEST_HTTP_PORT`,
+`APP_TEST_HTTPS_PORT`, `APP_TEST_PRIVATE_PORT`, `APP_TEST_DB_PORT` overrides avoid conflicts.
 Keep local fixture acceptance distinct from real Azure NSGs/ACME/reboot, model inference
 and production security/capacity acceptance. Deallocate VMs in Azure when unused;
 stopping containers is not deallocation, and retained resources may still cost money.
+
+Before a real demonstration, separately verify the public certificate/redirect and
+renewal state, browser Secure/HttpOnly/host-only session behavior, cold VM reboot and
+session/data persistence, source-specific private connectivity and denial from public
+and unauthorized VNet sources. Exercise a new synthetic incident end-to-end with the
+actual AI VM, including immutable context and staff/employee visibility. Record measured
+D2as v4 CPU/RAM/disk behavior; a healthy container or fixture test is not that evidence.
+
+### Local validation — 10 November 2026
+
+Validated on Linux with Docker Engine 29.9.3 / Compose 5.7.0, Go 1.27.3,
+Node 24.22.2 / npm 12.2.2 and the pinned images:
+
+- `app-vm-config` and `app-vm-build` passed with the non-secret example, without
+  runtime secrets or a running application/AI VM. The host used the legacy builder
+  fallback; bootstrap installs Buildx, but its real installation is not tested here.
+- `app-vm-test` (ShellCheck supplied by an explicit `uv tool run --from shellcheck-py`)
+  and `app-vm-test-bootstrap` passed. Host apt/systemd/network actions were mocked.
+- `make app-vm-smoke` passed using the actual deployment gateway, separate AI fixture
+  project and routed transit network. It verified public/private/SQL TLS, original
+  immutable context, stored fake output, staff own-report access, employee denial,
+  wrong-hostname rejection, exact AI source IP, role/database/plaintext/other-source
+  HBA rejection, and snapshot-less job readiness blocking without modifying that job.
+- The same smoke verified Secure cookies, CSRF/admin boundaries, forwarded-header
+  spoof rejection, maintenance/migration guards, **no version-table creation during
+  startup status checks**, retained data/sessions/Caddy state and both SQL outages.
+  Both dumps restored into fresh disposable databases on the test instances; restored
+  row counts and migration versions matched. This is not an off-host disaster-recovery test.
+- The explicit `APP_TEST_AI=0` application/AI-offline variant passed separately.
+- `make docker-test-secrets`, `make docker-smoke`, `make ai-vm-test`,
+  `make ai-vm-test-bootstrap` and `make ai-vm-smoke` passed.
+- `DOCKER_TEST_AI=1 DOCKER_TEST_FRONTEND=1 make docker-smoke` passed all **148** packaged
+  Firefox/Chromium regressions and **4** live packaged browser flows. Those are the
+  existing local HTTP browser checks, not a deployed HTTPS browser acceptance claim.
+- A separate `DOCKER_TEST_AI=1 DOCKER_TEST_GO_INTEGRATION=1 make docker-smoke`, using
+  alternate disposable ports, passed the full Go/PostgreSQL race integration suite.
+  Go/Python/SQL application source was unchanged; no new schema or authentication
+  implementation was introduced by this deployment work.
+
+Only disposable test containers/networks/volumes were removed. Ordinary application
+data and secrets were not selected. Protected failed-iteration diagnostics may remain
+under `.local/`. No Azure credentials or VM access were supplied, no weights downloaded,
+and no real inference, public ACME issuance/renewal, NSG isolation, VM reboot or deployed
+resource/cost measurements were performed.

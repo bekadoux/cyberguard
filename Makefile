@@ -258,6 +258,7 @@ app-vm-test-bootstrap:
 	  bash /repo/deploy/app-vm/tests/bootstrap.sh
 
 app-vm-smoke: docker-build
+	@if [ "$${APP_TEST_AI:-1}" = 1 ]; then docker build -f backend/python/Dockerfile -t cyberguard-ai:azure .; fi
 	bash deploy/app-vm/smoke.sh
 
 frontend-install:

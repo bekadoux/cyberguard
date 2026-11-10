@@ -33,7 +33,7 @@ if [[ -e $source_file || -L $source_file ]]; then
 fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl gnupg git jq make openssl
+apt-get install -y --no-install-recommends ca-certificates curl gnupg git jq make openssl iproute2 util-linux
 install -d -m 0755 /etc/apt/keyrings
 temporary=$(mktemp)
 trap 'rm -f -- "$temporary"' EXIT

@@ -20,6 +20,7 @@ for database in identity incidents; do
         "$database" "$(cat "$temporary/provisioning/${database}_runtime_password")" "$host" "$database" > "$temporary/runtime/${database}_runtime_url"
     printf 'postgres://%s_migrator:%s@%s:5432/cyberguard_%s?sslmode=verify-full&sslrootcert=/run/certs/ca.crt\n' \
         "$database" "$(cat "$temporary/provisioning/${database}_migration_password")" "$host" "$database" > "$temporary/provisioning/${database}_migration_url"
+    printf '%s&default_transaction_read_only=on\n' "$(cat "$temporary/provisioning/${database}_migration_url")" > "$temporary/provisioning/${database}_status_url"
 done
 openssl rand -hex 32 > "$temporary/provisioning/ai_runtime_password"
 openssl rand -hex 32 > "$temporary/runtime/ai_internal_token"

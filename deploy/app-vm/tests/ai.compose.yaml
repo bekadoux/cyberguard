@@ -1,0 +1,62 @@
+# A separate AI fixture project; never merged into the application's Compose project.
+# One network namespace emulates a remote host's single source IP without host NAT.
+x-python: &python
+  image: cyberguard-ai:azure
+  user: '10002:10002'
+  group_add: ['${APP_SECRET_GID}']
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ['/tmp:size=16m,mode=1777']
+  mem_limit: 384m
+  pids_limit: 64
+  environment:
+    AI_MODE: fake
+    AI_DATABASE_URL_FILE: /run/secrets/ai_runtime_url
+    AI_INTERNAL_TOKEN_FILE: /run/secrets/ai_internal_token
+    AI_GO_URL: 'https://${APP_BIND_IP}:${APP_PRIVATE_PORT}'
+    AI_GO_CA_FILE: /run/certs/ca.crt
+    AI_REQUIRE_TLS: 'true'
+    AI_CHECK_DEPENDENCIES: 'true'
+    AI_POLL_SECONDS: '1'
+  volumes:
+    - ${APP_TEST_DIR}/ai_runtime_url:/run/secrets/ai_runtime_url:ro
+    - ${APP_RUNTIME_DIR}/ai_internal_token:/run/secrets/ai_internal_token:ro
+    - ${APP_TLS_DIR}/ca.crt:/run/certs/ca.crt:ro
+
+services:
+  ai-api:
+    <<: *python
+    command: [uvicorn, cyberguard_ai.api:app, --host, 0.0.0.0, --port, '8090', --no-access-log]
+    networks:
+      transit: {ipv4_address: '${APP_AI_IP}'}
+    # Routed-mode publishing opens only the gateway port, not FastAPI.
+    ports: ['8443']
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/readyz', timeout=3).read()"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+  ai-worker:
+    <<: *python
+    command: [python, -m, cyberguard_ai.worker]
+    network_mode: service:ai-api
+  ai-gateway:
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    user: '10001:10001'
+    group_add: ['${APP_SECRET_GID}']
+    network_mode: service:ai-api
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/data:size=1m,mode=1777', '/config:size=1m,mode=1777', '/tmp:size=8m,mode=1777']
+    mem_limit: 128m
+    volumes:
+      - ./deploy/ai-vm/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${APP_TLS_DIR}/ai.crt:/run/secrets/api.crt:ro
+      - ${APP_TLS_DIR}/ai.key:/run/secrets/api.key:ro
+
+networks:
+  transit:
+    external: true
+    name: ${APP_TEST_TRANSIT}

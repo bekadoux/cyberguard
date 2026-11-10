@@ -38,6 +38,16 @@
   to the AI VM. `make ai-vm-test` needs ShellCheck; `make ai-vm-test-bootstrap` mocks
   privileged actions in disposable Ubuntu; `make ai-vm-smoke` uses real services/TLS but
   synthetic model responses. None validates real inference or an Azure reboot.
+- Application-VM post-install tooling is in `deploy/app-vm/`; see
+  `docs/azure-app-deployment.md`. It explicitly combines base Compose with its deployment
+  overlay, never the local dev/AI overlays. Public Caddy uses persistent certificate
+  state; private Go is a read-only TLS allowlist; both databases use verified TLS.
+  Provisioning/migrations/seed are explicit. `maintenance-on` pauses public writes;
+  `quiesce` stops/blocks Go until successful `migrate`. Remote workers must be stopped
+  separately by the operator. Never regenerate credentials or remove volumes to upgrade.
+  `make app-vm-test` needs ShellCheck, `app-vm-test-bootstrap` mocks host actions, and
+  `app-vm-smoke` uses disposable Linux Docker routed networking plus synthetic AI, not
+  Azure/ACME/real inference. Keep fixture and real deployment acceptance distinct.
 - Business rules are in `docs/domain-specification.md`. `docs/playbooks.md` and
   `docs/demo-incidents.csv` supply domain reference material and labelled scenarios,
   not an implemented incident importer/seed or measured AI evaluation results.

@@ -24,6 +24,16 @@ certificate_check() {
     key_public=$(openssl pkey -in "$APP_TLS_DIR/$name.key" -passin pass: -pubout -outform DER 2>/dev/null | sha256sum) || fail "Unreadable or encrypted server key: $name"
     [[ $cert_public == "$key_public" ]] || fail "Certificate/key mismatch: $name"
 }
+credential_url() {
+    local file=$1 user=$2 host=$3 port=$4 database=$5 value pattern
+    [[ $(stat -c %s "$file") -le 16384 ]] || fail 'Credential URL exceeds the size limit.'
+    value=$(cat "$file")
+    pattern="^postgres://$user:[^[:space:]@/?#]+@$host:$port/$database"
+    pattern+='\?sslmode=verify-full&sslrootcert=/run/certs/ca\.crt'
+    if [[ ${6:-no} == yes ]]; then pattern+='&default_transaction_read_only=on'; fi
+    pattern+='$'
+    [[ ${#value} -le 16384 && $value =~ $pattern ]] || fail "Credential URL must use its scoped role/endpoint and verified TLS: ${file##*/}"
+}
 local_check() {
     local file
     safe_directory "$APP_SECRETS_DIR"
@@ -32,7 +42,15 @@ local_check() {
     safe_directory "$APP_PROVISION_DIR"
     safe_directory "$APP_TLS_DIR"
     for file in identity_runtime_url incidents_runtime_url ai_internal_token ai_runtime_url; do secret_file "$APP_RUNTIME_DIR/$file"; done
-    for file in identity_admin_password incidents_admin_password identity_migration_url incidents_migration_url; do secret_file "$APP_PROVISION_DIR/$file"; done
+    [[ $(stat -c %s "$APP_RUNTIME_DIR/ai_internal_token") -le 16384 ]] || fail 'Internal token exceeds the size limit.'
+    for file in "$APP_PROVISION_DIR/"*; do secret_file "$file"; done
+    credential_url "$APP_RUNTIME_DIR/identity_runtime_url" go_identity identity-db 5432 cyberguard_identity
+    credential_url "$APP_RUNTIME_DIR/incidents_runtime_url" go_incidents incident-db 5432 cyberguard_incidents
+    credential_url "$APP_PROVISION_DIR/identity_migration_url" identity_migrator identity-db 5432 cyberguard_identity
+    credential_url "$APP_PROVISION_DIR/incidents_migration_url" incidents_migrator incident-db 5432 cyberguard_incidents
+    credential_url "$APP_PROVISION_DIR/identity_status_url" identity_migrator identity-db 5432 cyberguard_identity yes
+    credential_url "$APP_PROVISION_DIR/incidents_status_url" incidents_migrator incident-db 5432 cyberguard_incidents yes
+    credential_url "$APP_RUNTIME_DIR/ai_runtime_url" python_incidents "${APP_DB_TLS_NAME//./\\.}" "$APP_DB_PORT" cyberguard_incidents
     secret_file "$APP_TLS_DIR/ca.crt"
     certificate_check identity identity-db
     certificate_check incident incident-db
@@ -60,7 +78,9 @@ pause_writes() {
     install -m 0644 /dev/null "$APP_STATE_DIR/maintenance/public/enabled"
 }
 require_stopped() {
-    if compose ps --status running --services | grep -Fxq go-api; then fail 'Stop Go using quiesce before changing databases/roles.'; fi
+    local running
+    running=$(compose ps --status running --services) || fail 'Could not inspect running services; refusing database changes.'
+    if grep -Fxq go-api <<< "$running"; then fail 'Stop Go using quiesce before changing databases/roles.'; fi
 }
 tool() { compose run --rm -T --no-deps --pull never "$@"; }
 expected_version() {
@@ -75,7 +95,7 @@ migration_check() {
     local database result target
     for database in identity incidents; do
         target=$(expected_version "$database")
-        result=$(tool "migrate-$database" /app/migrate -database "$database" -dir "/app/migrations/$database" -status)
+        result=$(tool "status-$database")
         if ! jq -es --argjson expected "$target" \
             'map(select(.msg == "migration versions")) | last | .current == $expected and .target == $expected' <<< "$result" >/dev/null; then
             fail "Migration versions do not match this checkout/image: $database"
@@ -94,7 +114,7 @@ gateway_check() {
 }
 
 case "$action" in
-    config) compose --profile tools config --quiet; printf '%s\n' 'Configuration valid; not a readiness check.'; exit ;;
+    config) compose --profile tools config --quiet; printf '%s\n' 'Compose configuration valid; not a readiness check.'; exit ;;
     build)
         # Sequential builds suit the D2as v4; no startup/setup or runtime credentials.
         docker build -f "$APP_REPO_ROOT/backend/go/Dockerfile" -t "$APP_GO_IMAGE" "$APP_REPO_ROOT"

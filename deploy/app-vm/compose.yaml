@@ -3,6 +3,19 @@ x-tls-client: &tls-client
   PGSSLMODE: verify-full
   PGSSLROOTCERT: /run/certs/ca.crt
 
+# Goose GetVersions can lazily initialize its version table. Status credentials
+# enforce server-side read-only transactions, including on an unmigrated database.
+x-status: &status
+  image: ${APP_GO_IMAGE}
+  profiles: [tools]
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  group_add: ['${APP_SECRET_GID}']
+  tmpfs: ['/tmp:size=16m,mode=1777']
+  mem_limit: 512m
+  pids_limit: 64
+
 services:
   web:
     command: [caddy, run, --config, /etc/caddy/Caddyfile.app, --adapter, caddyfile]
@@ -117,6 +130,28 @@ services:
   seed-demo:
     secrets: [{source: ca_cert, target: /run/certs/ca.crt}]
 
+  status-identity:
+    <<: *status
+    command: [/app/migrate, -database, identity, -dir, /app/migrations/identity, -status]
+    environment:
+      IDENTITY_MIGRATION_DATABASE_URL_FILE: /run/secrets/identity_status_url
+    secrets:
+      - identity_status_url
+      - {source: ca_cert, target: /run/certs/ca.crt}
+    networks: [identity]
+    healthcheck: {disable: true}
+
+  status-incidents:
+    <<: *status
+    command: [/app/migrate, -database, incidents, -dir, /app/migrations/incidents, -status]
+    environment:
+      INCIDENT_MIGRATION_DATABASE_URL_FILE: /run/secrets/incidents_status_url
+    secrets:
+      - incidents_status_url
+      - {source: ca_cert, target: /run/certs/ca.crt}
+    networks: [incidents]
+    healthcheck: {disable: true}
+
   bootstrap-ai:
     image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
     profiles: [tools]
@@ -185,6 +220,8 @@ secrets:
   incidents_runtime_password: {file: '${APP_PROVISION_DIR}/incidents_runtime_password'}
   incidents_runtime_url: {file: '${APP_RUNTIME_DIR}/incidents_runtime_url'}
   incidents_migration_url: {file: '${APP_PROVISION_DIR}/incidents_migration_url'}
+  identity_status_url: {file: '${APP_PROVISION_DIR}/identity_status_url'}
+  incidents_status_url: {file: '${APP_PROVISION_DIR}/incidents_status_url'}
   dev_employee_a_password: {file: '${APP_PROVISION_DIR}/dev_employee_a_password'}
   dev_employee_b_password: {file: '${APP_PROVISION_DIR}/dev_employee_b_password'}
   dev_analyst_password: {file: '${APP_PROVISION_DIR}/dev_analyst_password'}

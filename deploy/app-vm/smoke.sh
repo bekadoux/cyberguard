@@ -10,6 +10,10 @@ test_dir=$(mktemp -d "$APP_REPO_ROOT/.local/app-vm-smoke.XXXXXX")
 config=$test_dir/config.env
 project=cyberguard-app-vm-smoke-$(openssl rand -hex 6)
 octet=$((40 + 16#$(openssl rand -hex 1) % 100))
+test_ai=${APP_TEST_AI:-1}
+[[ $test_ai == 0 || $test_ai == 1 ]] || fail 'APP_TEST_AI must be 0 or 1.'
+export APP_TEST_DIR=$test_dir APP_TEST_TRANSIT=$project-transit
+transit_created=no
 mkdir -m 0700 "$test_dir/state" "$test_dir/secrets" "$test_dir/secrets/tls" "$test_dir/issuer"
 cat > "$config" <<EOF
 APP_PROJECT_NAME=$project
@@ -31,18 +35,41 @@ APP_EDGE_SUBNET=172.27.$octet.0/28
 APP_IDENTITY_SUBNET=172.27.$octet.16/28
 APP_INCIDENT_SUBNET=172.27.$octet.32/28
 EOF
+if [[ $test_ai == 1 ]]; then
+    cat >> "$config" <<EOF
+APP_BIND_IP=172.29.$octet.1
+APP_AI_IP=172.29.$octet.2
+APP_NETWORK_APPROVED=yes
+EOF
+fi
 load_config "$config"
 manage() { bash "$APP_DEPLOY_DIR/manage.sh" --config "$config" "$@"; }
+# shellcheck source=deploy/app-vm/tests/ai.sh
+source "$APP_DEPLOY_DIR/tests/ai.sh"
 cleanup() {
     local result=$?
     trap - EXIT
     if [[ $result != 0 ]]; then compose logs --no-color > "$test_dir/runtime.log" 2>&1 || true; fi
+    if [[ $test_ai == 1 ]]; then
+        if [[ $result != 0 ]]; then ai_compose logs --no-color > "$test_dir/ai-runtime.log" 2>&1 || true; fi
+        ai_compose down --volumes --remove-orphans > "$test_dir/ai-cleanup.log" 2>&1 || result=1
+    fi
     compose down --volumes --remove-orphans > "$test_dir/cleanup.log" 2>&1 || result=1
+    if [[ $transit_created == yes ]]; then docker network rm "$APP_TEST_TRANSIT" >> "$test_dir/cleanup.log" 2>&1 || result=1; fi
     if [[ $result == 0 ]]; then rm -rf -- "$test_dir"; else printf 'Protected failure diagnostics retained: %s\n' "$test_dir" >&2; fi
     exit "$result"
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
+if [[ $test_ai == 1 ]]; then
+    # Routed publishing preserves the emulated AI source /32 for real HBA checks.
+    # Neither application service DNS nor an application DB network is shared with AI.
+    docker network create --subnet "172.29.$octet.0/28" --gateway "$APP_BIND_IP" \
+        --opt com.docker.network.bridge.gateway_mode_ipv4=routed \
+        --opt com.docker.network.bridge.enable_ip_masquerade=false \
+        "$APP_TEST_TRANSIT" > "$test_dir/network.log"
+    transit_created=yes
+fi
 bash "$APP_DEPLOY_DIR/create-secrets.sh" --config "$config" > "$test_dir/setup.log"
 # A throwaway CA is generated ONLY inside this disposable test, never on runtime VMs.
 openssl req -x509 -newkey rsa:2048 -nodes -days 3 -subj /CN=Disposable-App-Smoke-CA \
@@ -58,15 +85,23 @@ issue_certificate() {
         -extfile "$test_dir/issuer/$name.ext" -out "$APP_TLS_DIR/$name.crt" >/dev/null 2>&1
 }
 issue_certificate identity DNS:identity-db
-issue_certificate incident DNS:incident-db,DNS:db.test
-issue_certificate go DNS:go.test
+issue_certificate incident "DNS:incident-db,DNS:db.test,IP:$APP_BIND_IP"
+issue_certificate go "DNS:go.test,IP:$APP_BIND_IP"
 issue_certificate public DNS:app.test
+issue_certificate ai "DNS:$APP_AI_TLS_NAME"
 chmod 0640 "$APP_TLS_DIR/"*
 manage config >> "$test_dir/setup.log" 2>&1
 manage db-up >> "$test_dir/setup.log" 2>&1
 if manage up >> "$test_dir/expected-errors.log" 2>&1; then fail 'Unmigrated deployment was started.'; fi
 {
     manage bootstrap
+} >> "$test_dir/setup.log" 2>&1
+if manage up >> "$test_dir/expected-errors.log" 2>&1; then fail 'Unmigrated schema was accepted.'; fi
+for database in identity incidents; do
+    if [[ $database == identity ]]; then service='identity-db'; else service='incident-db'; fi
+    [[ $(compose exec -T "$service" psql -X -U bootstrap_admin -d "cyberguard_$database" -Atc "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename='goose_db_version'") == 0 ]] || fail 'Startup status check created migration metadata.'
+done
+{
     manage migrate
     manage migrate
     manage bootstrap-ai
@@ -84,6 +119,7 @@ request() {
     [[ $actual == "$expected" ]] || fail "Expected HTTP $expected, got $actual (protected diagnostics retained)."
 }
 request 200 "$base/login"
+if grep -qi '^Alt-Svc:' "$test_dir/headers"; then fail 'Gateway advertised an unpublished HTTP/3 port.'; fi
 request 200 "$base/incidents/new"
 request 404 "$base/.env"
 request 404 "$base/api/internal/ai/jobs/11111111-1111-4111-8111-111111111111/context"
@@ -97,6 +133,20 @@ for username in employee_a employee_b analyst admin; do
     grep -qi '; Secure' "$test_dir/headers"
     grep -qi '; HttpOnly' "$test_dir/headers"
 done
+jq -n '{username:"not-a-fixture-user",password:"invalid-fixture-password"}' > "$test_dir/login-payload"
+request 401 -H 'Content-Type: application/json' --data-binary "@$test_dir/login-payload" "$base/api/auth/login"
+request 429 -H 'Content-Type: application/json' -H 'X-Forwarded-For: 203.0.113.9' \
+    -H 'X-Real-IP: 203.0.113.10' -H 'Forwarded: for=203.0.113.11' \
+    --data-binary "@$test_dir/login-payload" "$base/api/auth/login"
+for path in auth/login admin/users incidents/11111111-1111-4111-8111-111111111111/comments; do
+    [[ $(curl --silent --noproxy '*' --cacert "$APP_TLS_DIR/ca.crt" \
+        --resolve "$APP_GO_TLS_NAME:$APP_PRIVATE_PORT:$APP_BIND_IP" -o /dev/null -w '%{http_code}' \
+        "https://$APP_GO_TLS_NAME:$APP_PRIVATE_PORT/$path") == 404 ]]
+done
+if curl --fail --silent --noproxy '*' --cacert "$APP_TLS_DIR/ca.crt" \
+    --resolve "wrong.test:$APP_PRIVATE_PORT:$APP_BIND_IP" "https://wrong.test:$APP_PRIVATE_PORT/readyz" >/dev/null 2>&1; then
+    fail 'Private Go TLS accepted the wrong hostname.'
+fi
 jq -n '{title:"DISPOSABLE Azure app fixture",description:"Synthetic deployment transport check.",affected_system:"original fixture system"}' > "$test_dir/payload"
 request 201 -b "$test_dir/employee_a.cookies" -H 'Content-Type: application/json' \
     --data-binary "@$test_dir/payload" "$base/api/incidents"
@@ -109,6 +159,14 @@ request 403 -b "$test_dir/employee_a.cookies" -H 'Content-Type: application/json
 request 403 -b "$test_dir/employee_a.cookies" "$base/api/admin/users"
 request 200 -b "$test_dir/admin.cookies" "$base/api/admin/users"
 request 200 -b "$test_dir/employee_a.cookies" "$base/api/notifications"
+if [[ $test_ai == 1 ]]; then
+    {
+        ai_start
+        manage check-ai
+        hba_check
+        ai_check "$incident"
+    } >> "$test_dir/ai-check.log" 2>&1
+fi
 manage maintenance-on >> "$test_dir/setup.log" 2>&1
 request 503 -b "$test_dir/employee_a.cookies" -H 'Content-Type: application/json' \
     --data-binary "@$test_dir/payload" "$base/api/incidents"
@@ -116,6 +174,7 @@ request 200 -b "$test_dir/employee_a.cookies" "$base/api/incidents/$incident"
 request 404 -X POST "$base/api/internal/ai/jobs/11111111-1111-4111-8111-111111111111/context"
 if manage migrate >> "$test_dir/expected-errors.log" 2>&1; then fail 'Migration ran with Go active.'; fi
 manage quiesce >> "$test_dir/setup.log" 2>&1
+restore_check
 if manage up >> "$test_dir/expected-errors.log" 2>&1; then fail 'Upgrade startup guard was bypassed.'; fi
 {
     manage migrate
@@ -124,8 +183,10 @@ if manage up >> "$test_dir/expected-errors.log" 2>&1; then fail 'Upgrade startup
 } >> "$test_dir/setup.log" 2>&1
 request 200 -b "$test_dir/employee_a.cookies" "$base/api/incidents/$incident"
 # Full recreation retains database contents, sessions and Caddy's persistent state.
+compose exec -T web /bin/sh -ec 'printf persistent-fixture > /data/disposable-probe'
 compose down >> "$test_dir/setup.log" 2>&1
 manage up >> "$test_dir/setup.log" 2>&1
+[[ $(compose exec -T web cat /data/disposable-probe) == persistent-fixture ]]
 request 200 -b "$test_dir/employee_a.cookies" "$base/api/incidents/$incident"
 for database in identity-db incident-db; do
     compose stop "$database" >> "$test_dir/setup.log" 2>&1
@@ -139,4 +200,4 @@ compose --profile tools config --format json | jq -e '
     .networks.identity.internal == true and
     ([.services["go-api"].secrets[].source] | index("identity_admin_password") == null) and
     ([.services.web.volumes[] | select(.target == "/data")][0].type == "volume")' >/dev/null
-printf '%s\n' 'Application deployment smoke passed: real public/private TLS, DB provisioning, Secure sessions, maintenance/migration gates, AI-offline operation and persistence. Azure/ACME/real inference not tested.'
+printf 'Application deployment smoke passed: real TLS/SQL, Secure sessions, maintenance/migration guards, backup restore and persistence; cross-project synthetic AI/HBA checks enabled=%s. Azure/ACME/real inference not tested.\n' "$test_ai"

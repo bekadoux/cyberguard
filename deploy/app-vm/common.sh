@@ -70,11 +70,12 @@ load_config() {
     [[ $(printf '%s\n' "$APP_HTTP_PORT" "$APP_HTTPS_PORT" "$APP_PRIVATE_PORT" "$APP_DB_PORT" | sort -u | wc -l) == 4 ]] || fail 'Application published ports must differ.'
     [[ $APP_BIND_IP == 127.0.0.1 ]] || private_ipv4 "$APP_BIND_IP" || fail 'Bind only to loopback or an RFC1918 IPv4 address.'
     private_ipv4 "$APP_AI_IP" || fail 'AI requires an RFC1918 IPv4 address.'
+    [[ $APP_AI_IP != "$APP_BIND_IP" ]] || fail 'Application and AI VM addresses must differ.'
     [[ $APP_NETWORK_APPROVED == yes || $APP_NETWORK_APPROVED == no ]] || fail 'Invalid network acknowledgement.'
     [[ $APP_ALLOW_DEMO_SEED == yes || $APP_ALLOW_DEMO_SEED == no ]] || fail 'Invalid demo acknowledgement.'
     [[ $APP_PUBLIC_TLS == acme || $APP_PUBLIC_TLS == provided ]] || fail 'Public TLS must be acme or provided.'
     for key in APP_PUBLIC_NAME APP_GO_TLS_NAME APP_DB_TLS_NAME APP_AI_TLS_NAME; do
-        [[ ${!key} =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ && ${!key} == *.* && ${!key} != *..* ]] || fail "Invalid TLS DNS name: $key"
+        [[ ${!key} =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ && ${!key} == *.* && ${!key} != *..* && ! ${!key} =~ ^[0-9.]+$ ]] || fail "Invalid TLS DNS name: $key"
     done
     for value in "$APP_GO_IMAGE" "$APP_WEB_IMAGE"; do
         [[ $value =~ ^[a-zA-Z0-9][a-zA-Z0-9._/:@-]+$ ]] || fail 'Invalid image reference.'

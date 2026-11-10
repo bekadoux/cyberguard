@@ -133,6 +133,11 @@ Changing manifest revisions also requires reviewing the matching Compose `--run`
 
 These are **not implemented by the AI bootstrap**:
 
+The [application VM deployment workflow](azure-app-deployment.md) now supplies the
+application-side TLS listeners, database provisioning/migration orchestration and
+verified `/ai` proxy. Azure networking/DNS, private-CA signing and secure transfer of
+the AI-scoped secret subset remain explicit operator prerequisites.
+
 1. Manually place both VMs in the intended VNet and choose stable private addresses.
    Use private DNS names or private-IP certificate SANs. Go and DB names must resolve
    from inside the Python containers, not only from the host's `/etc/hosts`.

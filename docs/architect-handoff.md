@@ -15,6 +15,9 @@ The [local Docker setup](docker-setup.md) now supplies Compose, the Go image, Ca
 secret files and one-off tooling. The [containerization handoff](containerization-handoff.md)
 records the separately packaged frontend served by Caddy and a later application/AI VM split.
 The build and SQL contracts below remain applicable; Azure deployment is deferred.
+The later [application VM tooling](azure-app-deployment.md) and
+[AI VM tooling](azure-ai-deployment.md) now supply post-install deployment candidates;
+their guides supersede that historical deferral, not the SQL/process ownership below.
 
 - **Architect:** Dockerfile/Compose, networking, volumes, secret delivery, health checks,
   orchestration of one-off setup commands.

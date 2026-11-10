@@ -23,6 +23,11 @@ done
 printf 'APP_PUBLIC_NAME=$(touch %s)\n' "$temporary/executed" > "$temporary/bad.env"
 reject load "$temporary/bad.env"
 [[ ! -e $temporary/executed ]]
+# Unknown keys must not execute array-subscript or shell input either.
+# shellcheck disable=SC2016
+printf '$(touch %s)=value\n' "$temporary/executed" > "$temporary/bad.env"
+reject load "$temporary/bad.env"
+[[ ! -e $temporary/executed ]]
 printf 'APP_HTTP_PORT=80\nAPP_HTTP_PORT=81\n' > "$temporary/bad.env"
 reject load "$temporary/bad.env"
 bash "$root/deploy/app-vm/create-secrets.sh" --config "$config"
@@ -40,6 +45,7 @@ cat > "$temporary/bin/docker" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$APP_TEST_COMMANDS"
 printf '%s\n' "$DOCKER_GO_IMAGE" >> "$APP_TEST_IMAGES"
+if [[ ${APP_TEST_PS_FAIL:-no} == yes && " $* " == *' ps --status running --services '* ]]; then exit 7; fi
 SH
 chmod 0755 "$temporary/bin/docker"
 export APP_TEST_COMMANDS=$temporary/commands APP_TEST_IMAGES=$temporary/images
@@ -58,5 +64,26 @@ PATH="$temporary/bin:$PATH" bash "$root/deploy/app-vm/manage.sh" --config "$conf
 [[ -f $temporary/state/maintenance/public/enabled && -f $temporary/state/maintenance/public/upgrade-blocked ]]
 grep -Fq 'stop private-go go-api' "$APP_TEST_COMMANDS"
 if grep -Eq '(down|--volumes|prune)' "$APP_TEST_COMMANDS"; then echo 'Destructive management action' >&2; exit 1; fi
+[[ $before == "$(find "$temporary/secrets/credentials" -type f -exec sha256sum {} + | sort)" ]]
+# Only this negative state-inspection test mocks certificate tooling. Real certificate
+# verification, hostname mismatches and HBA behavior are covered by app-vm-smoke.
+mkdir -m 0700 "$temporary/secrets/tls"
+for name in ca.crt identity.crt identity.key incident.crt incident.key go.crt go.key; do
+    printf 'synthetic input; not a certificate\n' > "$temporary/secrets/tls/$name"
+    chmod 0640 "$temporary/secrets/tls/$name"
+done
+cat > "$temporary/bin/openssl" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod 0755 "$temporary/bin/openssl"
+original_url=$(cat "$temporary/secrets/credentials/runtime/identity_runtime_url")
+printf '%s\n' "${original_url/sslmode=verify-full/sslmode=disable}" > "$temporary/secrets/credentials/runtime/identity_runtime_url"
+reject env PATH="$temporary/bin:$PATH" bash "$root/deploy/app-vm/manage.sh" --config "$config" up
+grep -Fq 'Credential URL must use its scoped role/endpoint and verified TLS' "$temporary/error"
+printf '%s\n' "$original_url" > "$temporary/secrets/credentials/runtime/identity_runtime_url"
+reject env APP_TEST_PS_FAIL=yes PATH="$temporary/bin:$PATH" bash "$root/deploy/app-vm/manage.sh" --config "$config" migrate
+grep -Fq 'Could not inspect running services' "$temporary/error"
+if grep -q ' run ' "$APP_TEST_COMMANDS"; then echo 'Database tool ran after state inspection failed' >&2; exit 1; fi
 [[ $before == "$(find "$temporary/secrets/credentials" -type f -exec sha256sum {} + | sort)" ]]
 printf '%s\n' 'Application VM literal config, path safety and non-overwriting TLS credential generation passed.'

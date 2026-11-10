@@ -4,6 +4,10 @@
 	auto_https disable_redirects
 	http_port 8080
 	https_port 8443
+	# Host publishing is TCP-only; do not advertise the container's 8443 as HTTP/3.
+	servers {
+		protocols h1 h2
+	}
 }
 
 https://{$APP_PUBLIC_NAME}:8443 {

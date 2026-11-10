@@ -8,6 +8,8 @@ assessment queue is implied by a healthy container.
 
 For the separate Ubuntu 26.04 AI VM, use [AI VM post-install deployment](azure-ai-deployment.md).
 Its standalone Compose/private TLS configuration is not this development override.
+For the separate application host, use [application VM deployment](azure-app-deployment.md).
+That workflow explicitly selects the base and deployment overlay, not this local setup.
 
 ## Prerequisites
 

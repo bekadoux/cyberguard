@@ -43,8 +43,9 @@ and static frontend packaging in a separate Caddy image. `make docker-build` bui
 both application images; the packaged UI is at `http://127.0.0.1:8088/login` after
 the documented setup and `make docker-up`. Eligible staff can view stored AI assessment
 states/results with advisory and fixture labels, including on their own reports;
-employee views exclude AI output. Frontend investigation actions and production HTTPS
-deployment remain future work.
+employee views exclude AI output. Frontend investigation actions remain future work.
+The VM deployment candidates below add public/private TLS; actual Azure acceptance
+remains separate.
 
 ## AI Backend (proposed integration)
 
@@ -58,6 +59,38 @@ read-only staff assessment display. Real-model and Azure acceptance remain separ
 
 See [`docs/ai-backend.md`](docs/ai-backend.md) for the schema migration, separate worker
 database role, explicit fake fixture, model setup, and approvals required before merging.
+
+## Set up a newly created application VM
+
+The application VM runs the public HTTPS gateway/compiled frontend, Go, two separate
+PostgreSQL instances and a private read-only Go TLS gateway. The selected demo target
+is **Standard D2as v4 (2 vCPUs, 8 GiB), Ubuntu 26.04 amd64**, with an Azure-provided DNS
+hostname. No Azure resources are created by these scripts.
+
+Follow [the application VM deployment guide](docs/azure-app-deployment.md) for the
+complete certificate, NSG, secret, migration, AI and maintenance requirements. Transfer
+a reviewed checkout to a new stable path using the archive-over-SSH example below,
+substituting the application host. Then on that VM:
+
+```sh
+sudo bash deploy/app-vm/bootstrap.sh --owner "$(id -un)"
+sudoedit /etc/cyberguard/app/config.env
+sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env config
+sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env build
+# As the secret-directory owner, without sudo:
+bash deploy/app-vm/create-secrets.sh --config /etc/cyberguard/app/config.env
+```
+
+Install the guide's private-CA certificates, configure public DNS and approve network
+allowlists **before** changing the default loopback binding. Continue with explicit
+`db-up`, `bootstrap`, `migrate`, `bootstrap-ai` and, only for synthetic demo data,
+`seed-demo`. Start using `up`, verify `check` and the AI VM's separate readiness, then
+explicitly resume public writes using `maintenance-off`. Ordinary startup never builds,
+migrates or seeds, and does not require AI to be online.
+
+Never use the local development Compose override on either VM. For existing data, use
+the guide's maintenance/backup/upgrade sequence instead of fresh credential provisioning.
+The initial limits and disposable smoke results are not Azure/capacity acceptance.
 
 ## Set up a newly created AI VM
 
