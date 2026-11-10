@@ -1,0 +1,200 @@
+# Explicit deployment overlay for ../../compose.yaml. Never combine with dev/AI overlays.
+x-tls-client: &tls-client
+  PGSSLMODE: verify-full
+  PGSSLROOTCERT: /run/certs/ca.crt
+
+services:
+  web:
+    command: [caddy, run, --config, /etc/caddy/Caddyfile.app, --adapter, caddyfile]
+    group_add: ['${APP_SECRET_GID}']
+    environment:
+      APP_PUBLIC_NAME: ${APP_PUBLIC_NAME}
+      APP_PUBLIC_AUTHORITY: ${APP_PUBLIC_AUTHORITY}
+      APP_TLS_HANDLER: ${APP_TLS_HANDLER}
+      APP_AI_IP: ${APP_AI_IP}
+      APP_AI_PORT: ${APP_AI_PORT}
+      APP_AI_TLS_NAME: ${APP_AI_TLS_NAME}
+      AI_HANDLER: Caddyfile.ai-remote
+      MAINTENANCE_HANDLER: Caddyfile.maintenance
+    ports:
+      - '${APP_BIND_IP}:${APP_HTTP_PORT}:8080'
+      - '${APP_BIND_IP}:${APP_HTTPS_PORT}:8443'
+    tmpfs: !override ['/config:size=1m,mode=1777', '/tmp:size=8m,mode=1777']
+    volumes:
+      - web-data:/data
+      - type: bind
+        source: ${APP_STATE_DIR}/maintenance/public
+        target: /run/maintenance
+        read_only: true
+        bind: {create_host_path: false}
+    secrets:
+      - {source: ca_cert, target: /run/certs/ca.crt}
+    networks:
+      edge: {ipv4_address: '${APP_WEB_IP}'}
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, -q, --spider, 'http://127.0.0.1:9080/__gateway_health']
+
+  identity-db:
+    entrypoint: [/bin/sh, /deploy/postgres.sh, identity]
+    environment:
+      APP_IDENTITY_SUBNET: ${APP_IDENTITY_SUBNET}
+      APP_AI_IP: ${APP_AI_IP}
+    volumes:
+      - ./deploy/app-vm/postgres/start.sh:/deploy/postgres.sh:ro
+    secrets:
+      - {source: identity_cert, target: /run/certs/server.crt}
+      - {source: identity_key, target: /run/certs/server.key}
+    tmpfs: ['/tls:size=2m,mode=0755']
+    mem_limit: 1g
+
+  incident-db:
+    entrypoint: [/bin/sh, /deploy/postgres.sh, incidents]
+    environment:
+      APP_INCIDENT_SUBNET: ${APP_INCIDENT_SUBNET}
+      APP_AI_IP: ${APP_AI_IP}
+    ports: ['${APP_BIND_IP}:${APP_DB_PORT}:5432']
+    volumes:
+      - ./deploy/app-vm/postgres/start.sh:/deploy/postgres.sh:ro
+    secrets:
+      - {source: incident_cert, target: /run/certs/server.crt}
+      - {source: incident_key, target: /run/certs/server.key}
+    tmpfs: ['/tls:size=2m,mode=0755']
+    mem_limit: 1g
+
+  go-api:
+    networks:
+      edge: {ipv4_address: '${APP_GO_IP}'}
+      identity: {}
+      incidents: {}
+    environment:
+      APP_ENV: production
+      SESSION_COOKIE_SECURE: 'true'
+      TRUSTED_ORIGINS: ''
+      TRUSTED_PROXY_CIDRS: '${APP_WEB_IP}/32'
+      AI_INTERNAL_TOKEN_FILE: /run/secrets/ai_internal_token
+    secrets:
+      - ai_internal_token
+      - {source: ca_cert, target: /run/certs/ca.crt}
+    mem_limit: 768m
+
+  private-go:
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    user: '10001:10001'
+    group_add: ['${APP_SECRET_GID}']
+    command: [caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports: ['${APP_BIND_IP}:${APP_PRIVATE_PORT}:8443']
+    volumes:
+      - ./deploy/app-vm/Caddyfile.private:/etc/caddy/Caddyfile:ro
+    secrets:
+      - {source: go_cert, target: /run/certs/go.crt}
+      - {source: go_key, target: /run/certs/go.key}
+    tmpfs: ['/data:size=1m,mode=1777', '/config:size=1m,mode=1777', '/tmp:size=8m,mode=1777']
+    networks:
+      edge: {ipv4_address: '${APP_PRIVATE_IP}'}
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    restart: unless-stopped
+    stop_grace_period: 10s
+    depends_on:
+      go-api: {condition: service_healthy}
+    logging: {driver: local, options: {max-size: 10m, max-file: '3'}}
+
+  bootstrap-identity:
+    environment: *tls-client
+    secrets: [{source: ca_cert, target: /run/certs/ca.crt}]
+  bootstrap-incidents:
+    environment: *tls-client
+    secrets: [{source: ca_cert, target: /run/certs/ca.crt}]
+  migrate-identity:
+    secrets: [{source: ca_cert, target: /run/certs/ca.crt}]
+  migrate-incidents:
+    secrets: [{source: ca_cert, target: /run/certs/ca.crt}]
+  seed-demo:
+    secrets: [{source: ca_cert, target: /run/certs/ca.crt}]
+
+  bootstrap-ai:
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    profiles: [tools]
+    environment: *tls-client
+    entrypoint: [/bin/sh, /setup/bootstrap-ai.sh]
+    secrets:
+      - incidents_admin_password
+      - ai_runtime_password
+      - {source: ca_cert, target: /run/certs/ca.crt}
+    volumes:
+      - ./docker/ai/bootstrap-ai.sh:/setup/bootstrap-ai.sh:ro
+      - ./db/bootstrap/ai-worker.sql:/setup/ai-worker.sql:ro
+    networks: [incidents]
+
+  probe-ai:
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    profiles: [tools]
+    environment: *tls-client
+    entrypoint: [/bin/sh, /deploy/probe-ai.sh]
+    secrets:
+      - ai_runtime_password
+      - {source: ca_cert, target: /run/certs/ca.crt}
+    volumes: ['./deploy/app-vm/probe-ai.sh:/deploy/probe-ai.sh:ro']
+    networks: [incidents]
+
+  prepare-web:
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    profiles: [tools]
+    user: '0:0'
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - >-
+        if [ "$$(stat -c %u /data)" = 0 ] && [ -z "$$(ls -A /data)" ]; then
+          chown 10001:10001 /data; chmod 0700 /data;
+        elif [ "$$(stat -c %u /data)" = 0 ] && [ "$$(ls -A /data)" = caddy ] &&
+          [ -d /data/caddy ] && [ ! -L /data/caddy ] && [ -z "$$(ls -A /data/caddy)" ]; then
+          chown 10001:10001 /data /data/caddy; chmod 0700 /data /data/caddy;
+        fi;
+        [ "$$(stat -c '%u:%g:%a' /data)" = 10001:10001:700 ]
+    volumes: [web-data:/data]
+
+networks:
+  edge:
+    ipam: {config: [{subnet: '${APP_EDGE_SUBNET}'}]}
+  identity:
+    ipam: {config: [{subnet: '${APP_IDENTITY_SUBNET}'}]}
+  incidents:
+    internal: false
+    ipam: {config: [{subnet: '${APP_INCIDENT_SUBNET}'}]}
+
+volumes:
+  web-data:
+
+secrets:
+  identity_admin_password: {file: '${APP_PROVISION_DIR}/identity_admin_password'}
+  identity_migration_password: {file: '${APP_PROVISION_DIR}/identity_migration_password'}
+  identity_runtime_password: {file: '${APP_PROVISION_DIR}/identity_runtime_password'}
+  identity_runtime_url: {file: '${APP_RUNTIME_DIR}/identity_runtime_url'}
+  identity_migration_url: {file: '${APP_PROVISION_DIR}/identity_migration_url'}
+  incidents_admin_password: {file: '${APP_PROVISION_DIR}/incidents_admin_password'}
+  incidents_migration_password: {file: '${APP_PROVISION_DIR}/incidents_migration_password'}
+  incidents_runtime_password: {file: '${APP_PROVISION_DIR}/incidents_runtime_password'}
+  incidents_runtime_url: {file: '${APP_RUNTIME_DIR}/incidents_runtime_url'}
+  incidents_migration_url: {file: '${APP_PROVISION_DIR}/incidents_migration_url'}
+  dev_employee_a_password: {file: '${APP_PROVISION_DIR}/dev_employee_a_password'}
+  dev_employee_b_password: {file: '${APP_PROVISION_DIR}/dev_employee_b_password'}
+  dev_analyst_password: {file: '${APP_PROVISION_DIR}/dev_analyst_password'}
+  dev_admin_password: {file: '${APP_PROVISION_DIR}/dev_admin_password'}
+  ai_runtime_password: {file: '${APP_PROVISION_DIR}/ai_runtime_password'}
+  ai_internal_token: {file: '${APP_RUNTIME_DIR}/ai_internal_token'}
+  ca_cert: {file: '${APP_TLS_DIR}/ca.crt'}
+  go_cert: {file: '${APP_TLS_DIR}/go.crt'}
+  go_key: {file: '${APP_TLS_DIR}/go.key'}
+  identity_cert: {file: '${APP_TLS_DIR}/identity.crt'}
+  identity_key: {file: '${APP_TLS_DIR}/identity.key'}
+  incident_cert: {file: '${APP_TLS_DIR}/incident.crt'}
+  incident_key: {file: '${APP_TLS_DIR}/incident.key'}

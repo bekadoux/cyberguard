@@ -1,0 +1,8 @@
+uri strip_prefix /ai
+reverse_proxy https://{$APP_AI_IP}:{$APP_AI_PORT} {
+	header_up Host {$APP_AI_TLS_NAME}
+	transport http {
+		tls_server_name {$APP_AI_TLS_NAME}
+		tls_trust_pool file /run/certs/ca.crt
+	}
+}

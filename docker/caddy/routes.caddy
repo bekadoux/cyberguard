@@ -1,0 +1,60 @@
+	root * /srv
+	header {
+		X-Content-Type-Options nosniff
+		Cache-Control no-store
+	}
+	route {
+		@internal path_regexp internal (?i)(^|/)internal(/|$)
+		handle @internal {
+			header Content-Type application/json
+			respond `{"error":{"code":"not_found","message":"Resource not found."}}` 404
+		}
+		import {$MAINTENANCE_HANDLER:Caddyfile.no-maintenance}
+		handle /__gateway_health {
+			respond "ok" 200
+		}
+		@go path /api /api/*
+		handle @go {
+			uri strip_prefix /api
+			reverse_proxy go-api:8080 {
+				header_down Location ^(/.*)$ /api$1
+			}
+		}
+		@ai path /ai /ai/*
+		handle @ai {
+			import {$AI_HANDLER:Caddyfile.no-ai}
+		}
+		@unsupported not method GET HEAD
+		handle @unsupported {
+			header Allow "GET, HEAD"
+			header Content-Type application/json
+			respond `{"error":{"code":"method_not_allowed","message":"Method not allowed."}}` 405
+		}
+		@immutable {
+			path_regexp fingerprint ^/assets/.+-[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9]+$
+			file
+		}
+		handle @immutable {
+			header Cache-Control "public, max-age=31536000, immutable"
+			encode zstd gzip
+			file_server
+		}
+		handle /assets/* {
+			file_server
+		}
+		@static file
+		handle @static {
+			encode zstd gzip
+			file_server
+		}
+		@spa path / /login /account /incidents /incidents/*
+		handle @spa {
+			rewrite * /index.html
+			encode zstd gzip
+			file_server
+		}
+		handle {
+			header Content-Type application/json
+			respond `{"error":{"code":"not_found","message":"Resource not found."}}` 404
+		}
+	}

@@ -3,7 +3,7 @@
 set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 for script in "$root/deploy/app-vm/"*.sh; do bash -n "$script"; done
-shellcheck -x -P "$root" "$root/deploy/app-vm/"*.sh
+shellcheck -x -P "$root" "$root/deploy/app-vm/"*.sh "$root/deploy/app-vm/postgres/"*.sh "$root/deploy/app-vm/tests/"*.sh
 mkdir -p "$root/.local"
 temporary=$(mktemp -d "$root/.local/app-vm-test.XXXXXX")
 trap 'rm -rf -- "$temporary"' EXIT
@@ -35,4 +35,28 @@ grep -q 'sslmode=verify-full' "$temporary/secrets/credentials/runtime/ai_runtime
 ln -s "$temporary/secrets" "$temporary/linked"
 printf 'APP_SECRETS_DIR=%s\n' "$temporary/linked" > "$temporary/bad.env"
 reject load "$temporary/bad.env"
+mkdir "$temporary/bin"
+cat > "$temporary/bin/docker" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$APP_TEST_COMMANDS"
+printf '%s\n' "$DOCKER_GO_IMAGE" >> "$APP_TEST_IMAGES"
+SH
+chmod 0755 "$temporary/bin/docker"
+export APP_TEST_COMMANDS=$temporary/commands APP_TEST_IMAGES=$temporary/images
+COMPOSE_FILE=unrelated.yaml COMPOSE_PROFILES=tools COMPOSE_PROJECT_NAME=ordinary \
+    APP_PROJECT_NAME=ordinary DOCKER_GO_IMAGE=unrelated \
+    PATH="$temporary/bin:$PATH" bash "$root/deploy/app-vm/manage.sh" --config "$config" config >/dev/null
+grep -Fq -- '--env-file /dev/null' "$APP_TEST_COMMANDS"
+grep -Fq -- '--project-name cyberguard-app-vm' "$APP_TEST_COMMANDS"
+grep -Fq 'cyberguard-go:azure' "$APP_TEST_IMAGES"
+[[ $(wc -l < "$APP_TEST_COMMANDS") == 1 ]]
+chmod 0666 "$temporary/secrets/credentials/runtime/identity_runtime_url"
+reject env PATH="$temporary/bin:$PATH" bash "$root/deploy/app-vm/manage.sh" --config "$config" up
+[[ $(wc -l < "$APP_TEST_COMMANDS") == 1 ]]
+chmod 0640 "$temporary/secrets/credentials/runtime/identity_runtime_url"
+PATH="$temporary/bin:$PATH" bash "$root/deploy/app-vm/manage.sh" --config "$config" quiesce >/dev/null
+[[ -f $temporary/state/maintenance/public/enabled && -f $temporary/state/maintenance/public/upgrade-blocked ]]
+grep -Fq 'stop private-go go-api' "$APP_TEST_COMMANDS"
+if grep -Eq '(down|--volumes|prune)' "$APP_TEST_COMMANDS"; then echo 'Destructive management action' >&2; exit 1; fi
+[[ $before == "$(find "$temporary/secrets/credentials" -type f -exec sha256sum {} + | sort)" ]]
 printf '%s\n' 'Application VM literal config, path safety and non-overwriting TLS credential generation passed.'

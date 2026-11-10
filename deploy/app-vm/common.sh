@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Literal configuration and safety checks; sourcing performs no host changes.
+# APP_* inputs are assigned from the allowlisted template using printf -v.
+# shellcheck disable=SC2153
 set -euo pipefail
 APP_DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 APP_REPO_ROOT=$(CDPATH='' cd -- "$APP_DEPLOY_DIR/../.." && pwd)
@@ -86,18 +88,24 @@ load_config() {
     [[ $APP_EDGE_SUBNET != "$APP_IDENTITY_SUBNET" && $APP_EDGE_SUBNET != "$APP_INCIDENT_SUBNET" && $APP_IDENTITY_SUBNET != "$APP_INCIDENT_SUBNET" ]] || fail 'Docker subnets must differ.'
     base=${APP_EDGE_SUBNET%/*}; last=${base##*.}
     APP_WEB_IP=${base%.*}.$((last + 2))
+    APP_GO_IP=${base%.*}.$((last + 3))
+    APP_PRIVATE_IP=${base%.*}.$((last + 4))
     APP_RUNTIME_DIR=$APP_SECRETS_DIR/credentials/runtime
     APP_PROVISION_DIR=$APP_SECRETS_DIR/credentials/provisioning
     APP_TLS_DIR=$APP_SECRETS_DIR/tls
     APP_TLS_HANDLER=Caddyfile.acme
     [[ $APP_PUBLIC_TLS != provided ]] || APP_TLS_HANDLER=Caddyfile.provided
+    APP_PUBLIC_AUTHORITY=$APP_PUBLIC_NAME
+    [[ $APP_HTTPS_PORT == 443 ]] || APP_PUBLIC_AUTHORITY=$APP_PUBLIC_NAME:$APP_HTTPS_PORT
     for key in "${!allowed[@]}"; do export "${key?}"; done
-    export APP_WEB_IP APP_RUNTIME_DIR APP_PROVISION_DIR APP_TLS_DIR APP_TLS_HANDLER
+    export APP_WEB_IP APP_GO_IP APP_PRIVATE_IP APP_RUNTIME_DIR APP_PROVISION_DIR APP_TLS_DIR APP_TLS_HANDLER APP_PUBLIC_AUTHORITY
     export DOCKER_GO_IMAGE=$APP_GO_IMAGE DOCKER_WEB_IMAGE=$APP_WEB_IMAGE DOCKER_SECRET_GID=$APP_SECRET_GID
     export DOCKER_SECRETS_DIR=$APP_RUNTIME_DIR
 }
 compose() {
+    local -a extra=()
+    [[ $APP_PUBLIC_TLS != provided ]] || extra=(-f "$APP_DEPLOY_DIR/provided.compose.yaml")
     docker compose --env-file /dev/null --project-directory "$APP_REPO_ROOT" \
         --project-name "$APP_PROJECT_NAME" -f "$APP_REPO_ROOT/compose.yaml" \
-        -f "$APP_DEPLOY_DIR/compose.yaml" "$@"
+        -f "$APP_DEPLOY_DIR/compose.yaml" "${extra[@]}" "$@"
 }

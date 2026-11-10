@@ -1,0 +1,9 @@
+# Optional public certificate input, primarily for private-CA disposable TLS checks.
+services:
+  web:
+    secrets:
+      - {source: public_cert, target: /run/certs/public.crt}
+      - {source: public_key, target: /run/certs/public.key}
+secrets:
+  public_cert: {file: '${APP_TLS_DIR}/public.crt'}
+  public_key: {file: '${APP_TLS_DIR}/public.key'}

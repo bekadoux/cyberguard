@@ -7,6 +7,7 @@ COMPOSE ?= docker compose -f compose.yaml -f compose.dev.yaml
 DOCKER_GO_IMAGE ?= cyberguard-go:local
 DOCKER_WEB_IMAGE ?= cyberguard-web:local
 AI_VM_CONFIG ?= /etc/cyberguard/ai/config.env
+APP_VM_CONFIG ?= /etc/cyberguard/app/config.env
 
 .DEFAULT_GOAL := help
 .PHONY: help go-run go-build go-fmt go-fmt-check go-test go-test-race go-vet go-vuln go-check go-test-integration
@@ -23,6 +24,9 @@ AI_VM_CONFIG ?= /etc/cyberguard/ai/config.env
 .PHONY: frontend-test-incidents-live
 .PHONY: ai-vm-config ai-vm-build ai-vm-models ai-vm-up ai-vm-check ai-vm-status ai-vm-logs ai-vm-stop
 .PHONY: ai-vm-test ai-vm-test-bootstrap ai-vm-smoke
+.PHONY: app-vm-config app-vm-build app-vm-create-secrets app-vm-db-up app-vm-bootstrap app-vm-migrate app-vm-migration-status app-vm-bootstrap-ai app-vm-seed-demo
+.PHONY: app-vm-up app-vm-check app-vm-check-ai app-vm-status app-vm-logs app-vm-stop app-vm-maintenance-on app-vm-maintenance-off app-vm-quiesce
+.PHONY: app-vm-test app-vm-test-bootstrap app-vm-smoke
 
 help:
 	@printf '%s\n' \
@@ -86,6 +90,21 @@ help:
 	  'ai-vm-test-bootstrap Test bootstrap in disposable Ubuntu with mocked apt/systemd' \
 	  'ai-vm-smoke        Run disposable real-service deployment checks with synthetic models'
 	@printf '%s\n' 'frontend-test-packaged Run real browser flows through disposable Caddy (explicit E2E settings)'
+	@printf '%s\n' \
+	  'app-vm-config/build Validate/build the application VM deployment (no startup)' \
+	  'app-vm-create-secrets Generate initial TLS URLs/passwords without overwrites' \
+	  'app-vm-db-up/bootstrap/migrate Explicit application database provisioning' \
+	  'app-vm-migration-status Require current schema and migration image versions' \
+	  'app-vm-bootstrap-ai Provision the restricted AI role (not ordinary startup)' \
+	  'app-vm-seed-demo Explicit demo-only accounts; requires acknowledgement' \
+	  'app-vm-up/check    Start/check the prepared application (AI may be offline)' \
+	  'app-vm-check-ai    Check remote AI TLS and local worker safety grants' \
+	  'app-vm-maintenance-on/off Pause/resume public writes without breaking private reads' \
+	  'app-vm-quiesce     Pause writes and stop/block Go for explicit migrations' \
+	  'app-vm-status/logs/stop Inspect/stop services, retaining all persistent state' \
+	  'app-vm-test        Run deployment configuration/credential safety checks' \
+	  'app-vm-test-bootstrap Test preparation in disposable Ubuntu with mocks' \
+	  'app-vm-smoke       Run disposable application deployment/TLS checks'
 
 go-run:
 	cd $(GO_DIR) && $(GO) run ./cmd/api
@@ -226,6 +245,20 @@ ai-vm-test-bootstrap:
 ai-vm-smoke: docker-build-go
 	docker build -f backend/python/Dockerfile -t cyberguard-ai:azure .
 	bash deploy/ai-vm/smoke.sh
+
+app-vm-config app-vm-build app-vm-create-secrets app-vm-db-up app-vm-bootstrap app-vm-migrate app-vm-migration-status app-vm-bootstrap-ai app-vm-seed-demo app-vm-up app-vm-check app-vm-check-ai app-vm-status app-vm-logs app-vm-stop app-vm-maintenance-on app-vm-maintenance-off app-vm-quiesce:
+	bash deploy/app-vm/manage.sh --config "$(APP_VM_CONFIG)" "$(@:app-vm-%=%)"
+
+app-vm-test:
+	bash deploy/app-vm/test.sh
+
+app-vm-test-bootstrap:
+	docker run --rm --network none --volume "$(CURDIR):/repo:ro" \
+	  ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c \
+	  bash /repo/deploy/app-vm/tests/bootstrap.sh
+
+app-vm-smoke: docker-build
+	bash deploy/app-vm/smoke.sh
 
 frontend-install:
 	cd frontend && npm ci
