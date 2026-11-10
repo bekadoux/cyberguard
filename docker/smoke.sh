@@ -76,7 +76,7 @@ if [[ ${DOCKER_TEST_AI:-0} == 1 ]]; then
     sh docker/ai/create-ai-secrets.sh
     compose build ai-api ai-worker
 fi
-run_make docker-config-check docker-caddy-check docker-test-readiness
+run_make docker-config-check docker-caddy-check docker-test-readiness docker-test-web
 run_make docker-db-up docker-bootstrap docker-migrate docker-seed-demo
 if [[ ${DOCKER_TEST_AI:-0} == 1 ]]; then
     compose --profile tools run --rm bootstrap-ai

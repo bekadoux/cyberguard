@@ -16,6 +16,7 @@ DOCKER_WEB_IMAGE ?= cyberguard-web:local
 .PHONY: docker-caddy-check
 .PHONY: docker-smoke
 .PHONY: docker-test-readiness
+.PHONY: docker-test-web
 .PHONY: docker-build-go docker-build-web frontend-test-packaged
 .PHONY: frontend-install frontend-dev frontend-check frontend-test-e2e frontend-test-e2e-live
 .PHONY: frontend-test-incidents-live
@@ -67,7 +68,8 @@ help:
 	  'docker-caddy-check  Validate Caddy configuration in its runtime image' \
 	  'docker-smoke        Build and verify a fresh disposable local Docker environment' \
 	  'docker-test-secrets Test local credential generation (requires openssl)' \
-	  'docker-test-readiness Test PostgreSQL healthchecks during first initialization'
+	  'docker-test-readiness Test PostgreSQL healthchecks during first initialization' \
+	  'docker-test-web     Test packaged HTTP assertions with synthetic responses'
 	@printf '%s\n' 'frontend-test-packaged Run real browser flows through disposable Caddy (explicit E2E settings)'
 
 go-run:
@@ -177,6 +179,9 @@ docker-test-secrets:
 
 docker-test-readiness:
 	$(COMPOSE) config --format json | bash docker/test-readiness.sh
+
+docker-test-web:
+	bash docker/test-web-regressions.sh
 
 docker-caddy-check:
 	@image="$$($(COMPOSE) config --format json | jq -er '.services.web.image')" && \

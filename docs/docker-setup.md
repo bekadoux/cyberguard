@@ -215,11 +215,17 @@ make docker-config-check
 # After building the web image; validates its baked config, not a host bind mount:
 make docker-caddy-check
 make docker-test-readiness
+# Synthetic positive/negative HTTP-checker tests; no Docker or network required:
+make docker-test-web
 ```
 
 The readiness regression holds fresh, network-isolated PostgreSQL containers in their
 socket-only initialization phase. The configured probes must reject that temporary
 server and become healthy only once the final TCP server accepts connections.
+
+The HTTP-checker regression verifies that forbidden cookies, Vite source references,
+HTML in non-HTML responses and grep errors fail explicitly. It is also included in
+`make docker-smoke`, alongside checks against the actual packaged gateway.
 
 For Go changes, also run the checks/build/integration suite in repository instructions.
 Real container lifecycle checks are additional evidence, not a replacement for Go tests.

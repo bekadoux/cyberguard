@@ -275,8 +275,11 @@ E2E_INCIDENT_SECRETS_DIR="$PWD/.local/PROJECT/secrets" \
 ```
 
 The helper accepts only an explicit nonstandard loopback HTTP API port and a secrets
-directory under a `cyberguard-smoke-*` or `cyberguard-ui-*` fixture. It forwards only
-browser `/api/` requests to that gateway; UI assets still come from Vite. Passwords
+directory under a `cyberguard-smoke-*` or `cyberguard-ui-*` fixture. It forwards browser
+`/api/` and `/ai/` requests to that gateway; UI assets still come from Vite. Native AI
+authorization probes also use that fixture origin, never the ordinary dev gateway.
+The browser suite checks this bridge against a synthetic ordinary-AI 401 to ensure the
+fixture session is not invalidated by a request to the wrong backend. Passwords
 are read only inside the discarded-output subprocess. Each browser submits synthetic
 Unicode text, verifies reload/list persistence, checks another employee's concealed
 404 and an analyst's professional projection, then signs out. It leaves synthetic

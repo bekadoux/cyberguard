@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { chromium, firefox, type Browser, type Page } from '@playwright/test';
 import { incidentChecks } from './live-incidents.ts';
+import { routeFixtureServices } from './fixture-routing.ts';
 
 // All credentials/cookies and action diagnostics stay outside the test reporter.
 // Only explicitly disposable loopback projects are accepted for these write checks.
@@ -46,19 +47,7 @@ try {
   const context = await browser.newContext({ baseURL: process.argv[3] });
   context.setDefaultTimeout(10_000);
   const page: Page = await context.newPage();
-  // Do not intercept Vite modules such as /src/shared/api/client.ts.
-  if (!packaged)
-    await page.route(
-      (url) => url.pathname.startsWith('/api/'),
-      async (route) => {
-        const url = new URL(route.request().url());
-        const response = await route.fetch({
-          url: `${api.origin}${url.pathname}${url.search}`,
-          timeout: 15_000,
-        });
-        await route.fulfill({ response });
-      },
-    );
+  if (!packaged) await routeFixtureServices(page, api);
   async function login(username: string) {
     const password = readFileSync(
       join(secrets, `dev_${username}_password`),
@@ -175,7 +164,9 @@ try {
   requireTrue((await page.getByTestId('assessment-panel').count()) === 0);
   if (assessments)
     requireTrue(
-      (await context.request.get(`/ai/incidents/${row.id}/assessment`)).status() === 403,
+      (
+        await context.request.get(`${api.origin}/ai/incidents/${row.id}/assessment`)
+      ).status() === 403,
     );
   requireTrue(
     (await page.evaluate(() => localStorage.length + sessionStorage.length)) === 0,
@@ -233,7 +224,9 @@ try {
     requireTrue((await page.getByTestId('assessment-panel').count()) === 0);
     const ownId = new URL(page.url()).pathname.split('/').at(-1);
     requireTrue(
-      (await context.request.get(`/ai/incidents/${ownId}/assessment`)).status() === 403,
+      (
+        await context.request.get(`${api.origin}/ai/incidents/${ownId}/assessment`)
+      ).status() === 403,
     );
   }
   check('signing out');
