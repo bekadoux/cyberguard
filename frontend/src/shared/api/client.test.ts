@@ -4,6 +4,15 @@ import { ApiError, request } from './client';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('API client', () => {
+  it('does not interpret accepted-but-uncommitted writes as a completed creation', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('{}', { status: 202 })),
+    );
+    await expect(
+      request('/incidents', { method: 'POST', body: {}, expectedStatus: 201 }),
+    ).rejects.toMatchObject({ code: 'invalid_response', status: 202 });
+  });
   it('uses cookie credentials and no-store with no bearer token', async () => {
     const fetcher = vi
       .fn()

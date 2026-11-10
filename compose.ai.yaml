@@ -1,7 +1,8 @@
 # Optional AI deployment overlay. Do NOT enable the 'tools' profile during 'up'.
 services:
   web:
-    volumes: [./docker/caddy/Caddyfile.ai:/etc/caddy/Caddyfile:ro]
+    environment:
+      AI_HANDLER: Caddyfile.ai
   go-api:
     environment:
       AI_INTERNAL_TOKEN_FILE: /run/secrets/ai_internal_token
@@ -29,6 +30,12 @@ services:
     depends_on:
       incident-db: {condition: service_healthy}
       go-api: {condition: service_started}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/readyz', timeout=3).read()"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 5s
     restart: unless-stopped
   ai-worker:
     build:

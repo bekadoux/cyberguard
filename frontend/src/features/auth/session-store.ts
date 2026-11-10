@@ -18,6 +18,7 @@ export class SessionStore {
   };
   private listeners = new Set<() => void>();
   private generation = 0;
+  private authorizationGeneration = 0;
   private refreshController: AbortController | null = null;
 
   constructor(private readonly api = authApi) {}
@@ -30,6 +31,14 @@ export class SessionStore {
   };
 
   private update(patch: Partial<SessionState>): void {
+    if (
+      (patch.status !== undefined && patch.status !== this.state.status) ||
+      (patch.user !== undefined &&
+        (patch.user?.id !== this.state.user?.id ||
+          patch.user?.role !== this.state.user?.role))
+    ) {
+      this.authorizationGeneration++;
+    }
     this.state = { ...this.state, ...patch };
     this.listeners.forEach((listener) => listener());
   }
@@ -71,6 +80,7 @@ export class SessionStore {
   private async mutate(action: () => Promise<User | null>): Promise<void> {
     // Reject overlaps instead of queuing a password or issuing competing cookie writes.
     if (this.state.pending) throw new ApiError(0, 'auth_pending');
+    this.authorizationGeneration++;
     this.cancelRefresh();
     this.update({ pending: true, error: null });
     try {
@@ -88,6 +98,28 @@ export class SessionStore {
       this.update({ pending: false });
     }
   }
+
+  /** Bind protected data and denials to the identity that authorized the request. */
+  runProtected = async <T>(action: () => Promise<T>): Promise<T> => {
+    const generation = this.authorizationGeneration;
+    const current = () =>
+      generation === this.authorizationGeneration &&
+      this.state.status === 'authenticated' &&
+      !this.state.pending;
+    if (!current()) throw new DOMException('Session changed.', 'AbortError');
+    try {
+      const result = await action();
+      if (!current()) throw new DOMException('Session changed.', 'AbortError');
+      return result;
+    } catch (error) {
+      if (!current()) throw new DOMException('Session changed.', 'AbortError');
+      if (error instanceof ApiError && error.status === 401) {
+        this.cancelRefresh();
+        this.update({ status: 'anonymous', user: null, error: null });
+      }
+      throw error;
+    }
+  };
 
   login = (credentials: Credentials): Promise<void> =>
     this.mutate(() => this.api.login(credentials));

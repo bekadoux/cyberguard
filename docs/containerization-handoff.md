@@ -2,7 +2,9 @@
 
 Status: local Docker foundation implemented and exercised, 9 November 2026.
 Use [local Docker setup](docker-setup.md) for runnable commands and validation evidence.
-Frontend, AI and Azure deployment remain pending.
+Frontend/Caddy packaging is now implemented on `feat/frontend`; see the setup guides
+for its separate image and optional packaged-browser acceptance. AI and Azure deployment
+remain pending. The original foundation acceptance evidence below is historical.
 
 ## 1. Objective and scope
 
@@ -10,8 +12,8 @@ Deliver a reproducible local Docker Compose environment for the implemented Go A
 and its databases, with Caddy as the gateway. Make the images and configuration
 portable enough for later deployment, without provisioning Azure resources now.
 
-The frontend and Python/AI service do not exist yet. Do not add dummy applications,
-fabricated assessments, or builds that depend on missing frontend/Python directories.
+The React frontend now exists and is built into a separate Caddy runtime image.
+The Python/AI service remains absent. Do not add dummy applications or fabricated assessments.
 Incident creation currently saves no assessment job; containerization does not close
 the integration gap documented in [incident core handoff](incidents-handoff.md).
 
@@ -30,7 +32,7 @@ describes delivered commands and known local-only limitations.
 
 | Service | Current containerization increment | Later responsibility |
 | --- | --- | --- |
-| `web` | Caddy HTTP gateway to Go | Serve compiled React files, terminate public HTTPS, route both APIs |
+| `web` | Caddy serves compiled React and proxies Go | Terminate public HTTPS and route the future AI API |
 | `go-api` | Existing authentication and incident core API | Continue owning application workflows and identity |
 | `identity-db` | Independent PostgreSQL instance and persistent volume | Remain beside Go on the application VM |
 | `incident-db` | Independent PostgreSQL instance and persistent volume | Store incidents and agreed AI/job tables; remain on application VM |
@@ -58,7 +60,7 @@ to preserve the container count.
 | --- | --- |
 | Architect | Go image packaging, Compose, Caddy, networks, volumes, secret mounts, setup orchestration and container acceptance |
 | Go engineer | Native secret-file configuration support and tests; retain ownership of bootstrap SQL, migrations, grants and application behavior |
-| Frontend implementer | Later React build and integration into the Caddy runtime image; no frontend credentials |
+| Frontend implementer | React build and integration into the separate Caddy runtime image; no frontend credentials |
 | AI specialist | Later Python image, API/worker lifecycle, inference resource controls and packaging decision |
 | Joint review | Secret scoping, browser/proxy policy, database lifecycle and integration contracts |
 
@@ -74,7 +76,8 @@ compose.yaml                  # Reusable services, networks, volumes and tooling
 compose.dev.yaml              # Explicit local ports and HTTP development settings
 .dockerignore                 # Exclude secrets, dumps, local state and build output
 backend/go/Dockerfile         # API, migrate and seed binaries
-docker/caddy/Caddyfile        # Local gateway configuration
+frontend/Dockerfile           # Build React with Node; static Caddy runtime
+docker/caddy/Caddyfile        # Gateway and explicit SPA/static routing, baked into web image
 docker/                       # Narrow setup helpers and non-secret templates
 ```
 
@@ -116,18 +119,19 @@ Pin a supported, patched PostgreSQL image and record its version. Bootstrap requ
 Mount data at the path appropriate to the selected image version. Major-version
 upgrades require a migration procedure, not an image-tag change over an old volume.
 
-### Caddy and the future frontend
+### Caddy and the frontend
 
-Use a pinned Caddy image as the local HTTP gateway now. Until a frontend exists,
-unimplemented frontend paths should return an honest response, not a placeholder
-application presented as delivered functionality.
-
-Later, build React with Node.js in a build stage and copy the resulting static files
-into a dedicated Caddy runtime image. Frontend and Go builds/releases remain separate.
+React is built with pinned Node.js/npm and locked dependencies in a build stage; only
+the resulting static files are copied into the pinned Caddy runtime image.
+Frontend and Go builds/releases remain separate (`docker-build-web` / `docker-build-go`).
 The files are served **inside the Caddy container**, not by a host-installed web server
 or Go. Node/Vite is not a production runtime dependency. Host-run Vite remains useful
 for hot reload. All frontend configuration is browser-visible; never include database
 credentials or service tokens in `VITE_*` variables or the compiled bundle.
+Compose runs the baked config rather than bind-mounting the host Caddyfile. Rebuild and
+recreate `web` after config/source changes; ordinary startup never rebuilds or migrates.
+HTML/public bootstrap files remain no-store; existing fingerprinted Vite assets may
+be cached immutably. Missing assets/config/source paths must remain 404, not SPA HTML.
 
 ## 6. Local networking, routing and browser policy
 
@@ -140,7 +144,7 @@ Host-run clients keep the existing addresses:
 | Go direct access, when selected | `127.0.0.1:8080` |
 | Identity PostgreSQL, development only | `127.0.0.1:5433` |
 | Incident PostgreSQL, development only | `127.0.0.1:5434` |
-| Future Vite development server | `127.0.0.1:5173` |
+| Vite development server (optional hot reload) | `127.0.0.1:5173` |
 
 Suggested gateway address: `http://127.0.0.1:8088`, avoiding a conflict with direct Go
 access. Record the selected address in examples and tests. Publish local ports on
@@ -152,7 +156,9 @@ Suggested external routing contract:
 | --- | --- |
 | `/api/*` | Forward to Go, removing `/api`; existing Go routes remain unchanged |
 | `/ai/*` | Reserve for Python; enable forwarding only when implemented |
-| Other paths | Later static frontend and SPA navigation; currently no frontend |
+| Implemented client routes | Static frontend and SPA navigation; see the explicit Caddy allowlist |
+| Existing build/public files | Static files with fingerprint-aware cache policy |
+| Other paths/missing files | 404, not a successful SPA response |
 
 Document the gateway prefixes in API/frontend configuration when implemented. Keep
 API routing separate from SPA fallback: backend errors and unknown API paths must not

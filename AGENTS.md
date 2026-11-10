@@ -2,9 +2,12 @@
 
 ## Dev environment tips
 
-- The Go API implements incident core create/read. The frontend implements login/session
-  UI and themes; incident screens and investigation mutations remain planned. See
-  `docs/frontend-setup.md` and `docs/incidents-handoff.md` for the core boundaries. Application
+- The Go API implements incident core create/read.
+  The frontend implements login/session UI, themes and scoped incident create/list/detail.
+  Eligible analysts/admins can read stored AI assessments on another person's report;
+  reporter views never fetch AI output. Assessment refresh is manual, not a keepalive poll.
+  Investigation mutations remain planned. See
+  `docs/frontend-setup.md` and `docs/incidents-handoff.md` for the explicit boundaries. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
   contracts are in `docs/architect-handoff.md`.
 - An AI implementation candidate under `backend/python/` adds FastAPI, PostgreSQL job
@@ -19,10 +22,12 @@
   Bootstrap/migrate/seed are explicit one-off tools, never API startup actions. Do not
   enable the `tools` profile for ordinary `up`, or remove volumes as routine cleanup.
   Caddy exposes Go at `http://127.0.0.1:8088/api`; direct development access on 8080
-  uses the existing unprefixed routes. The frontend runs in Vite at 127.0.0.1:5173;
-  Caddy static frontend serving remains planned on this branch. The base gateway keeps
-  AI paths unavailable; `compose.ai.yaml` opts into AI proxying. AI/frontend integration
-  remains deferred.
+  uses the existing unprefixed routes. Caddy serves the packaged frontend at
+  `http://127.0.0.1:8088/login`; Vite at 127.0.0.1:5173 remains available for hot reload.
+  `make docker-build` builds separate Go and frontend/Caddy images; Node is build-only.
+  The optional AI overlay enables AI paths via a baked Caddy snippet selected by
+  `AI_HANDLER`, preserving the same SPA/security handlers. Rebuild the web image after
+  frontend/Caddy changes; Compose does not bind-mount source or the Caddyfile.
 - Business rules are in `docs/domain-specification.md`. `docs/playbooks.md` and
   `docs/demo-incidents.csv` supply domain reference material and labelled scenarios,
   not an implemented incident importer/seed or measured AI evaluation results.
@@ -43,11 +48,19 @@
 - Frontend: Node 24.22.2/npm 12.2.2, `make frontend-install`, then
   `make frontend-check`. `make frontend-test-e2e` runs Firefox and Chromium with
   Playwright-managed browsers; the separate live suite requires the running demo
-  backend and `E2E_PASSWORD_FILE`. See `docs/frontend-setup.md`. Never put secrets
-  in frontend configuration, browser storage or test artifacts.
+  backend and `E2E_PASSWORD_FILE`. `make frontend-test-incidents-live` performs writes
+  only against an explicitly selected disposable fixture. See `docs/frontend-setup.md`.
+  Never put secrets in frontend configuration, browser storage or test artifacts.
+  `DOCKER_TEST_FRONTEND=1 make docker-smoke` also runs all browser regressions against
+  the packaged assets plus real same-origin flows, without Vite or API interception
+  in those real flows. Requires host Node/npm, installed dependencies and browsers.
+  Add `DOCKER_TEST_AI=1` to include the real AI API/worker/DB pipeline in explicitly
+  labelled fixture mode. This provisions only disposable AI secrets/roles and never
+  downloads models or enables model profiles. It does not validate real inference.
 - AI candidate tests and outstanding integration checks are documented in
-  `docs/ai-backend.md`. Mocked unit tests or `AI_MODE=fake` do not validate real model
-  inference, PostgreSQL claims/grants, Docker integration or production resource usage.
+  `docs/ai-backend.md`. Mocked unit tests alone do not validate PostgreSQL or Docker.
+  The disposable fixture smoke covers the real happy-path DB/worker/API integration,
+  not concurrent claims, lease expiry, real model inference or production resource usage.
 - No CI workflow is checked in; `Makefile` defines the available checks.
 - `make docker-smoke` builds and tests a fresh disposable four-container project,
   including restart persistence, SQL outages and HTTP access rules. It deletes only

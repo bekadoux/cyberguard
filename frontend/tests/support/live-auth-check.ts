@@ -39,7 +39,7 @@ try {
   await page.getByLabel('Password', { exact: true }).fill(password);
   checking('signing in');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await page.getByRole('heading', { name: 'You’re signed in.' }).waitFor();
+  await page.getByRole('navigation', { name: 'Workspace' }).waitFor();
 
   checking('checking cookie policy');
   const cookie = (await context.cookies()).find(
@@ -57,7 +57,7 @@ try {
   );
   checking('restoring the session');
   await page.reload();
-  await page.getByRole('heading', { name: 'You’re signed in.' }).waitFor();
+  await page.getByRole('navigation', { name: 'Workspace' }).waitFor();
   checking('signing out');
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await page.getByRole('heading', { name: 'Welcome back' }).waitFor();

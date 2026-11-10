@@ -4,7 +4,7 @@ import { SessionStatus } from './SessionStatus';
 import { useAuth } from './use-auth';
 
 export function RequireSession() {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   if (status === 'checking' || status === 'unavailable') {
     return (
       <AuthLayout>
@@ -13,5 +13,6 @@ export function RequireSession() {
     );
   }
   if (status === 'anonymous') return <Navigate to="/login" replace />;
-  return <Outlet />;
+  // Never retain a previous account's feature state after identity/role changes.
+  return <Outlet key={`${user?.id}:${user?.role}`} />;
 }
