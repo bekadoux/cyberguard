@@ -8,6 +8,8 @@ import { ThemeProvider } from '../shared/theme/ThemeProvider';
 import { IncidentListPage } from '../features/incidents/IncidentListPage';
 import { IncidentDetailPage } from '../features/incidents/IncidentDetailPage';
 import { NewIncidentPage } from '../features/incidents/NewIncidentPage';
+import { NotificationsPage } from '../features/incidents/NotificationsPage';
+import { AdminPage } from '../features/incidents/AdminPage';
 import { WorkspaceLayout } from './WorkspaceLayout';
 
 export function App() {
@@ -23,6 +25,8 @@ export function App() {
                 <Route path="/incidents" element={<IncidentListPage />} />
                 <Route path="/incidents/new" element={<NewIncidentPage />} />
                 <Route path="/incidents/:id" element={<IncidentDetailPage />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
+                <Route path="/admin" element={<AdminPage />} />
                 <Route path="/account" element={<SessionPage />} />
               </Route>
             </Route>
