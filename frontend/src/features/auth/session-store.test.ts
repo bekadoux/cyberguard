@@ -136,4 +136,56 @@ describe('session state', () => {
     await previous;
     expect(store.getSnapshot()).toMatchObject({ status: 'authenticated', user });
   });
+
+  it('expires the current identity on a protected business-request 401', async () => {
+    const { store } = fixture();
+    await store.login(credentials);
+    await expect(
+      store.runProtected(() =>
+        Promise.reject(new ApiError(401, 'authentication_required')),
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(store.getSnapshot()).toMatchObject({ status: 'anonymous', user: null });
+  });
+
+  it('does not claim logout when an incident dependency returns 503', async () => {
+    const { store } = fixture();
+    await store.login(credentials);
+    await expect(
+      store.runProtected(() =>
+        Promise.reject(new ApiError(503, 'incidents_unavailable')),
+      ),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(store.getSnapshot()).toMatchObject({ status: 'authenticated', user });
+  });
+
+  it.each(['success', 'unauthorized'] as const)(
+    'discards obsolete protected %s after a new login',
+    async (result) => {
+      const { store } = fixture();
+      await store.login(credentials);
+      const response = deferred<string>();
+      const request = store
+        .runProtected(() => response.promise)
+        .catch((error: unknown) => error);
+      await store.login(credentials);
+      if (result === 'success') response.resolve('old account data');
+      else response.reject(new ApiError(401, 'authentication_required'));
+      expect(await request).toMatchObject({ name: 'AbortError' });
+      expect(store.getSnapshot()).toMatchObject({ status: 'authenticated', user });
+    },
+  );
+
+  it('does not return already-authorized protected data after logout', async () => {
+    const { store } = fixture();
+    await store.login(credentials);
+    const response = deferred<string>();
+    const request = store
+      .runProtected(() => response.promise)
+      .catch((error: unknown) => error);
+    await store.logout();
+    response.resolve('old account data');
+    expect(await request).toMatchObject({ name: 'AbortError' });
+    expect(store.getSnapshot()).toMatchObject({ status: 'anonymous', user: null });
+  });
 });

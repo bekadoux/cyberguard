@@ -13,6 +13,11 @@
 
 **Handoff follow-up:** After applying `00003_context_and_investigations.sql`, each new incident has an immutable `incident_contexts` snapshot linked to its job, and the internal Go endpoint reads this persisted snapshot (rather than comparing against mutable incident fields). Historical jobs are not backfilled. See [`handoff-implementation.md`](handoff-implementation.md).
 
+On `feat/frontend`, the overlay selects a baked AI proxy snippet via `AI_HANDLER`
+instead of mounting a replacement Caddyfile. The shared gateway retains static files,
+SPA reloads, cache policy and internal-path denial in both modes. Rebuild the web image
+after changing either Caddy snippet; no host Caddyfile mount is required.
+
 ## CPU models and the Jev decision
 
 Original TypeSafe **Jev** is a hosted, proprietary decision model. There is no official self-hosted Jev weight download as of 9 Nov 2026. Using Jev's API would send incident descriptions outside this deployment and would not satisfy the project's self-hosting preference.
@@ -80,6 +85,10 @@ Both model services are on the private `ai-inference` Docker network, **not expo
 ## Authorization, secrets and database boundaries
 
 - Go remains the only login authority. Python checks `/auth/me` and `/incidents/{id}` on **every** assessment read; authenticated analyst/admin only, with a current incident-access check. It does not trust the incoming `incident_id`, role or cookie without Go verification. Browser only receives stored results. No write API is exposed.
+- The reporter restriction applies regardless of role: an analyst/admin reading their
+  own report receives 403 and no AI-table reads. Ownership is compared using validated
+  UUIDs from Go, never browser-supplied identity. Missing/malformed Go identity or
+  incident data fails closed; session expiry during the second lookup remains 401.
 - The worker uses `AI_INTERNAL_TOKEN` (or `_FILE`) to call Go's internal context endpoint. **Never** expose direct Go port publicly with this route enabled, or publish `AI_INTERNAL_TOKEN`; use an internal Docker network/private VM interface. This token is not a user session cookie.
 - Python's `python_incidents` role has only limited `SELECT` on AI tables and `EXECUTE` on controlled DB functions. No SELECT on `incidents` or `users`, no UPDATE of analyst fields, no schema write permissions. Password is in a Compose secret.
 - The migration runs using the existing incident **migrator**, not via API/worker startup. `bootstrap-ai` is a separate one-off provisioning step; never use it for every startup or as part of ordinary `up`.
@@ -88,6 +97,11 @@ Both model services are on the private `ai-inference` Docker network, **not expo
 
 ## Test plan and honest limitations
 
+The original candidate checklist below predates the frontend integration follow-up.
+The optional disposable fixture smoke now exercises the real PostgreSQL/Go/Python/
+Caddy happy path with `AI_MODE=fake`; it does not establish real inference, concurrent
+claim/lease-expiry/rollback coverage or production acceptance.
+
 ```bash
 # In a Python 3.13 virtual environment, from the repo root:
 python -m pip install -r backend/python/requirements-dev.txt
@@ -95,6 +109,29 @@ PYTHONPATH=backend/python python -m pytest -q backend/python/tests
 ```
 
 The unit tests mock external HTTP model/Go services and verify classification JSON, approved playbooks, fake provenance, access checks, stale context, worker persistence and failure paths. **Still required before merge**: run `make go-sqlc` with the pinned generator (the added `context_revision` column changes generated models), review/commit generated code, then actual Postgres migration/role/claim tests (including concurrent claim, lease expiry and transaction rollback), full Go tests with the project's Go 1.27.3 toolchain, Docker Compose integration/smoke, real Kev/Qwen model inference and measured resource usage on Azure. No Docker/PostgreSQL runtime or model weights were available in the generation environment, so those tests are not claimed as completed.
+
+Authorization follow-up (10 November 2026): all 23 Python tests passed with Python
+3.13.18, including analyst/admin own-report denial before storage access and malformed
+Go-response rejection. Scoped Ruff formatting/lint and Pyright checks passed for the
+changed authorization/tests. The suite emits an upstream Starlette/AnyIO deprecation
+warning. These mocked authorization checks do not establish real-model or PostgreSQL
+integration acceptance; the outstanding runtime checks above remain separate.
+
+Frontend integration follow-up (10 November 2026): the optional combined smoke now
+provisions a fresh, separate project and verifies the real DB trigger, worker claim,
+Go service context, stored fixture result and staff browser read path:
+
+```sh
+DOCKER_TEST_AI=1 DOCKER_TEST_FRONTEND=1 make docker-smoke
+```
+
+This also verifies employee denial and analyst/admin reporter denial with native
+cookies, preserves the packaged SPA/cache/internal-route boundaries, and runs browser
+checks with no credential-bearing diagnostics in reports. It forces `AI_MODE=fake`
+and never enables model profiles or downloads weights. See
+[frontend evidence](frontend-setup.md#ai-integration-follow-up--10-november-2026).
+Successful happy-path fixture validation does not replace the remaining concurrency,
+lease-expiry/rollback, generated-query, real-model and production review items above.
 
 ## Team decisions for review
 

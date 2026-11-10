@@ -38,8 +38,12 @@ The [containerization handoff](docs/containerization-handoff.md) records ownersh
 acceptance criteria and the later frontend/AI and two-VM deployment boundaries.
 
 The [frontend setup guide](docs/frontend-setup.md) covers the implemented login/session
-UI, light/dark themes, Vite development workflow, and Firefox/Chromium tests. Incident
-screens and compiled frontend serving through Caddy remain future work.
+UI, light/dark themes, protected incident submission/list/detail, Vite development,
+and static frontend packaging in a separate Caddy image. `make docker-build` builds
+both application images; the packaged UI is at `http://127.0.0.1:8088/login` after
+the documented setup and `make docker-up`. Eligible staff can view stored AI assessment
+states/results with advisory and fixture labels; reporter views exclude AI output.
+Investigation actions and production HTTPS deployment remain future work.
 
 ## AI Backend (proposed integration)
 
@@ -48,7 +52,8 @@ llama.cpp/Qwen brief generation are in `backend/python/`, with optional Docker
 services in `compose.ai.yaml`. **AI services are not enabled in the base Compose
 deployment** and are **not yet integration-tested on Azure**. Applying the AI migration
 enqueues jobs for new incidents even when no AI worker is running; it does not backfill
-existing incidents. AI/frontend integration remains deferred.
+existing incidents. The optional AI overlay preserves frontend serving and enables
+read-only staff assessment display. Real-model and Azure acceptance remain separate.
 
 See [`docs/ai-backend.md`](docs/ai-backend.md) for the schema migration, separate worker
 database role, explicit fake fixture, model setup, and approvals required before merging.
