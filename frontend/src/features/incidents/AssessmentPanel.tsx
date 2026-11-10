@@ -10,7 +10,8 @@ import {
   type Assessment,
 } from './assessment';
 import { isAborted } from './messages';
-import { categoryLabels } from './model';
+import { categoryLabels, type IncidentDetail } from './model';
+import { AIReview } from './AIReview';
 
 type State = {
   source: string;
@@ -21,7 +22,15 @@ type State = {
 const initial: State = { source: '', data: null, error: null, loading: true };
 
 /** Manual refresh deliberately avoids a polling loop that would keep sessions alive. */
-export function AssessmentPanel({ incidentId }: { incidentId: string }) {
+export function AssessmentPanel({
+  incidentId,
+  incident,
+  onChanged,
+}: {
+  incidentId: string;
+  incident: IncidentDetail;
+  onChanged: () => void;
+}) {
   const { runProtected, pending } = useAuth();
   const [reload, setReload] = useState(0);
   const [state, setState] = useState<State>(initial);
@@ -182,6 +191,12 @@ export function AssessmentPanel({ incidentId }: { incidentId: string }) {
                     )}
                   </dl>
                 </details>
+                <AIReview
+                  key={data.job.id}
+                  assessment={data}
+                  incident={incident}
+                  onChanged={onChanged}
+                />
                 <p className="text-preserved assessment-disclaimer">
                   {result.assessment.disclaimer}
                 </p>

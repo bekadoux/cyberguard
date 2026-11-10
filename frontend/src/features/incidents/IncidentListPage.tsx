@@ -42,7 +42,7 @@ export function IncidentListPage() {
           <h1 id="incidents-heading">{title}</h1>
           <p>
             {professional
-              ? 'Review reported security incidents across your company. Investigation actions are not available in this release.'
+              ? 'Review reported security incidents, assign analysts, and manage investigations.'
               : 'Your reported security incidents, with the latest information available from your security team.'}
           </p>
         </div>
