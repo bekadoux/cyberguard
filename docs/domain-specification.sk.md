@@ -12,6 +12,13 @@ Kto čo potrebuje:
 - **AI expert (SaiLenT):** kategórie, škála závažnosti a indikátory — vstupy pre model (operácie Choice, Score, Noul).
 - **Go vývojár:** polia incidentu a hodnoty enum polí `category`, `severity`, `status`.
 
+> **Aktualizácia oprávnení (handoff):** Analytik a administrátor vidia závažnosť,
+> interné komentáre a AI odporúčania aj pri incidente, ktorý sami nahlásili.
+> Nepriradený analytik môže písať **interné** komentáre, ale profesionálne
+> verejné komentáre môže písať len priradený analytik alebo administrátor.
+> Nahlasovateľ si ponecháva právo verejne odpovedať na vlastný incident.
+> Implementácia a OpenAPI: `docs/handoff-implementation.md`.
+
 ## Polia incidentu
 
 Čo sa o každom incidente ukladá, kto pole vypĺňa a kto ho môže neskôr meniť. Komentáre sú samostatná entita (pozri nižšie), nie pole incidentu.

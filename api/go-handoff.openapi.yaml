@@ -1,0 +1,297 @@
+openapi: 3.1.0
+info:
+  title: CyberGuard Investigation, Administration and Notification API
+  version: 0.2.0
+  description: |
+    Candidate implementation of the remaining Go backend handoff. All browser
+    endpoints require a current HttpOnly session; authorization uses current
+    identity records and server-side ownership/assignment checks.
+servers:
+  - url: /api
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-cyberguard_session
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          properties:
+            code: {type: string}
+            message: {type: string}
+    Comment:
+      type: object
+      required: [id, author_id, visibility, text, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        author_id: {type: string, format: uuid}
+        visibility: {type: string, enum: [public, internal]}
+        text: {type: string, maxLength: 5000}
+        created_at: {type: string, format: date-time}
+    User:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        username: {type: string}
+        role: {type: string, enum: [employee, analyst, admin]}
+        is_blocked: {type: boolean}
+security:
+  - sessionCookie: []
+paths:
+  /incidents/{id}/claim:
+    post:
+      summary: Atomically claim an unassigned submitted incident
+      description: Active analyst or admin; only the first concurrent claim succeeds.
+      parameters: &incident_id
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200': {description: Assigned to caller, status becomes triage}
+        '401': {description: Session required}
+        '403': {description: Professional role required}
+        '404': {description: Incident not found}
+        '409': {description: Already assigned or not submitted}
+  /incidents/{id}/assign:
+    post:
+      summary: Admin assigns/reassigns a currently active incident
+      parameters: *incident_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [analyst_id]
+              additionalProperties: false
+              properties:
+                analyst_id: {type: string, format: uuid}
+      responses:
+        '200': {description: Assigned to active analyst}
+        '403': {description: Admin role required}
+        '404': {description: Incident not found}
+        '409': {description: Ineligible incident status}
+  /incidents/{id}/fields:
+    patch:
+      summary: Edit approved incident fields
+      description: |
+        Assigned analyst or admin only. Original title/description are immutable.
+        Category/severity are confirmed human decisions, not automatically applied AI output.
+      parameters: *incident_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                category:
+                  type: [string, 'null']
+                  enum: [phishing, malware, account_compromise, data_exposure, lost_device, policy_violation, service_disruption, other, null]
+                severity:
+                  type: [string, 'null']
+                  enum: [low, medium, high, critical, null]
+                affected_system: {type: [string, 'null'], maxLength: 500}
+                resolution_note: {type: [string, 'null'], maxLength: 10000}
+      responses:
+        '200': {description: Fields updated and action recorded}
+        '400': {description: Invalid or immutable field}
+        '403': {description: Assigned analyst or admin required}
+        '409': {description: Ineligible incident status}
+  /incidents/{id}/transition:
+    post:
+      summary: Perform a permitted incident status transition
+      description: |
+        The transition graph is enforced under a row lock. A reporter can
+        confirm resolution or request review; an admin can reopen terminal cases.
+        Reporter public comments (not internal comments) automatically resume
+        awaiting_reporter → investigating. Manual submitted → triage is unavailable;
+        it happens on claim/assignment. False positive and reopening require reasons.
+      parameters: *incident_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum: [triage, investigating, awaiting_reporter, resolved, closed, false_positive]
+                reason: {type: string, maxLength: 2000}
+      responses:
+        '200': {description: Transition committed and action recorded}
+        '403': {description: Transition not allowed for this actor}
+        '409': {description: Required fields or comments missing}
+  /incidents/{id}/archive:
+    post:
+      summary: Admin archives an incident without deleting data
+      parameters: *incident_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 1, maxLength: 2000}
+      responses:
+        '200': {description: Incident archived and audited}
+        '403': {description: Admin role required}
+  /incidents/{id}/comments:
+    get:
+      summary: Read authorized comments
+      description: Reporter sees public comments only; analyst/admin see both types. Limited to 500 records.
+      parameters: *incident_id
+      responses:
+        '200':
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  comments:
+                    type: array
+                    items: {$ref: '#/components/schemas/Comment'}
+        '404': {description: Missing or inaccessible incident}
+    post:
+      summary: Add a public or internal comment
+      description: |
+        Reporter may reply publicly on own incident; unassigned analysts may
+        post internally but only assigned analysts/admin may post publicly
+        on the professional side. A reporter public reply resumes awaiting_reporter.
+      parameters: *incident_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text, visibility]
+              additionalProperties: false
+              properties:
+                text: {type: string, minLength: 1, maxLength: 5000}
+                visibility: {type: string, enum: [public, internal]}
+      responses:
+        '201': {description: Comment created, history and notifications updated}
+        '403': {description: Visibility/assignment forbidden}
+  /incidents/{id}/history:
+    get:
+      summary: Read incident action history
+      description: Professional roles only; append-only events, max 500 records. Admins may review archived incident history by ID.
+      parameters: *incident_id
+      responses:
+        '200': {description: Action history}
+        '403': {description: Professional role required}
+  /notifications:
+    get:
+      summary: List own recent incident notifications
+      responses:
+        '200': {description: Own notifications only, max 100 records}
+  /notifications/{id}/read:
+    post:
+      summary: Mark own notification read
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200': {description: Read timestamp saved}
+        '404': {description: Not the user's notification or missing}
+  /admin/users:
+    get:
+      summary: Admin lists users (without credentials/hashes)
+      responses:
+        '200': {description: Up to 500 safe user DTOs}
+        '403': {description: Admin role required}
+    post:
+      summary: Admin creates an account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password, role]
+              additionalProperties: false
+              properties:
+                username: {type: string, minLength: 3, maxLength: 64}
+                password: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+                role: {type: string, enum: [employee, analyst, admin]}
+                reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
+      responses:
+        '201': {description: Account created; password never returned}
+        '409': {description: Username already exists}
+  /admin/users/{id}/role:
+    post:
+      summary: Admin updates another user's role and revokes old sessions
+      parameters: *incident_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              additionalProperties: false
+              properties:
+                role: {type: string, enum: [employee, analyst, admin]}
+                reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
+      responses:
+        '200': {description: Role updated and auth_version incremented}
+        '409': {description: Cannot change own role}
+  /admin/users/{id}/block:
+    post:
+      summary: Admin blocks/unblocks another user and revokes old sessions
+      parameters: *incident_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blocked]
+              additionalProperties: false
+              properties:
+                blocked: {type: boolean}
+                reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
+      responses:
+        '200': {description: Block flag updated and auth_version incremented}
+        '409': {description: Cannot block/unblock self}
+  /admin/users/{id}/password:
+    post:
+      summary: Admin resets password with Argon2id and revokes old sessions
+      parameters: *incident_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              additionalProperties: false
+              properties:
+                password: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+                reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
+      responses:
+        '200': {description: Password reset; no hash or password returned}
+  /admin/audit:
+    get:
+      summary: Admin reads user administration audit (incident history is separate)
+      responses:
+        '200': {description: Last 500 identity events; no credential content}
+        '403': {description: Admin role required}

@@ -72,7 +72,7 @@ func TestIdentityPersistenceIntegration(t *testing.T) {
 		t.Fatal("could not load identity migrations")
 	}
 	results, err := provider.Up(ctx)
-	if err != nil || len(results) != 2 {
+	if err != nil || len(results) != 3 {
 		t.Fatal("identity migrations did not apply cleanly")
 	}
 	results, err = provider.Up(ctx)
@@ -265,7 +265,7 @@ func TestIdentityPersistenceIntegration(t *testing.T) {
 			t.Fatal("could not roll back identity migrations")
 		}
 		results, err := provider.Up(ctx)
-		if err != nil || len(results) != 2 {
+		if err != nil || len(results) != 3 {
 			t.Fatal("could not reapply identity migrations")
 		}
 	})

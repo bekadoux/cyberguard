@@ -2,11 +2,12 @@
 
 ## Dev environment tips
 
-- The Go API implements incident core create/read.
+- The Go API implements incident core create/read plus a handoff candidate for
+  incident workflow, comments, audit, notifications and user administration.
   The frontend implements login/session UI, themes and scoped incident create/list/detail.
   Eligible analysts/admins can read stored AI assessments on another person's report;
   reporter views never fetch AI output. Assessment refresh is manual, not a keepalive poll.
-  Investigation mutations remain planned. See
+  Frontend investigation mutations remain planned. See
   `docs/frontend-setup.md` and `docs/incidents-handoff.md` for the explicit boundaries. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
   contracts are in `docs/architect-handoff.md`.
@@ -32,8 +33,9 @@
   `docs/demo-incidents.csv` supply domain reference material and labelled scenarios,
   not an implemented incident importer/seed or measured AI evaluation results.
 - `docs/assessment-job-contract.md` is a proposal, not an implemented/final contract.
-  The AI candidate selects trigger-based enqueueing and stale-revision rejection rather
-  than immutable snapshots. Confirm these choices, schema, grants and service contracts
+  The Go handoff retains trigger-based enqueueing and replaces stale-revision rejection
+  with immutable job-linked snapshots after the new incident migrations. Historical
+  jobs are not backfilled. Confirm these choices, schema, grants and service contracts
   with the Go engineer, AI specialist and architect before accepting the handoff.
 - The Go module is `backend/go` (Go 1.27.3). Run Make targets from the repository
   root; run direct Go commands from `backend/go`, not the root.
@@ -144,3 +146,18 @@
   also run `make go-test-integration` with the dedicated test instances.
 - Report checks run and any blocked by missing tools, network access or database
   prerequisites; do not remove required checks or describe blocked checks as passing.
+
+## Go handoff implementation candidate (post-main 7b91f0b)
+
+- See `docs/handoff-implementation.md` for new migrations, Go handlers,
+  incident workflow rights, limitations, testing gates and the new OpenAPI file.
+- Do not edit sqlc-generated files to accommodate `resolved_at`: resolution times
+  live in a separate table to keep generated incident row shapes compatible.
+- Apply `db/migrations/identity/00003_user_admin_audit.sql`,
+  `db/migrations/incidents/00003_context_and_investigations.sql` and
+  `db/migrations/incidents/00004_job_context_read.sql` before starting the updated Go
+  backend. Old jobs are intentionally not backfilled. The worker context endpoint
+  uses immutable snapshots; historical jobs without snapshots cannot supply context.
+- Staff own-report visibility differs between the Go/domain handoff and the current
+  frontend/Python reporter restrictions. Reconcile these contracts before acceptance.
+- Review newly added Go tests and run with the pinned Go 1.27.3 toolchain.

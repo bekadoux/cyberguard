@@ -3,10 +3,10 @@ info:
   title: CyberGuard Go Incident Core API
   version: 0.1.0
   description: >-
-    Intermediate create/list/detail foundation. POST currently saves an incident only,
-    not an assessment job. Atomic initial-job enqueueing remains dependent on Issue #3
-    and is required before accepting the full vertical slice. No workflow mutation,
-    comments, archive API, AI endpoint or frontend is included. All routes require
+    Core create/list/detail API. After applying the 00002 and 00003 incident
+    migrations, each new submission atomically saves the incident, immutable
+    context snapshot and initial assessment job. Investigation/comment endpoints
+    are documented separately in api/go-handoff.openapi.yaml. All routes require
     current-account server-side sessions and never emit Set-Cookie. Use credentials:
     include; handle 401 independently of cookie presence. Exact trusted origins and
     CSRF policy are shared with authentication. Responses are JSON and no-store.
@@ -22,7 +22,7 @@ paths:
   /incidents:
     post:
       operationId: createIncident
-      summary: Save a submitted incident (initial assessment enqueueing not yet integrated)
+      summary: Save a submitted incident and atomically enqueue initial assessment after AI migrations
       description: >-
         No query parameters. Reporter comes from the session. UUID/timestamps/status are server-managed;
         category/severity/assignment/resolution start null. Source title/description
@@ -56,7 +56,7 @@ paths:
                   description: Omitted/null/whitespace-only becomes null. NUL is rejected.
       responses:
         '201':
-          description: Incident committed; this core response does not imply AI-job creation.
+          description: Incident committed; with AI migrations applied the snapshot and initial job are committed in the same transaction. The response remains incident-only.
           headers:
             Location:
               schema:
@@ -146,9 +146,9 @@ paths:
       summary: Read permitted incident detail
       description: >-
         Missing, malformed, inaccessible and archived IDs share 404. No query parameters.
-        Reporter-visible fields are returned on own incidents regardless of role.
-        Severity is omitted, not just hidden by the UI. Analysts/admins reading another
-        reporter's incident receive severity, which may be null. No internal comments,
+        Ordinary employee reporters receive the restricted view without severity.
+        Analysts/admins keep professional severity visibility even on incidents
+        they submitted themselves. No internal comments,
         AI output, archive reason, credential data or session metadata is returned.
         Assigned analyst username is resolved safely through identity; missing account
         yields null username, lookup failure yields 503 without partial incident data.
@@ -230,7 +230,7 @@ components:
         severity:
           type: [string, 'null']
           enum: [low, medium, high, critical, null]
-          description: Present only for analyst/admin reading another reporter's incident; otherwise absent.
+          description: Present for analyst/admin regardless of authorship; omitted for employees.
     IncidentSummary:
       allOf:
         - $ref: '#/components/schemas/IncidentFields'

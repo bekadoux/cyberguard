@@ -57,3 +57,13 @@ read-only staff assessment display. Real-model and Azure acceptance remain separ
 
 See [`docs/ai-backend.md`](docs/ai-backend.md) for the schema migration, separate worker
 database role, explicit fake fixture, model setup, and approvals required before merging.
+
+## Go backend handoff implementation candidate
+
+The remaining investigation, user-administration and audit API candidate is documented
+in [`docs/handoff-implementation.md`](docs/handoff-implementation.md) with
+[`api/go-handoff.openapi.yaml`](api/go-handoff.openapi.yaml). It adds independent
+forward migrations `00003` for **both** PostgreSQL instances, immutable incident
+context snapshots, workflow transitions, comments, notifications and audit.
+The candidate is not a production release and still requires Go 1.27.3 + real
+PostgreSQL integration tests and architect/domain review before merge.

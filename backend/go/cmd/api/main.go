@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
 	"github.com/bekadoux/cyberguard/backend/go/internal/config"
@@ -50,6 +51,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	incidentAPI.EnableHandoff(pools.Incidents, pools.Identity)
 	incidentAPI.Mount(router)
 	aiToken, err := secretconfig.Value(os.LookupEnv, "AI_INTERNAL_TOKEN")
 	if err != nil {
@@ -69,6 +71,28 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		auth.RunSessionCleanup(cleanupCtx, pools.Identity, cfg.DatabaseTimeout, logger)
 	}()
 	defer func() { stopCleanup(); <-cleanupDone }()
+	// Close resolved incidents after seven days, without depending on a browser.
+	// Only one process should run maintenance in clustered deployments.
+	autoCloseDone := make(chan struct{})
+	go func() {
+		defer close(autoCloseDone)
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			taskCtx, cancel := context.WithTimeout(cleanupCtx, 20*time.Second)
+			err := httpapi.RunAutoClose(taskCtx, pools.Incidents)
+			cancel()
+			if err != nil && cleanupCtx.Err() == nil {
+				logger.Warn("incident auto-close maintenance failed")
+			}
+			select {
+			case <-cleanupCtx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	defer func() { stopCleanup(); <-autoCloseDone }()
 	if err := httpapi.Serve(ctx, server, listener, cfg.ShutdownTimeout); err != nil {
 		return err
 	}
