@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const maxIncidentBodyBytes = 128 << 10
@@ -27,6 +28,7 @@ type IncidentAPI struct {
 	service *incidents.Service
 	users   auth.Users
 	auth    *Authentication
+	handoff *HandoffAPI
 }
 
 func NewIncidentAPI(queries incidents.Queries, users auth.Users, authentication *Authentication) (*IncidentAPI, error) {
@@ -46,7 +48,19 @@ func (a *IncidentAPI) Mount(router chi.Router) {
 		routes.Post("/", a.create)
 		routes.Get("/", a.list)
 		routes.Get("/{id}", a.detail)
+		if a.handoff != nil {
+			a.handoff.mountIncidentRoutes(routes)
+		}
 	})
+	if a.handoff != nil {
+		a.handoff.mountAuxiliaryRoutes(router)
+	}
+}
+
+// EnableHandoff attaches incident workflows without changing the original
+// constructor used by the existing unit and integration test fixtures.
+func (a *IncidentAPI) EnableHandoff(incidents, identity *pgxpool.Pool) {
+	a.handoff = &HandoffAPI{incidentDB: incidents, identityDB: identity, auth: a.auth}
 }
 
 // Refresh before running business logic, never after it commits a write on the
@@ -124,10 +138,10 @@ func nullableUUID(value pgtype.UUID) *string {
 	return &id
 }
 
-// The specification gives a reporter-restricted view regardless of their role.
-// Use that stricter view on own reports until dual-role precedence is clarified.
-func internalIncidentView(user auth.User, reporter pgtype.UUID) bool {
-	return (user.Role == "analyst" || user.Role == "admin") && user.ID != reporter.String()
+// A professional keeps professional visibility even when they are also the reporter.
+// Ordinary employees never receive severity or internal details.
+func internalIncidentView(user auth.User, _ pgtype.UUID) bool {
+	return user.Role == "analyst" || user.Role == "admin"
 }
 
 func summaryDTO(row db.ListVisibleIncidentsRow) incidentSummaryDTO {

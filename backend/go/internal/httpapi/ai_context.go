@@ -38,23 +38,21 @@ func MountAIWorkerContext(router chi.Router, pool *pgxpool.Pool, serviceToken st
 		var incidentID pgtype.UUID
 		var title, description string
 		var affected *string
-		var jobRevision, currentRevision int64
+		var jobRevision int64
 		err := pool.QueryRow(ctx, `
-            SELECT i.id, i.title, i.description, i.affected_system,
-                   j.incident_revision, i.context_revision
-            FROM assessment_jobs j JOIN incidents i ON i.id = j.incident_id
+            SELECT i.id, c.title, c.description, c.affected_system, j.incident_revision
+            FROM assessment_jobs j
+            JOIN incidents i ON i.id = j.incident_id
+            JOIN incident_contexts c ON c.id = j.context_id
+                AND c.incident_id = j.incident_id AND c.revision = j.incident_revision
             WHERE j.id = $1 AND i.archived_at IS NULL`, uuid).Scan(
-			&incidentID, &title, &description, &affected, &jobRevision, &currentRevision)
+			&incidentID, &title, &description, &affected, &jobRevision)
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "Job not found.")
 			return
 		}
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "incidents_unavailable", "Incident context unavailable.")
-			return
-		}
-		if currentRevision != jobRevision {
-			writeError(w, http.StatusConflict, "stale_context", "Incident context changed since scheduling.")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{

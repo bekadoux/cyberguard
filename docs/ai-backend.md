@@ -8,10 +8,10 @@
 - `backend/python/cyberguard_ai/worker.py`: single-claim polling process; no Redis or message broker; claims, renewable lease, fencing by random claim token, bounded attempts for expired claims, terminal failures. Running a second worker is safe but not recommended on CPU.
 - `backend/python/cyberguard_ai/models.py`: Kev decision adapter (`choice`, `score`, `noul`); Qwen GGUF LLM via llama.cpp OpenAI-compatible API; safe fallback is **failure**, never fabricated output. `AI_MODE=fake` explicitly enables a non-AI integration fixture.
 - `db/migrations/incidents/00002_ai_assessments.sql`: new `assessment_jobs`, `assessment_results`, revision tracking and fenced security-definer SQL functions. Insert trigger enqueues `initial_assessment` in **the same transaction** as the existing Go `CreateIncident` INSERT, so the current Go sqlc-generated code can keep its API contract. Do not also enqueue directly in Go without revisiting this trigger.
-- `backend/go/internal/httpapi/ai_context.go`: Go's internal-only `GET /internal/ai/jobs/{job_id}/context`, with service-secret authentication; checks stored incident/job pairing, current revision and archived state. Caddy hides any `/internal` segments, including `/api/internal`.
+- `backend/go/internal/httpapi/ai_context.go`: Go's internal-only `GET /internal/ai/jobs/{job_id}/context`, with service-secret authentication; after the 00003 handoff migration checks persisted job-to-snapshot pairing and archived state. Caddy hides any `/internal` segments, including `/api/internal`.
 - `compose.ai.yaml`: optional AI services and proxy. Original Compose files and their existing smoke-test expectations remain unchanged when overlay is not used.
 
-**Important:** `incident_revision` is checked against the current incident. This MVP *rejects stale context* (HTTP 409). It does NOT save an immutable incident snapshot. Business/API incident text updates are not implemented by the original repository; the new DB trigger increments the revision if a direct migration/privileged update occurs.
+**Handoff follow-up:** After applying `00003_context_and_investigations.sql`, each new incident has an immutable `incident_contexts` snapshot linked to its job, and the internal Go endpoint reads this persisted snapshot (rather than comparing against mutable incident fields). Historical jobs are not backfilled. See [`handoff-implementation.md`](handoff-implementation.md).
 
 ## CPU models and the Jev decision
 
@@ -99,3 +99,7 @@ The unit tests mock external HTTP model/Go services and verify classification JS
 ## Team decisions for review
 
 The original contract leaves choices open. This implementation selects: enqueue via trigger (rather than a Go transaction query), reject stale incident versions, one result per job, terminal model errors, single background worker, and analyst/admin-only browser reads. Confirm each with the Go engineer and architect before merging. Production hardening still needs CSRF/CORS decisions for the frontend origin, gateway HTTPS, controlled role rotation, backups, an explicit retry/requeue policy, approved model evaluation datasets and thresholds, full API contract/OpenAPI updates and migration permissions testing.
+
+## Remaining Go handoff implementation (new increment)
+
+See [`handoff-implementation.md`](handoff-implementation.md) for migration `00003`, the immutable context contract, assignment/workflow/comment/admin endpoints, notification/audit behavior and required integration checks. The older notes above document the original AI candidate before this new increment; the deployed system must apply both forward migrations before running the updated Go binary.

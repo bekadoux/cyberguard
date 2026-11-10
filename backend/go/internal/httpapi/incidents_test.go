@@ -246,8 +246,8 @@ func TestIncidentHTTPVisibilityAndPagination(t *testing.T) {
 			t.Fatal("incorrect professional DTO")
 		}
 		w = authRequest(f.router, http.MethodGet, "/incidents/"+q.items[0].ID.String(), "", cookie)
-		if strings.Contains(w.Body.String(), `"severity"`) {
-			t.Fatal("own-report projection exposed internal data")
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"severity"`) {
+			t.Fatal("professional author lost professional severity visibility")
 		}
 		w = authRequest(f.router, http.MethodGet, "/incidents", "", cookie)
 		if len(incidentJSON(t, w)["incidents"].([]any)) != 4 {

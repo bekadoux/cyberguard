@@ -2,7 +2,9 @@
 
 ## Dev environment tips
 
-- The Go API implements incident core create/read. The frontend implements login/session
+- The Go API implements incident core create/read plus a handoff candidate for
+  incident workflow, comments, audit, notifications and user administration.
+  The frontend implements login/session
   UI and themes; incident screens and investigation mutations remain planned. See
   `docs/frontend-setup.md` and `docs/incidents-handoff.md` for the core boundaries. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
@@ -131,3 +133,13 @@
   also run `make go-test-integration` with the dedicated test instances.
 - Report checks run and any blocked by missing tools, network access or database
   prerequisites; do not remove required checks or describe blocked checks as passing.
+
+## Go handoff implementation candidate (post-main 7b91f0b)
+
+- See `docs/handoff-implementation.md` for new 00003 migrations, Go handlers,
+  incident workflow rights, limitations, testing gates and the new OpenAPI file.
+- Do not edit sqlc-generated files to accommodate `resolved_at`: resolution times
+  live in a separate table to keep generated incident row shapes compatible.
+- Run both migrations before starting the updated Go backend. Old jobs are
+  intentionally not backfilled. The worker context endpoint uses immutable snapshots.
+- Review newly added Go tests and run with the pinned Go 1.27.3 toolchain.
