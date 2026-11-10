@@ -26,7 +26,14 @@ Instead the optional `ai-kev` container runs **Kev-0.8B**, a Jev-style *differen
 
 The optional `ai-llm` container runs **Qwen2.5-1.5B-Instruct Q4_K_M GGUF** with `llama.cpp` and a single CPU thread. The LLM produces a brief (summary, facts, unknowns, questions). `suggested_steps` are taken **only from** `docs/playbooks.md` (which is currently a draft awaiting domain-expert approval); the model cannot choose arbitrary playbook steps or run tools. `AI_MODE=models` is the default. A failed model call makes the job `failed`, never `completed` with a fake result.
 
-**No model weights are bundled** in the ZIP: both download at separate setup stages, and you must check licensing, provenance, SHA hashes and CPU performance. Start with `AI_MODE=fake`, then enable models. The `ai-kev` Dockerfile downloads unpinned upstream *source* at build time (model weights use the `@v1.0` tag); pin the source commit for a reproducible production build.
+**No model weights are bundled**: models download at a separate explicit setup stage.
+Check licensing, provenance, SHA hashes and CPU performance. Use `AI_MODE=fake` only
+against disposable integration data, then enable real models. The Kev Dockerfile now
+pins upstream source, uv and hashed CPU-only dependencies. Model revisions, tokenizer/
+configuration hashes and Kev's separate Qwen base are pinned in
+`deploy/ai-vm/models.json`. Neither an image build nor metadata pins validate inference.
+The [AI VM deployment guide](azure-ai-deployment.md) describes the standalone Ubuntu
+26.04/two-VM candidate; the commands below remain the **single-host local** workflow.
 
 ## Local setup (Linux/WSL2, Docker Desktop)
 
@@ -75,12 +82,27 @@ This starts Caddy at `http://127.0.0.1:8088`. `GET /ai/healthz` should return `{
 ## Enabling the actual models
 
 1. Stop the worker to avoid marking jobs `failed` while models are still loading: `docker compose ... stop ai-worker`.
-2. Download the official Qwen GGUF file `qwen2.5-1.5b-instruct-q4_k_m.gguf` from `Qwen/Qwen2.5-1.5B-Instruct-GGUF` into `.local/models/`. The Qwen model card and file checksums should be validated before deployment. This Q4 model weighs roughly 1.1 GB on disk.
-3. Build the optional Kev service (this pulls substantial Torch packages). Model download occurs on first server startup. Container may require ~3–4 GB RAM or more, pending measurement.
+2. Review the model cards and `deploy/ai-vm/models.json`. Create a non-secret local
+   config from `deploy/ai-vm/config.env.example` only if your selected config does not
+   exist, and set `AI_MODEL_DIR` to the **absolute** path of `.local/models/`. Create that
+   directory, then run `bash deploy/ai-vm/prepare-models.sh --config YOUR_LOCAL_CONFIG`.
+   This populates `gguf/` and the exact-revision `hf/hub/` cache under `.local/models/`,
+   verifying hashes for Qwen GGUF, Kev and Kev's Qwen base. Requires Bash, curl, jq and
+   standard Linux tools, not host Python. Downloads total roughly 3 GB.
+3. Build the optional Kev service (this installs substantial CPU-only Torch packages,
+   **not weights**). Both models mount the prepared directory read-only. Kev starts
+   offline, so an empty cache cannot be repaired by restarting it. The former Docker
+   `kev-cache` volume is no longer used; existing volumes/files are not deleted or
+   automatically migrated. Retain them until reviewed manually. Peak RAM remains to
+   be measured; local 4 GiB Kev limits may need adjustment after real-model tests.
 4. Start models with `docker compose -f compose.yaml -f compose.dev.yaml -f compose.ai.yaml --profile ai-models up -d ai-kev ai-llm`. Wait for actual health/readiness; do not rely on a running container alone.
 5. Set `AI_MODE=models`, then recreate the AI worker (`... up -d --force-recreate ai-worker`). **Failed jobs are terminal** in this version: create a new test incident to exercise the real workflow. Never silently reset production jobs.
 
 Both model services are on the private `ai-inference` Docker network, **not exposed on host/public ports**. Python worker uses local URLs inside Docker. Thread and CPU limits are conservative starting values, **not proof** that your Azure VM remains responsive; benchmark CPU, RAM, warm latency and API responsiveness on the actual VM (especially with 8 GB RAM). Consider running Kev and LLM sequentially or choosing a smaller decision checkpoint if needed.
+
+The overlay enables non-mutating Go/model probes before each worker claim, including
+after restarts. This avoids consuming queued work while a model is cold/offline; it
+cannot prevent a dependency failing during inference. Failed jobs remain terminal.
 
 ## Authorization, secrets and database boundaries
 

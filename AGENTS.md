@@ -28,6 +28,15 @@
   The optional AI overlay enables AI paths via a baked Caddy snippet selected by
   `AI_HANDLER`, preserving the same SPA/security handlers. Rebuild the web image after
   frontend/Caddy changes; Compose does not bind-mount source or the Caddyfile.
+- AI-VM post-install tooling is in `deploy/ai-vm/`; see `docs/azure-ai-deployment.md`.
+  Its Compose is standalone, not an overlay for the local application stack. Bootstrap
+  targets Ubuntu 26.04 amd64 and never provisions Azure, databases or migrations.
+  Model preparation is explicit; ordinary startup never builds or downloads weights.
+  Cross-VM TLS/NSGs and application-side provisioning are required separately. Keep
+  runtime secrets outside the checkout and never copy application admin/migrator secrets
+  to the AI VM. `make ai-vm-test` needs ShellCheck; `make ai-vm-test-bootstrap` mocks
+  privileged actions in disposable Ubuntu; `make ai-vm-smoke` uses real services/TLS but
+  synthetic model responses. None validates real inference or an Azure reboot.
 - Business rules are in `docs/domain-specification.md`. `docs/playbooks.md` and
   `docs/demo-incidents.csv` supply domain reference material and labelled scenarios,
   not an implemented incident importer/seed or measured AI evaluation results.

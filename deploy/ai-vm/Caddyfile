@@ -1,0 +1,15 @@
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:8443 {
+	tls /run/secrets/api.crt /run/secrets/api.key
+	header {
+		X-Content-Type-Options nosniff
+		Cache-Control no-store
+	}
+	# The application gateway strips /ai. No frontend or internal Go routes here.
+	reverse_proxy ai-api:8090
+}

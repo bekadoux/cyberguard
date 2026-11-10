@@ -1,0 +1,16 @@
+# CPU serving dependencies from Kev 2074cc44256200bb37540103fa4572901faa10f3.
+# Keep in sync with that commit's pyproject.toml, including its serve extra.
+# uv pip compile --python-version 3.13 --python-platform x86_64-manylinux_2_28 \
+#   --torch-backend cpu --generate-hashes --emit-index-url \
+#   docker/ai/requirements-kev.in -o docker/ai/requirements-kev.lock
+accelerate>=1.15.0
+datasets>=3.0
+numpy>=2.5.3
+peft>=0.21
+pydantic>=2.9
+scikit-learn>=1.9.1
+torch>=2.6,<2.9
+transformers>=5.17,<6
+fastapi>=0.115
+typesafe-sdk>=0.6.0
+uvicorn>=0.30

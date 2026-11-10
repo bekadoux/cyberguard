@@ -6,6 +6,9 @@ AI/deployment boundaries. Four long-running containers provide Caddy with the co
 React frontend, Go and two separate PostgreSQL instances. No Python service or
 assessment queue is implied by a healthy container.
 
+For the separate Ubuntu 26.04 AI VM, use [AI VM post-install deployment](azure-ai-deployment.md).
+Its standalone Compose/private TLS configuration is not this development override.
+
 ## Prerequisites
 
 - Linux containers, a working Docker daemon and Docker Compose v2+.

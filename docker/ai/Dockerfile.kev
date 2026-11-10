@@ -1,12 +1,20 @@
-# Optional CPU inference adapter. Large PyTorch dependencies are not embedded in
-# the slim FastAPI service. Build requires network, verify upstream commits.
-FROM python:3.13-slim
+# Optional CPU-only decision service. No model weights are downloaded at build time.
+FROM python:3.13.18-slim-bookworm@sha256:a5a7017efc5969e00ae2b91c8eb0631049a569652aa4ffc4501769049ae45c72
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir uv==0.13.7
 WORKDIR /opt/kev
-RUN git clone --depth 1 https://github.com/jaredpalmer/kev.git . && uv sync --extra serve
+RUN git init . && git remote add origin https://github.com/jaredpalmer/kev.git \
+  && git fetch --depth 1 origin 2074cc44256200bb37540103fa4572901faa10f3 \
+  && git checkout --detach FETCH_HEAD && rm -rf .git
+COPY docker/ai/requirements-kev.lock /opt/requirements-kev.lock
+RUN uv venv --python /usr/local/bin/python /opt/kev/.venv \
+  && uv pip sync --python /opt/kev/.venv/bin/python --torch-backend cpu \
+       --only-binary :all: --require-hashes /opt/requirements-kev.lock \
+  && /opt/kev/.venv/bin/python -c 'import torch; assert torch.version.cuda is None; assert torch.version.hip is None' \
+  && useradd --uid 10002 --create-home ai
 ENV HF_HOME=/model-cache/hf OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
-  OPENBLAS_NUM_THREADS=1 KEV_DTYPE=fp32
+  OPENBLAS_NUM_THREADS=1 KEV_DTYPE=fp32 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+USER 10002
 EXPOSE 8009
-CMD ["uv", "run", "--extra", "serve", "python", "-m", "kev.serve", "--run", "jaredpalmer/kev-0.8b@v1.0", "--device", "cpu", "--host", "0.0.0.0", "--port", "8009"]
+CMD ["/opt/kev/.venv/bin/python", "-m", "kev.serve", "--run", "jaredpalmer/kev-0.8b@bf75a6a8848ea6960ff2ed108d9ed44c2941174f", "--device", "cpu", "--host", "0.0.0.0", "--port", "8009"]

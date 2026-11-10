@@ -57,6 +57,7 @@ services:
       AI_POLL_SECONDS: '3'
       AI_LEASE_SECONDS: '900'
       AI_MAX_ATTEMPTS: '3'
+      AI_CHECK_DEPENDENCIES: 'true'
     secrets: [ai_runtime_url, ai_internal_token]
     read_only: true
     cap_drop: [ALL]
@@ -80,7 +81,7 @@ services:
       - -m
       - kev.serve
       - --run
-      - jaredpalmer/kev-0.8b@v1.0
+      - jaredpalmer/kev-0.8b@bf75a6a8848ea6960ff2ed108d9ed44c2941174f
       - --device
       - cpu
       - --host
@@ -91,20 +92,23 @@ services:
     mem_limit: 4g
     pids_limit: 256
     environment:
-      HF_HOME: /model-cache/hf
+      HF_HOME: /models/hf
       HF_HUB_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
       OMP_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'
       KEV_DTYPE: fp32
-    volumes: [kev-cache:/model-cache]
+    volumes: [./.local/models:/models:ro]
     networks: [ai-inference]
     restart: unless-stopped
   ai-llm:
     profiles: [ai-models]
-    image: ghcr.io/ggml-org/llama.cpp:server
-    command: [--model, /models/qwen2.5-1.5b-instruct-q4_k_m.gguf, --host, 0.0.0.0,
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:30300ecfcb7ef05dc9413867dd7d03c9ce66eef00fec3576a6a15e9bf2b0bae7
+    command: [--model, /models/gguf/qwen2.5-1.5b-instruct-q4_k_m.gguf,
+              --alias, qwen2.5-1.5b-instruct, --host, 0.0.0.0,
               --port, '8081', --threads, '1', --threads-batch, '1',
-              --parallel, '1', --ctx-size, '2048', --no-webui]
+              --parallel, '1', --ctx-size, '2048', --no-webui, --offline,
+              --n-gpu-layers, '0', --no-agent, --log-disable]
     volumes: [./.local/models:/models:ro]
     cpus: 1.0
     mem_limit: 2g
@@ -131,8 +135,6 @@ services:
 networks:
   ai-inference:
     internal: true
-volumes:
-  kev-cache:
 secrets:
   ai_internal_token:
     file: ${DOCKER_SECRETS_DIR:-./.local/docker-secrets}/ai_internal_token

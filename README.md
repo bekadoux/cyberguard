@@ -57,3 +57,11 @@ read-only staff assessment display. Real-model and Azure acceptance remain separ
 
 See [`docs/ai-backend.md`](docs/ai-backend.md) for the schema migration, separate worker
 database role, explicit fake fixture, model setup, and approvals required before merging.
+
+## AI VM post-install deployment
+
+[`docs/azure-ai-deployment.md`](docs/azure-ai-deployment.md) covers Ubuntu 26.04 host
+bootstrap, a standalone CPU-only AI Compose stack, verified model preparation and
+private TLS prerequisites. Scripts live in `deploy/ai-vm/`; they do not create Azure
+resources or provision the application VM/databases. Host preparation can run before
+the second VM exists. Fixture checks do not establish real-model or Azure acceptance.

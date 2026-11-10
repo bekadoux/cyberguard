@@ -1,0 +1,163 @@
+# Standalone AI VM, NOT an overlay for the local application stack.
+x-runtime: &runtime
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  stop_grace_period: 30s
+  logging:
+    driver: local
+    options: {max-size: 10m, max-file: '3'}
+
+x-python: &python
+  <<: *runtime
+  image: ${AI_IMAGE:-cyberguard-ai:azure}
+  build:
+    context: .
+    dockerfile: backend/python/Dockerfile
+  group_add: ['${AI_SECRET_GID:-1000}']
+  environment: &python-env
+    AI_DATABASE_URL_FILE: /run/secrets/ai_runtime_url
+    AI_INTERNAL_TOKEN_FILE: /run/secrets/ai_internal_token
+    AI_GO_URL: ${AI_GO_URL:-https://app.internal:8443}
+    AI_GO_CA_FILE: /run/certs/ca.crt
+    AI_REQUIRE_TLS: 'true'
+    AI_MODE: models
+    AI_KEV_URL: http://ai-kev:8009
+    AI_LLM_URL: http://ai-llm:8081
+    AI_PLAYBOOKS_PATH: /app/docs/playbooks.md
+  secrets: [ai_runtime_url, ai_internal_token]
+  volumes:
+    - type: bind
+      source: ${AI_SECRETS_DIR:-/etc/cyberguard/ai/secrets}/ca.crt
+      target: /run/certs/ca.crt
+      read_only: true
+      bind: {create_host_path: false}
+  tmpfs: ['/tmp:size=16m,mode=1777']
+  mem_limit: 384m
+  cpus: 0.5
+  pids_limit: 64
+  networks: [services]
+
+services:
+  ai-gateway:
+    <<: *runtime
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    user: '10001:10001'
+    group_add: ['${AI_SECRET_GID:-1000}']
+    command: [caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
+    ports: ['${AI_BIND_IP:-127.0.0.1}:${AI_PORT:-8443}:8443']
+    volumes:
+      - type: bind
+        source: ./deploy/ai-vm/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+        bind: {create_host_path: false}
+    secrets:
+      - source: api_cert
+        target: api.crt
+      - source: api_key
+        target: api.key
+    tmpfs: ['/data:size=1m,mode=1777', '/config:size=1m,mode=1777', '/tmp:size=8m,mode=1777']
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    networks: [services]
+    depends_on:
+      ai-api: {condition: service_healthy}
+  ai-api:
+    <<: *python
+    command: [uvicorn, cyberguard_ai.api:app, --host, 0.0.0.0, --port, '8090', --workers, '1', --no-access-log]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/readyz', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  ai-worker:
+    <<: *python
+    command: [python, -m, cyberguard_ai.worker]
+    environment:
+      <<: *python-env
+      AI_CHECK_DEPENDENCIES: 'true'
+      AI_POLL_SECONDS: '3'
+      AI_LEASE_SECONDS: '900'
+      AI_MAX_ATTEMPTS: '3'
+      AI_REQUEST_TIMEOUT: '180'
+    networks: [services, inference]
+    depends_on:
+      ai-kev: {condition: service_healthy}
+      ai-llm: {condition: service_healthy}
+  ai-kev:
+    <<: *runtime
+    image: ${AI_KEV_IMAGE:-cyberguard-kev:azure}
+    build:
+      context: .
+      dockerfile: docker/ai/Dockerfile.kev
+    command: [/opt/kev/.venv/bin/python, -m, kev.serve, --run, 'jaredpalmer/kev-0.8b@bf75a6a8848ea6960ff2ed108d9ed44c2941174f', --device, cpu, --host, 0.0.0.0, --port, '8009']
+    environment:
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      DO_NOT_TRACK: '1'
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '2'
+      KEV_DTYPE: fp32
+      KEV_BACKEND: torch
+      KEV_PREFIX_CACHE: '0'
+    volumes:
+      - type: bind
+        source: ${AI_MODEL_DIR:-/var/lib/cyberguard-ai/models}
+        target: /models
+        read_only: true
+        bind: {create_host_path: false}
+    tmpfs: ['/tmp:size=128m,mode=1777']
+    mem_limit: 8g
+    cpus: 2.0
+    pids_limit: 128
+    networks: [inference]
+    healthcheck:
+      test: [CMD, /opt/kev/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8009/v1/models', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 300s
+  ai-llm:
+    <<: *runtime
+    # llama.cpp b12211, source 7d7f0287530bc8981690f361d8c1627dbae1c99a.
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:30300ecfcb7ef05dc9413867dd7d03c9ce66eef00fec3576a6a15e9bf2b0bae7
+    user: '10002:10002'
+    command: [--model, /models/gguf/qwen2.5-1.5b-instruct-q4_k_m.gguf, --alias, qwen2.5-1.5b-instruct, --host, 0.0.0.0, --port, '8081', --threads, '2', --threads-batch, '2', --parallel, '1', --ctx-size, '2048', --no-webui, --log-disable, --offline, --n-gpu-layers, '0', --no-agent]
+    volumes:
+      - type: bind
+        source: ${AI_MODEL_DIR:-/var/lib/cyberguard-ai/models}
+        target: /models
+        read_only: true
+        bind: {create_host_path: false}
+    tmpfs: ['/tmp:size=16m,mode=1777']
+    mem_limit: 4g
+    cpus: 2.0
+    pids_limit: 128
+    networks: [inference]
+    healthcheck:
+      test: [CMD, curl, -fsS, --max-time, '3', 'http://127.0.0.1:8081/health']
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 120s
+
+networks:
+  services:
+  inference:
+    internal: true
+
+secrets:
+  ai_runtime_url:
+    file: ${AI_SECRETS_DIR:-/etc/cyberguard/ai/secrets}/ai_runtime_url
+  ai_internal_token:
+    file: ${AI_SECRETS_DIR:-/etc/cyberguard/ai/secrets}/ai_internal_token
+  api_cert:
+    file: ${AI_SECRETS_DIR:-/etc/cyberguard/ai/secrets}/api.crt
+  api_key:
+    file: ${AI_SECRETS_DIR:-/etc/cyberguard/ai/secrets}/api.key

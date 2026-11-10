@@ -6,6 +6,7 @@ SQLC_VERSION := v1.31.1
 COMPOSE ?= docker compose -f compose.yaml -f compose.dev.yaml
 DOCKER_GO_IMAGE ?= cyberguard-go:local
 DOCKER_WEB_IMAGE ?= cyberguard-web:local
+AI_VM_CONFIG ?= /etc/cyberguard/ai/config.env
 
 .DEFAULT_GOAL := help
 .PHONY: help go-run go-build go-fmt go-fmt-check go-test go-test-race go-vet go-vuln go-check go-test-integration
@@ -20,6 +21,8 @@ DOCKER_WEB_IMAGE ?= cyberguard-web:local
 .PHONY: docker-build-go docker-build-web frontend-test-packaged
 .PHONY: frontend-install frontend-dev frontend-check frontend-test-e2e frontend-test-e2e-live
 .PHONY: frontend-test-incidents-live
+.PHONY: ai-vm-config ai-vm-build ai-vm-models ai-vm-up ai-vm-check ai-vm-status ai-vm-logs ai-vm-stop
+.PHONY: ai-vm-test ai-vm-test-bootstrap ai-vm-smoke
 
 help:
 	@printf '%s\n' \
@@ -70,6 +73,18 @@ help:
 	  'docker-test-secrets Test local credential generation (requires openssl)' \
 	  'docker-test-readiness Test PostgreSQL healthchecks during first initialization' \
 	  'docker-test-web     Test packaged HTTP assertions with synthetic responses'
+	@printf '%s\n' \
+	  'ai-vm-config       Validate the standalone AI VM Compose configuration' \
+	  'ai-vm-build        Explicitly build/pull AI VM runtime images (no weights)' \
+	  'ai-vm-models       Explicitly download and verify pinned model artifacts' \
+	  'ai-vm-up           Check prerequisites and start the prepared AI VM stack' \
+	  'ai-vm-check        Probe AI VM storage/services/TLS without claiming jobs' \
+	  'ai-vm-status       Show standalone AI VM services' \
+	  'ai-vm-logs         Show bounded AI VM service logs' \
+	  'ai-vm-stop         Stop AI VM services, retaining all models and secrets' \
+	  'ai-vm-test         Run non-privileged deployment safety tests (ShellCheck)' \
+	  'ai-vm-test-bootstrap Test bootstrap in disposable Ubuntu with mocked apt/systemd' \
+	  'ai-vm-smoke        Run disposable real-service deployment checks with synthetic models'
 	@printf '%s\n' 'frontend-test-packaged Run real browser flows through disposable Caddy (explicit E2E settings)'
 
 go-run:
@@ -193,6 +208,24 @@ docker-caddy-check:
 
 docker-smoke: docker-build
 	bash docker/smoke.sh
+
+ai-vm-config ai-vm-build ai-vm-up ai-vm-check ai-vm-status ai-vm-logs ai-vm-stop:
+	bash deploy/ai-vm/manage.sh --config "$(AI_VM_CONFIG)" "$(@:ai-vm-%=%)"
+
+ai-vm-models:
+	bash deploy/ai-vm/prepare-models.sh --config "$(AI_VM_CONFIG)"
+
+ai-vm-test:
+	bash deploy/ai-vm/test.sh
+
+ai-vm-test-bootstrap:
+	docker run --rm --network none --volume "$(CURDIR):/repo:ro" \
+	  ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c \
+	  bash /repo/deploy/ai-vm/tests/bootstrap.sh
+
+ai-vm-smoke: docker-build-go
+	docker build -f backend/python/Dockerfile -t cyberguard-ai:azure .
+	bash deploy/ai-vm/smoke.sh
 
 frontend-install:
 	cd frontend && npm ci
