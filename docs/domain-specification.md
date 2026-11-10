@@ -41,7 +41,10 @@ Rules:
 
 ### What the reporter sees
 
-The reporter is the person who submitted the incident, whatever their role. On their own incident they see:
+Ordinary employee reporters see the restricted view below. Analysts and admins
+retain their normal professional visibility (including severity, internal comments
+and AI suggestions), including on incidents they submitted themselves. Authorship
+does not grant an unassigned analyst permission to change confirmed fields.
 
 | Information | Visible to the reporter |
 | --- | --- |
@@ -161,8 +164,9 @@ The Employee ⊂ Analyst ⊂ Admin hierarchy from the plan, broken down by actio
 | See own incidents | ✓ | ✓ | ✓ |
 | See all company incidents | — | ✓ | ✓ |
 | Add information / answer a question | own | ✓ | ✓ |
-| Read and write public comments | own | ✓ | ✓ |
-| Read and write internal comments | — | ✓ | ✓ |
+| Read public comments | own | ✓ | ✓ |
+| Write public comments | own | assigned to self | ✓ |
+| Read and write internal comments | — | ✓ (including unassigned) | ✓ |
 | See AI suggestions and brief | — | ✓ | ✓ |
 | Take an incident (assign to self) | — | ✓ | ✓ |
 | Assign or reassign someone else | — | — | ✓ |

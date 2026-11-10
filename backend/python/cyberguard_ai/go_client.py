@@ -33,8 +33,8 @@ async def authorize_analyst(
 ) -> int:
     """Go remains the sole session/incident authorization authority.
 
-    Both checks are repeated on every read. Reporters cannot read AI output on
-    their own incidents, including analysts and admins. Malformed Go data fails closed.
+    Both checks are repeated on every read. Analysts/admins retain professional
+    access on their own reports. Employees are denied; malformed Go data fails closed.
     """
     if not cookie:
         return 401
@@ -46,7 +46,7 @@ async def authorize_analyst(
         if me.status_code != 200:
             return 503
         user = me.json()['user']
-        actor_id = UUID(user['id'])
+        UUID(user['id'])
         role = user['role']
         if role not in ('analyst', 'admin'):
             return 403
@@ -57,8 +57,7 @@ async def authorize_analyst(
             incident = detail.json()['incident']
             if UUID(incident['id']) != incident_id:
                 return 503
-            if UUID(incident['reporter_id']) == actor_id:
-                return 403
+            UUID(incident['reporter_id'])
             return 200
         if detail.status_code == 401:
             return 401

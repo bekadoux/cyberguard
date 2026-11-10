@@ -138,15 +138,15 @@ filters clears old results and restarts pagination; obsolete reads are aborted/i
 Unknown/duplicate/empty URL filters are rejected visibly, not silently widened. Failed
 pagination preserves loaded rows and permits retry. Counts describe loaded rows, not
 global totals. No search, severity filtering, ordering controls or staff-only-own filter
-are implied. Severity is never displayed on the reporter's own rows, including staff.
+are implied. Staff retain severity visibility on their own rows; employees do not see it.
 
 ### Incident detail contract
 
 `/incidents/:id` renders original text, affected system, reporter-facing resolution,
 category, analyst identity and timestamps. Null values are explicit, not invented
 assessments or assignment. Analyst accounts missing from identity retain their UUID and
-an unavailable-account label. Severity is shown only to staff reading another person's
-report and only when returned by Go. Missing, malformed, non-visible and archived IDs
+an unavailable-account label. Severity is shown to staff, including on their own reports,
+and only when returned by Go. Missing, malformed, non-visible and archived IDs
 share one concealed not-found view. No partial report is shown on dependency failure.
 Descriptions/resolutions are plain React text with whitespace preserved, never HTML.
 Back navigation retains validated list filters without forwarding them to the detail API.
@@ -177,10 +177,10 @@ submission guidance does not promise that AI processing is running.
 
 ### Stored AI assessment contract
 
-Analyst/admin detail views of another person's report request
-`/ai/incidents/:id/assessment` with the existing HttpOnly session. Employees and staff
-reporters never mount/fetch this panel; Python independently enforces the same ownership
-rule. The `/api` and `/ai` clients share cookie, no-store, timeout, cancellation and
+Analyst/admin detail views, including their own reports, request
+`/ai/incidents/:id/assessment` with the existing HttpOnly session. Employees never
+mount/fetch this panel. Python independently verifies current role and incident access
+on every read. The `/api` and `/ai` clients share cookie, no-store, timeout, cancellation and
 session-generation safeguards, but retain distinct path prefixes.
 
 Queued/running/completed/failed job states remain separate from incident business
@@ -442,6 +442,10 @@ documented extra Firefox error-state scanner limitation remain outside this acce
 
 ### AI integration follow-up — 10 November 2026
 
+Historical evidence below used the earlier staff-reporter restriction. The current
+contract now permits staff own-report severity and AI reads, with matching browser,
+Python and live HTTP regressions; employee denial and session isolation remain intact.
+
 The server-side reporter restriction was fixed on `main` first, then merged into
 `feat/frontend`. All **23** Python tests and scoped Ruff/Pyright checks passed. Go's
 unit/HTTP suite also passed after the merge; no Go/SQL files were changed in this
@@ -470,3 +474,17 @@ removed by their owner script. Real model inference/evaluation, concurrent claim
 failure cases, the full Go race/integration/generated-query checks and production
 deployment are not claimed by this follow-up. The existing upstream Python test
 deprecation warning and extra Firefox error-state scanner limitation remain documented.
+
+### Main/AI deployment integration — 10 November 2026
+
+Analysts/admins retain severity and assessment access on their own reports; employee
+detail views never mount or fetch the assessment panel. Python independently checks
+Go's current account and incident authorization on each read, including validated UUIDs.
+The current `make frontend-check` passed **106 unit/component tests**, types, lint,
+formatting and build. `make frontend-test-e2e` passed all **148 Firefox/Chromium tests**.
+The combined disposable Docker smoke with AI, frontend and Go integration flags enabled
+also passed: **148 packaged-asset regressions**, **4 packaged shell/live tests**, and
+the full Go/PostgreSQL race integration suite. Native HTTP/live-browser checks retained
+employee denial and verified staff own-report stored assessments in explicit fake mode.
+See [deployment validation](azure-ai-deployment.md#main-integration-validation--10-november-2026)
+for the disposable real-service checks and their remaining acceptance limits.

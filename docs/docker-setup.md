@@ -269,10 +269,10 @@ Credentials/cookies remain inside a discarded-output subprocess. It never uses o
 dev data or lowers the login limit; one throttled login may wait for `Retry-After`.
 `DOCKER_TEST_AI=1` provisions separate AI secrets/role in that disposable project,
 starts the API and worker in `AI_MODE=fake`, and verifies trigger enqueueing, completed
-fixture provenance, staff access and employee/staff-reporter denial. The AI API readiness
+fixture provenance, staff access including own reports, and employee denial. The AI API readiness
 probe waits for its DB connection. No model profiles/downloads are enabled. Combined
 with the frontend flag, live browsers verify the visible fixture warning and staff
-reporter restrictions through actual Caddy requests. Normal development services,
+staff own-report access and employee restrictions through actual Caddy requests. Normal development services,
 credentials and models are not used. Without this flag, the original four-service
 smoke remains AI-disabled (new DB inserts may still queue jobs after migration).
 All optional flags can be combined. Without the browser flag, smoke remains an

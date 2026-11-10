@@ -31,6 +31,7 @@ def main() -> None:
                 json={
                     'title': 'DISPOSABLE deployment fixture',
                     'description': 'Synthetic transport/worker check, not AI evaluation.',
+                    'affected_system': 'original fixture system',
                 },
             )
             assert response.status_code == 201, f'create_status_{response.status_code}'
@@ -42,6 +43,18 @@ def main() -> None:
             )
             assert response.status_code == 403, f'employee_status_{response.status_code}'
             print(incident)
+        elif sys.argv[1] == 'revise':
+            base = f'https://app-tls:8443/incidents/{sys.argv[2]}'
+            response = client.post(f'{base}/claim', json={})
+            assert response.status_code == 200, 'claim_failed'
+            response = client.patch(
+                f'{base}/fields', json={'affected_system': 'revised fixture system'}
+            )
+            assert response.status_code == 200, 'revision_failed'
+            assert (
+                client.get(base).json()['incident']['affected_system']
+                == 'revised fixture system'
+            )
         else:
             response = client.get(
                 f'https://ai-gateway:8443/incidents/{sys.argv[2]}/assessment',
@@ -60,7 +73,7 @@ def main() -> None:
 if __name__ == '__main__':
     try:
         main()
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - Never print credential-bearing exceptions.
         print(
             'Deployment client check failed: '
             + (str(error) if isinstance(error, AssertionError) else type(error).__name__)

@@ -40,20 +40,15 @@ Source: [domain specification](domain-specification.md).
   archived IDs use the same 404. Archived rows are excluded for all roles in this
   increment; future privileged archive access requires an explicit contract.
 
-### Visibility and open interpretation
+### Visibility (updated by the Go handoff and confirmed own-report policy)
 
-Reporters see category, assigned analyst identity and the full reporter-facing
-resolution note, but no severity/internal/AI fields. A professional view includes
-severity (nullable) for an analyst/admin reading someone else's report. No severity
-filter/sort is supported, including for staff, so filtering cannot expose a reporter's
-hidden priority. Do not return persistence models directly.
-
-The current domain document says the reporter view applies regardless of role, while
-the matrix grants professional capabilities to analysts/admins. This implementation
-uses the **stricter reporter projection for own reports**, including an analyst/admin's
-own report, pending clarification of dual-role precedence. Do not silently expand
-that access. Comment write permissions for unassigned analysts also need clarification
-before comment implementation; they do not block this read/create increment.
+Employee reporters see category, assigned analyst identity and the full reporter-facing
+resolution note, but no severity/internal/AI fields. Analysts/admins retain professional
+severity and AI visibility even when they submitted the incident. Python still checks
+Go's current account and incident authorization on every assessment read. No severity
+filter/sort is supported in the current frontend. Do not return persistence models
+directly. The Go handoff implements comment/workflow permissions separately; see
+`docs/handoff-implementation.md`. The earlier reporter-first interpretation is superseded.
 
 List is a summary: it omits long description/resolution text and exposes the assigned
 analyst UUID only. Detail includes `assigned_analyst: {id, username}`; username is null
@@ -147,7 +142,7 @@ module-only unused OpenPGP advisory remains; govulncheck found no affected calle
 
 1. Architect reviews migration/role grants, the pre-operation session middleware,
    pagination and public DTOs; updates deployment to run both migration targets.
-2. Domain expert confirms dual-role view precedence before expanding own-report access.
+2. Keep Go/Python/frontend tests aligned with professional own-report visibility.
 3. Go developer and AI specialist agree Issue #3; add atomic incident/job transaction
    before accepting the full create-and-enqueue workflow.
 4. Implement assignment/classification, history, comments and lifecycle in later

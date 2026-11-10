@@ -121,7 +121,7 @@ test('rejects unknown filters instead of silently requesting an unrestricted que
   await expect(page.getByRole('heading', { name: 'No reports yet' })).toBeVisible();
 });
 
-test('shows staff a read-only queue with the stricter own-report projection', async ({
+test('shows staff professional severity on their own reports in the read-only queue', async ({
   page,
 }) => {
   await identity(page, analyst);
@@ -139,8 +139,8 @@ test('shows staff a read-only queue with the stricter own-report projection', as
   await page.goto('/incidents');
   await expect(page.getByRole('heading', { name: 'Incident queue' })).toBeVisible();
   await expect(page.getByText('High', { exact: true })).toBeVisible();
-  await expect(page.getByText('Reporter view', { exact: true })).toBeVisible();
-  await expect(page.getByText('Critical', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Reporter view', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Critical', { exact: true })).toBeVisible();
   await expect(
     page.getByRole('button', { name: /assign|classify|resolve/i }),
   ).toHaveCount(0);
@@ -310,8 +310,8 @@ for (const role of ['analyst', 'admin'] as const) {
     ).toBeVisible();
     await page.goto(`/incidents/${second.id}`);
     await expect(page.getByRole('heading', { name: first.title })).toBeVisible();
-    await expect(page.getByText('Severity', { exact: true })).toHaveCount(0);
-    await expect(page.getByText('Critical', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Severity', { exact: true })).toBeVisible();
+    await expect(page.getByText('Critical', { exact: true })).toBeVisible();
   });
 }
 

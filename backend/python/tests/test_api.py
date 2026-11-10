@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import httpx
@@ -38,7 +38,7 @@ class FakeStore(Storage):
         return {
             'assessment': {'is_fake': True},
             'source_kind': 'fake',
-            'created_at': datetime(2026, 11, 9, tzinfo=timezone.utc),
+            'created_at': datetime(2026, 11, 9, tzinfo=UTC),
         }
 
     def ping(self):
@@ -81,8 +81,8 @@ def test_status_and_json_serialization(monkeypatch):
         assert client.get('/readyz').json() == {'status': 'ready'}
 
 
-@pytest.mark.parametrize('role', ['analyst', 'admin'])
-def test_own_report_is_forbidden_before_storage_access(monkeypatch, role):
+@pytest.mark.parametrize('role', ['employee', 'analyst', 'admin'])
+def test_own_report_uses_current_professional_role(monkeypatch, role):
     """Exercise the real authorization function, not a stubbed allow/deny result."""
     actor = '33333333-3333-4333-8333-333333333333'
 
@@ -110,5 +110,10 @@ def test_own_report_is_forbidden_before_storage_access(monkeypatch, role):
         response = client.get(
             f'/incidents/{ID}/assessment', headers={'Cookie': 'synthetic-session'}
         )
-    assert response.status_code == 403
-    assert not storage.visited
+    if role == 'employee':
+        assert response.status_code == 403
+        assert not storage.visited
+    else:
+        assert response.status_code == 200
+        assert response.headers['cache-control'] == 'no-store'
+        assert storage.visited == [ID, ID]

@@ -14,7 +14,7 @@ import (
 const createIncident = `-- name: CreateIncident :one
 INSERT INTO incidents (reporter_id, title, description, affected_system)
 VALUES ($1, $2, $3, $4)
-RETURNING id, reporter_id, title, description, affected_system, status, category, severity, assigned_analyst_id, resolution_note, archived_at, archive_reason, created_at, updated_at
+RETURNING id, reporter_id, title, description, affected_system, status, category, severity, assigned_analyst_id, resolution_note, archived_at, archive_reason, created_at, updated_at, context_revision
 `
 
 type CreateIncidentParams struct {
@@ -47,12 +47,13 @@ func (q *Queries) CreateIncident(ctx context.Context, arg CreateIncidentParams) 
 		&i.ArchiveReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ContextRevision,
 	)
 	return i, err
 }
 
 const getVisibleIncident = `-- name: GetVisibleIncident :one
-SELECT id, reporter_id, title, description, affected_system, status, category, severity, assigned_analyst_id, resolution_note, archived_at, archive_reason, created_at, updated_at FROM incidents
+SELECT id, reporter_id, title, description, affected_system, status, category, severity, assigned_analyst_id, resolution_note, archived_at, archive_reason, created_at, updated_at, context_revision FROM incidents
 WHERE id = $1
   AND archived_at IS NULL
   AND (reporter_id = $2 OR $3::boolean)
@@ -82,6 +83,7 @@ func (q *Queries) GetVisibleIncident(ctx context.Context, arg GetVisibleIncident
 		&i.ArchiveReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ContextRevision,
 	)
 	return i, err
 }

@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import httpx
 import pytest
-from cyberguard_ai import worker
+from cyberguard_ai import preflight, worker
 from cyberguard_ai.config import Settings
 from cyberguard_ai.db import Storage as DatabaseStorage
 from cyberguard_ai.preflight import dependencies_ready
@@ -119,12 +119,14 @@ def test_worker_does_not_claim_until_dependencies_recover(monkeypatch):
         def __init__(self):
             super().__init__('unused')
 
+        def worker_ready(self) -> bool:
+            return True
+
         def claim(self, attempts: int, lease: int) -> None:
             assert observations[-1] is True
             self.claims += 1
             if self.claims == 2:
                 stop.set()
-            return None
 
     monkeypatch.setattr(worker, 'dependencies_ready', probe)
     storage = Storage()
@@ -135,3 +137,43 @@ def test_worker_does_not_claim_until_dependencies_recover(monkeypatch):
     )
     assert observations == [False, True, False, True]
     assert storage.claims == 2
+
+
+@pytest.mark.parametrize('unavailable', [False, True])
+def test_worker_preserves_queue_until_snapshot_safety_is_ready(monkeypatch, unavailable):
+    stop = asyncio.Event()
+    calls = []
+
+    async def probe(*_args):
+        return True
+
+    class Storage(DatabaseStorage):
+        def __init__(self):
+            super().__init__('unused')
+
+        def worker_ready(self) -> bool:
+            calls.append('readiness')
+            stop.set()
+            if unavailable:
+                raise RuntimeError('missing safety migration')
+            return False
+
+        def claim(self, attempts: int, lease: int) -> None:
+            raise AssertionError('Unsafe queue must not be claimed')
+
+    monkeypatch.setattr(worker, 'dependencies_ready', probe)
+    asyncio.run(worker.worker_loop(settings(check_dependencies=True), Storage(), stop))
+    assert calls == ['readiness']
+
+
+def test_preflight_rejects_pending_legacy_jobs_before_http_probes(monkeypatch):
+    class Storage:
+        def __init__(self, _url):
+            pass
+
+        def worker_ready(self) -> bool:
+            return False
+
+    monkeypatch.setattr(preflight, 'Storage', Storage)
+    monkeypatch.setattr(Settings, 'from_env', classmethod(lambda cls: settings()))
+    assert not asyncio.run(preflight.check())

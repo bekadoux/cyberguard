@@ -8,6 +8,32 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AssessmentJob struct {
+	ID               pgtype.UUID
+	IncidentID       pgtype.UUID
+	Kind             string
+	Status           string
+	IncidentRevision int64
+	AttemptCount     int32
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	StartedAt        pgtype.Timestamptz
+	FinishedAt       pgtype.Timestamptz
+	ErrorCode        pgtype.Text
+	ClaimToken       pgtype.UUID
+	LeaseExpiresAt   pgtype.Timestamptz
+	ContextID        pgtype.UUID
+}
+
+type AssessmentResult struct {
+	ID         pgtype.UUID
+	JobID      pgtype.UUID
+	IncidentID pgtype.UUID
+	Assessment []byte
+	SourceKind string
+	CreatedAt  pgtype.Timestamptz
+}
+
 type Incident struct {
 	ID                pgtype.UUID
 	ReporterID        pgtype.UUID
@@ -23,4 +49,49 @@ type Incident struct {
 	ArchiveReason     pgtype.Text
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
+	ContextRevision   int64
+}
+
+type IncidentAction struct {
+	ID         pgtype.UUID
+	IncidentID pgtype.UUID
+	ActorID    pgtype.UUID
+	Action     string
+	Reason     pgtype.Text
+	Details    []byte
+	CreatedAt  pgtype.Timestamptz
+}
+
+type IncidentComment struct {
+	ID         pgtype.UUID
+	IncidentID pgtype.UUID
+	AuthorID   pgtype.UUID
+	Visibility string
+	Body       string
+	CreatedAt  pgtype.Timestamptz
+}
+
+type IncidentContext struct {
+	ID             pgtype.UUID
+	IncidentID     pgtype.UUID
+	Revision       int64
+	Title          string
+	Description    string
+	AffectedSystem pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+}
+
+type IncidentNotification struct {
+	ID          pgtype.UUID
+	RecipientID pgtype.UUID
+	IncidentID  pgtype.UUID
+	EventType   string
+	Message     string
+	CreatedAt   pgtype.Timestamptz
+	ReadAt      pgtype.Timestamptz
+}
+
+type IncidentResolution struct {
+	IncidentID pgtype.UUID
+	ResolvedAt pgtype.Timestamptz
 }

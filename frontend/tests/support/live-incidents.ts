@@ -12,7 +12,7 @@ export const incidentChecks = [
   'checking employee isolation',
   'checking staff visibility',
   'checking AI assessment',
-  'checking staff reporter restrictions',
+  'checking staff own-report access',
   'signing out',
 ] as const;
 

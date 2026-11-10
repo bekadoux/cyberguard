@@ -21,7 +21,7 @@ async def keep_lease(storage: Storage, claim: Claim, lease: int, stop: asyncio.E
         try:
             await asyncio.wait_for(stop.wait(), timeout=max(10, lease // 3))
             return
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if not await asyncio.to_thread(
                 storage.renew, claim.job_id, claim.claim_token, lease
             ):
@@ -69,7 +69,7 @@ async def execute_claim(
         log.warning('Inference failed: job_id=%s code=%s', claim.job_id, code)
         await asyncio.to_thread(storage.fail, claim.job_id, claim.claim_token, code)
         return False
-    except Exception:
+    except Exception:  # noqa: BLE001 - Isolate jobs without logging sensitive exceptions.
         # Do not log incident body, secrets, model output or exception details.
         log.error('Unexpected AI job failure: job_id=%s', claim.job_id)
         with suppress(Exception):
@@ -87,6 +87,8 @@ async def worker_loop(cfg: Settings, storage: Storage, stop: asyncio.Event):
         while not stop.is_set():
             try:
                 ready = not cfg.check_dependencies or await dependencies_ready(cfg, http)
+                if ready and cfg.check_dependencies:
+                    ready = await asyncio.to_thread(storage.worker_ready)
                 claim = (
                     await asyncio.to_thread(
                         storage.claim, cfg.max_attempts, cfg.lease_seconds
@@ -100,11 +102,11 @@ async def worker_loop(cfg: Settings, storage: Storage, stop: asyncio.Event):
                         'Job processed: job_id=%s completed=%s', claim.job_id, success
                     )
                     continue
-            except Exception:
+            except Exception:  # noqa: BLE001 - Keep polling; DB errors can contain secrets.
                 log.error('AI queue temporarily unavailable')
             try:
                 await asyncio.wait_for(stop.wait(), cfg.poll_seconds)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
 

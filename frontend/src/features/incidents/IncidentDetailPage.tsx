@@ -27,7 +27,7 @@ export function IncidentDetailPage() {
   const detail = useIncidentDetail(id);
   const incident = detail.incident;
   const notFound = detail.error instanceof ApiError && detail.error.status === 404;
-  const professional = user?.role !== 'employee' && incident?.reporter_id !== user?.id;
+  const professional = user?.role === 'analyst' || user?.role === 'admin';
   useEffect(() => {
     document.title = 'Incident detail · CyberGuard';
   }, []);

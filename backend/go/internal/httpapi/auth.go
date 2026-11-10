@@ -117,7 +117,7 @@ func (a *Authentication) browserPolicy(next http.Handler) http.Handler {
 	if len(a.settings.TrustedOrigins) > 0 {
 		handler = cors.Handler(cors.Options{
 			AllowedOrigins:   a.settings.TrustedOrigins,
-			AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
+			AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodOptions},
 			AllowedHeaders:   []string{"Accept", "Content-Type"},
 			ExposedHeaders:   []string{"X-Request-ID", "Retry-After", "Location"},
 			AllowCredentials: true, MaxAge: 300,

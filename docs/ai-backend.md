@@ -8,10 +8,19 @@
 - `backend/python/cyberguard_ai/worker.py`: single-claim polling process; no Redis or message broker; claims, renewable lease, fencing by random claim token, bounded attempts for expired claims, terminal failures. Running a second worker is safe but not recommended on CPU.
 - `backend/python/cyberguard_ai/models.py`: Kev decision adapter (`choice`, `score`, `noul`); Qwen GGUF LLM via llama.cpp OpenAI-compatible API; safe fallback is **failure**, never fabricated output. `AI_MODE=fake` explicitly enables a non-AI integration fixture.
 - `db/migrations/incidents/00002_ai_assessments.sql`: new `assessment_jobs`, `assessment_results`, revision tracking and fenced security-definer SQL functions. Insert trigger enqueues `initial_assessment` in **the same transaction** as the existing Go `CreateIncident` INSERT, so the current Go sqlc-generated code can keep its API contract. Do not also enqueue directly in Go without revisiting this trigger.
-- `backend/go/internal/httpapi/ai_context.go`: Go's internal-only `GET /internal/ai/jobs/{job_id}/context`, with service-secret authentication; checks stored incident/job pairing, current revision and archived state. Caddy hides any `/internal` segments, including `/api/internal`.
+- `backend/go/internal/httpapi/ai_context.go`: Go's internal-only `GET /internal/ai/jobs/{job_id}/context`, with service-secret authentication; after the 00003 handoff migration checks persisted job-to-snapshot pairing and archived state. Caddy hides any `/internal` segments, including `/api/internal`.
 - `compose.ai.yaml`: optional AI services and proxy. Original Compose files and their existing smoke-test expectations remain unchanged when overlay is not used.
 
-**Important:** `incident_revision` is checked against the current incident. This MVP *rejects stale context* (HTTP 409). It does NOT save an immutable incident snapshot. Business/API incident text updates are not implemented by the original repository; the new DB trigger increments the revision if a direct migration/privileged update occurs.
+**Handoff follow-up:** After applying `00003_context_and_investigations.sql`, each new incident has an immutable `incident_contexts` snapshot linked to its job, and the internal Go endpoint reads this persisted snapshot (rather than comparing against mutable incident fields). Historical jobs are not backfilled. See [`handoff-implementation.md`](handoff-implementation.md).
+
+Apply incident migrations through `00005_snapshot_worker_safety.sql` and identity
+through `00003_user_admin_audit.sql` before restarting the updated services. Migration
+00004 supplies Go's snapshot-link read grant. Migration 00005 preserves snapshot-less
+jobs (including expired claims), and adds the restricted boolean `ai_worker_ready()`
+probe. Pending historical jobs block worker readiness without being consumed or failed.
+See the [upgrade procedure](azure-ai-deployment.md#upgrading-an-existing-deployment)
+before changing an installation that already has jobs. New jobs use immutable original
+context; an `affected_system` correction does not rewrite their input or enqueue again.
 
 On `feat/frontend`, the overlay selects a baked AI proxy snippet via `AI_HANDLER`
 instead of mounting a replacement Caddyfile. The shared gateway retains static files,
@@ -49,14 +58,21 @@ make docker-migrate
 # Optional: make docker-seed-demo
 ```
 
-On an **existing** setup with DB volumes, do **not** regenerate base secrets, bootstrap a fresh DB, or remove volumes. Rebuild the migration image (it embeds the SQL files), then apply the new incident migration using your existing migrator credentials:
+On an **existing** setup with DB volumes, first follow the
+[upgrade procedure](azure-ai-deployment.md#upgrading-an-existing-deployment), including
+pausing submissions, draining compatible old jobs where possible, stopping all workers
+and reviewing pending snapshot-less jobs. Do **not** regenerate secrets, bootstrap a
+fresh DB or remove volumes. During that maintenance window, rebuild the migration image
+(it embeds SQL), then apply both instances' pending migrations with existing credentials:
 
 ```bash
 make docker-build
 make docker-migrate
 ```
 
-Then create additional AI secrets once and provision the restricted database role *after the AI migration*:
+For a **first AI installation only**, create additional AI secrets once and provision
+the restricted database role *after all incident migrations*. Do not rerun this
+credential-provisioning step for an existing AI role merely to add the readiness grant:
 
 ```bash
 sh docker/ai/create-ai-secrets.sh
@@ -100,16 +116,17 @@ This starts Caddy at `http://127.0.0.1:8088`. `GET /ai/healthz` should return `{
 
 Both model services are on the private `ai-inference` Docker network, **not exposed on host/public ports**. Python worker uses local URLs inside Docker. Thread and CPU limits are conservative starting values, **not proof** that your Azure VM remains responsive; benchmark CPU, RAM, warm latency and API responsiveness on the actual VM (especially with 8 GB RAM). Consider running Kev and LLM sequentially or choosing a smaller decision checkpoint if needed.
 
-The overlay enables non-mutating Go/model probes before each worker claim, including
-after restarts. This avoids consuming queued work while a model is cold/offline; it
-cannot prevent a dependency failing during inference. Failed jobs remain terminal.
+The overlay enables non-mutating Go/model and snapshot-queue readiness probes before
+each worker claim, including after restarts. Missing safety migration or pending legacy
+jobs keep the queue untouched. This cannot prevent a dependency failing during inference.
+Failed jobs remain terminal; no automatic retry/backfill/retirement is introduced.
 
 ## Authorization, secrets and database boundaries
 
 - Go remains the only login authority. Python checks `/auth/me` and `/incidents/{id}` on **every** assessment read; authenticated analyst/admin only, with a current incident-access check. It does not trust the incoming `incident_id`, role or cookie without Go verification. Browser only receives stored results. No write API is exposed.
-- The reporter restriction applies regardless of role: an analyst/admin reading their
-  own report receives 403 and no AI-table reads. Ownership is compared using validated
-  UUIDs from Go, never browser-supplied identity. Missing/malformed Go identity or
+- Analysts/admins retain AI access on their own reports, as on another person's report.
+  Employees receive 403 before AI-table reads. Actor/incident/reporter identifiers are
+  validated from Go, never trusted from the browser. Missing/malformed Go identity or
   incident data fails closed; session expiry during the second lookup remains 401.
 - The worker uses `AI_INTERNAL_TOKEN` (or `_FILE`) to call Go's internal context endpoint. **Never** expose direct Go port publicly with this route enabled, or publish `AI_INTERNAL_TOKEN`; use an internal Docker network/private VM interface. This token is not a user session cookie.
 - Python's `python_incidents` role has only limited `SELECT` on AI tables and `EXECUTE` on controlled DB functions. No SELECT on `incidents` or `users`, no UPDATE of analyst fields, no schema write permissions. Password is in a Compose secret.
@@ -130,9 +147,17 @@ python -m pip install -r backend/python/requirements-dev.txt
 PYTHONPATH=backend/python python -m pytest -q backend/python/tests
 ```
 
-The unit tests mock external HTTP model/Go services and verify classification JSON, approved playbooks, fake provenance, access checks, stale context, worker persistence and failure paths. **Still required before merge**: run `make go-sqlc` with the pinned generator (the added `context_revision` column changes generated models), review/commit generated code, then actual Postgres migration/role/claim tests (including concurrent claim, lease expiry and transaction rollback), full Go tests with the project's Go 1.27.3 toolchain, Docker Compose integration/smoke, real Kev/Qwen model inference and measured resource usage on Azure. No Docker/PostgreSQL runtime or model weights were available in the generation environment, so those tests are not claimed as completed.
+The unit tests mock external HTTP model/Go services and verify classification JSON,
+approved playbooks, fake provenance, access checks, context validation, worker persistence
+and failure paths. The original generation environment had no Docker/PostgreSQL runtime
+or model weights. Later validation of regenerated sqlc output, Go 1.27.3, real PostgreSQL/
+TLS and Docker fixtures is recorded in the
+[deployment guide](azure-ai-deployment.md#main-integration-validation--10-november-2026).
+Concurrent AI job claims, full AI lease recovery, real Kev/Qwen inference and measured
+resource usage on Azure remain separate checks, not established by the fixture smoke.
 
-Authorization follow-up (10 November 2026): all 23 Python tests passed with Python
+Historical authorization follow-up (10 November 2026, superseded own-report policy):
+all 23 Python tests passed with Python
 3.13.18, including analyst/admin own-report denial before storage access and malformed
 Go-response rejection. Scoped Ruff formatting/lint and Pyright checks passed for the
 changed authorization/tests. The suite emits an upstream Starlette/AnyIO deprecation
@@ -147,14 +172,27 @@ Go service context, stored fixture result and staff browser read path:
 DOCKER_TEST_AI=1 DOCKER_TEST_FRONTEND=1 make docker-smoke
 ```
 
-This also verifies employee denial and analyst/admin reporter denial with native
-cookies, preserves the packaged SPA/cache/internal-route boundaries, and runs browser
+The current fixture verifies employee denial and analyst/admin own-report access with
+native cookies, preserves the packaged SPA/cache/internal-route boundaries, and runs browser
 checks with no credential-bearing diagnostics in reports. It forces `AI_MODE=fake`
 and never enables model profiles or downloads weights. See
 [frontend evidence](frontend-setup.md#ai-integration-follow-up--10-november-2026).
-Successful happy-path fixture validation does not replace the remaining concurrency,
-lease-expiry/rollback, generated-query, real-model and production review items above.
+Successful happy-path fixture validation does not replace the remaining full AI claim/
+lease-expiry, real-model and production review items above. See the
+deployment guide for the current integration's validation rather than this historical run.
 
 ## Team decisions for review
 
-The original contract leaves choices open. This implementation selects: enqueue via trigger (rather than a Go transaction query), reject stale incident versions, one result per job, terminal model errors, single background worker, and analyst/admin-only browser reads. Confirm each with the Go engineer and architect before merging. Production hardening still needs CSRF/CORS decisions for the frontend origin, gateway HTTPS, controlled role rotation, backups, an explicit retry/requeue policy, approved model evaluation datasets and thresholds, full API contract/OpenAPI updates and migration permissions testing.
+The original proposal's open context choice is resolved here as immutable job-linked
+snapshots, not rejection against the current mutable incident revision. The implementation
+retains trigger enqueueing, one result per job, terminal model errors, a single background
+worker and analyst/admin-only reads (including own reports). Schema/service acceptance,
+production HTTPS/proxy policy, rotation, backups, reviewed retry/backfill policies and
+real-model evaluation/resource measurements remain separate team acceptance tasks.
+
+## Remaining Go handoff implementation (new increment)
+
+See [`handoff-implementation.md`](handoff-implementation.md) for the immutable context
+contract, assignment/workflow/comment/admin endpoints and notification/audit behavior.
+The older test evidence above is historical, not validation of the current increment.
+Apply all required forward migrations and rebuild Go/Python images before startup.

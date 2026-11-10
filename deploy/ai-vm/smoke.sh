@@ -67,7 +67,17 @@ printf 'postgres://python_incidents:%s@incident-db:5432/cyberguard_incidents?ssl
     "$(cat "$AI_SECRETS_DIR/ai_runtime_password")" > "$AI_SECRETS_DIR/ai_runtime_url"
 dc config --quiet
 dc up -d --no-build --wait --wait-timeout 90 identity-db incident-db > "$AI_TEST_DIR/start.log" 2>&1
-for tool in bootstrap-identity bootstrap-incidents migrate-identity migrate-incidents bootstrap-ai seed-demo; do
+for tool in bootstrap-identity bootstrap-incidents; do
+    dc run --rm "$tool" >> "$AI_TEST_DIR/setup.log" 2>&1
+done
+# Exercise the migration's add-only grant path for an already-existing AI role.
+dc exec -T incident-db psql -X -v ON_ERROR_STOP=1 -U bootstrap_admin -d cyberguard_incidents \
+    -c 'CREATE ROLE python_incidents LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT' >> "$AI_TEST_DIR/setup.log" 2>&1
+for tool in migrate-identity migrate-incidents; do
+    dc run --rm "$tool" >> "$AI_TEST_DIR/setup.log" 2>&1
+done
+[[ $(dc exec -T incident-db psql -X -U bootstrap_admin -d cyberguard_incidents -Atc "SELECT has_function_privilege('python_incidents','ai_worker_ready()','EXECUTE')") == t ]] || fail 'Existing AI role did not receive readiness permission.'
+for tool in bootstrap-ai seed-demo; do
     dc run --rm "$tool" >> "$AI_TEST_DIR/setup.log" 2>&1
 done
 {
@@ -78,17 +88,40 @@ done
 } >> "$AI_TEST_DIR/start.log" 2>&1
 incident=$(dc run --rm --no-deps ai-api python /fixture/client.py create)
 [[ $incident =~ ^[a-f0-9-]{36}$ ]] || fail 'Fixture incident creation failed.'
-sql() { dc exec -T incident-db psql -X -U bootstrap_admin -d cyberguard_incidents -Atc "$1"; }
+sql() { dc exec -T incident-db psql -X -v ON_ERROR_STOP=1 -U bootstrap_admin -d cyberguard_incidents -qAtc "$1"; }
+dc run --rm --no-deps ai-api python /fixture/client.py revise "$incident"
+[[ $(sql "SELECT count(*) FROM incident_contexts WHERE incident_id='$incident'") == 2 ]] || fail 'Context revision did not create a new snapshot.'
+printf 'original fixture system' > "$AI_TEST_DIR/control/expected-system"
 for _ in {1..4}; do
     [[ $(sql 'SELECT status || attempt_count FROM assessment_jobs') == queued0 ]] || fail 'A cold model consumed a queued job.'
     sleep 1
 done
+# Simulate a historical queued job without a snapshot, without rewriting migration
+# history or touching real data. The readiness gate must preserve it unchanged.
+legacy=$(sql "INSERT INTO incidents(reporter_id,title,description) VALUES('11111111-1111-4111-8111-111111111111','DISPOSABLE legacy fixture','Synthetic legacy upgrade check') RETURNING id")
+[[ $legacy =~ ^[a-f0-9-]{36}$ ]] || fail 'Legacy fixture creation failed.'
+sql "UPDATE assessment_jobs SET context_id=NULL WHERE incident_id='$legacy'" >/dev/null
 touch "$AI_TEST_DIR/control/kev-ready" "$AI_TEST_DIR/control/llm-ready"
+dc run --rm --no-deps ai-worker python -c 'from cyberguard_ai.config import Settings; from cyberguard_ai.db import Storage; assert not Storage(Settings.from_env().database_url).worker_ready()'
+# Even a worker bypassing its readiness flag cannot consume the legacy job.
+[[ $(sql "SELECT count(*) FROM ai_claim_job(3,900) WHERE incident_id='$legacy'") == 0 ]] || fail 'Legacy job was claimable.'
+# Release only the fresh job claimed by that explicit fence check, in this fixture.
+sql "UPDATE assessment_jobs SET status='queued',claim_token=NULL,lease_expires_at=NULL,attempt_count=0 WHERE incident_id='$incident' AND status='running'" >/dev/null
+sleep 4
+[[ $(sql "SELECT status || attempt_count FROM assessment_jobs WHERE incident_id='$legacy'") == queued0 ]] || fail 'Legacy job was consumed.'
+[[ $(sql "SELECT status || attempt_count FROM assessment_jobs WHERE incident_id='$incident'") == queued0 ]] || fail 'Worker bypassed legacy readiness gate.'
+sql "UPDATE assessment_jobs SET status='running',claim_token=gen_random_uuid(),lease_expires_at=now()-interval '1 minute',attempt_count=3 WHERE incident_id='$legacy'" >/dev/null
+[[ $(sql 'SELECT count(*) FROM ai_claim_job(3,900)') == 1 ]] || fail 'Fresh snapshot job could not be claimed.'
+[[ $(sql "SELECT status || attempt_count FROM assessment_jobs WHERE incident_id='$legacy'") == running3 ]] || fail 'Expired historical job was modified.'
+sql "UPDATE assessment_jobs SET status='queued',claim_token=NULL,lease_expires_at=NULL,attempt_count=0 WHERE incident_id='$incident' AND status='running'" >/dev/null
+# Explicit retirement is TEST-ONLY, standing in for a reviewed operator decision.
+# Production tooling never retires, requeues or backfills historical jobs.
+sql "UPDATE assessment_jobs SET status='failed',claim_token=NULL,lease_expires_at=NULL,error_code='legacy_fixture_retired',finished_at=now() WHERE incident_id='$legacy'" >/dev/null
 for _ in {1..45}; do
-    [[ $(sql 'SELECT status FROM assessment_jobs') == completed ]] && break
+    [[ $(sql "SELECT status FROM assessment_jobs WHERE incident_id='$incident'") == completed ]] && break
     sleep 1
 done
-[[ $(sql 'SELECT status FROM assessment_jobs') == completed ]] || fail 'Fixture job did not complete.'
+[[ $(sql "SELECT status FROM assessment_jobs WHERE incident_id='$incident'") == completed ]] || fail 'Fixture job did not complete.'
 dc run --rm --no-deps ai-api python /fixture/client.py read "$incident"
 dc run --rm --no-deps ai-worker python -m cyberguard_ai.preflight
 # Exercise the unchanged management/check path with a tiny, test-only manifest.
@@ -119,4 +152,4 @@ dc config --format json | jq -e '
 dc restart ai-api ai-worker ai-gateway >> "$AI_TEST_DIR/start.log" 2>&1
 dc up -d --no-build --wait --wait-timeout 60 ai-api ai-gateway >> "$AI_TEST_DIR/start.log" 2>&1
 dc run --rm --no-deps ai-api python /fixture/client.py read "$incident"
-printf '%s\n' 'Disposable deployment smoke passed: real Go/DB/worker/API, cross-service TLS, cold-model gating and restart persistence. Model responses were synthetic; no weights or real inference used.'
+printf '%s\n' 'Disposable deployment smoke passed: real Go/DB/worker/API, TLS, immutable context, legacy-job safety, cold-model gating and restart persistence. Model responses were synthetic; no weights or real inference used.'

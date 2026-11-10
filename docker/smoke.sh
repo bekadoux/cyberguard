@@ -160,7 +160,8 @@ if [[ ${DOCKER_TEST_AI:-0} == 1 ]]; then
         request 201 -b "$state/$username.cookies" -H 'Content-Type: application/json' \
             --data-binary "@$state/payload" "$base/api/incidents"
         own_incident=$(jq -er '.incident.id' "$state/body")
-        request 403 -b "$state/$username.cookies" "$base/ai/incidents/$own_incident/assessment"
+        request 200 -b "$state/$username.cookies" "$base/ai/incidents/$own_incident/assessment"
+        jq -e --arg id "$own_incident" '.job.incident_id == $id' "$state/body" > /dev/null
         cookie_free
     done
 else

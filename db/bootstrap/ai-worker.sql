@@ -25,4 +25,4 @@ GRANT SELECT (job_id, incident_id, assessment, source_kind, created_at)
   ON assessment_results TO python_incidents;
 GRANT EXECUTE ON FUNCTION ai_claim_job(INTEGER, INTEGER),
   ai_renew_claim(UUID, UUID, INTEGER), ai_finish_job(UUID, UUID, JSONB, TEXT),
-  ai_fail_job(UUID, UUID, TEXT) TO python_incidents;
+  ai_fail_job(UUID, UUID, TEXT), ai_worker_ready() TO python_incidents;

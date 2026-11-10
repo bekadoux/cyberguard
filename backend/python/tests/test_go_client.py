@@ -39,8 +39,12 @@ def test_role_and_incident_access():
 
 
 @pytest.mark.parametrize('role', ['analyst', 'admin'])
-def test_staff_cannot_read_ai_for_their_own_report(role):
-    assert request_as(role, reporter_id=ACTOR) == 403
+def test_staff_can_read_ai_for_their_own_report(role):
+    assert request_as(role, reporter_id=ACTOR) == 200
+
+
+def test_employee_cannot_read_ai_for_their_own_report():
+    assert request_as('employee', reporter_id=ACTOR) == 403
 
 
 @pytest.mark.parametrize('role', ['analyst', 'admin'])
@@ -57,6 +61,14 @@ def test_expired_session_during_incident_lookup_remains_unauthorized(role):
         ),
         ({'user': {'id': 'invalid', 'role': 'admin'}}, {}),
         ({'user': {'id': str(ACTOR), 'role': 'analyst'}}, {'incident': {'id': str(ID)}}),
+        (
+            {'user': {'id': str(ACTOR), 'role': 'analyst'}},
+            {'incident': {'id': str(ID), 'reporter_id': 'invalid'}},
+        ),
+        (
+            {'user': {'id': str(ACTOR), 'role': 'analyst'}},
+            {'incident': {'id': str(ID), 'reporter_id': None}},
+        ),
         ({'user': {'id': str(ACTOR), 'role': 'analyst'}}, {'incident': None}),
         (
             {'user': {'id': str(ACTOR), 'role': 'analyst'}},

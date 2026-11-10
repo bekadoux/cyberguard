@@ -185,9 +185,7 @@ export function IncidentListPage() {
                         </td>
                         {professional && (
                           <td>
-                            {incident.reporter_id === user?.id ? (
-                              <span className="muted">Reporter view</span>
-                            ) : incident.severity ? (
+                            {incident.severity ? (
                               severityLabels[incident.severity]
                             ) : (
                               <span className="muted">Not assessed</span>

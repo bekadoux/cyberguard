@@ -35,7 +35,8 @@ async def dependencies_ready(cfg: Settings, http: httpx.AsyncClient) -> bool:
 async def check() -> bool:
     """Check storage and service availability without consuming queued work."""
     cfg = Settings.from_env()
-    await asyncio.to_thread(Storage(cfg.database_url).ping)
+    if not await asyncio.to_thread(Storage(cfg.database_url).worker_ready):
+        return False
     async with httpx.AsyncClient(trust_env=False, verify=cfg.http_verify()) as http:
         return await dependencies_ready(cfg, http)
 
@@ -44,7 +45,7 @@ def main() -> None:
     """Expose safe deployment diagnostics without exception/credential details."""
     try:
         ready = asyncio.run(check())
-    except Exception:
+    except Exception:  # noqa: BLE001 - Redact all diagnostic failures, including DB errors.
         ready = False
     print(
         'Application ready.'

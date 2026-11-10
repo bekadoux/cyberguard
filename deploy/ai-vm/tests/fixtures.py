@@ -28,8 +28,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         # Discard, never log or echo incident input.
-        self.rfile.read(int(self.headers.get('Content-Length', '0')))
+        body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0'))))
         if self.path == '/v1/systemone':
+            expected = Path('/control/expected-system')
+            if (
+                expected.exists()
+                and body['state']['affected_system'] != expected.read_text()
+            ):
+                self.reply({'error': 'original_snapshot_required'}, 503)
+                return
             self.reply(
                 {
                     'answers': {

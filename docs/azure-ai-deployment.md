@@ -136,9 +136,12 @@ These are **not implemented by the AI bootstrap**:
 1. Manually place both VMs in the intended VNet and choose stable private addresses.
    Use private DNS names or private-IP certificate SANs. Go and DB names must resolve
    from inside the Python containers, not only from the host's `/etc/hosts`.
-2. Apply the agreed incident migration using the existing **migrator**, then provision
-   the restricted `python_incidents` role through `db/bootstrap/ai-worker.sql` using a
-   scoped one-off administrator process. Confirm schema/grant decisions with the team.
+2. Apply identity migrations through `00003_user_admin_audit.sql` and incident migrations
+   through `00005_snapshot_worker_safety.sql`, including `00004_job_context_read.sql`,
+   using each instance's existing **migrator**. Then provision the restricted
+   `python_incidents` role through `db/bootstrap/ai-worker.sql` using a scoped one-off
+   administrator process. For existing installations, follow the
+   [upgrade procedure](#upgrading-an-existing-deployment) first. Confirm grants with the team.
    Neither API nor worker runs bootstrap/migrations/seed. No identity access is granted.
 3. Mount the same independently generated `AI_INTERNAL_TOKEN_FILE` into Go and Python.
    Provide a private HTTPS Go listener supporting `/readyz`, `/auth/me`, incident reads
@@ -232,11 +235,13 @@ and remote Go over TLS, checks the local TLS gateway, then starts the worker. Th
 certificate must have at least 24 hours remaining. `check` repeats safe probes without
 claiming jobs; existing running workers continue independently.
 
-The worker independently probes dependencies **before every claim**, including after
-Docker/VM restart; Compose dependency order alone is not a reboot guarantee. Readiness
-is not an atomic guarantee against a model failing mid-job. Existing terminal failures
-remain terminal. No requeue/backfill/reset is automated. A real-model failure never
-produces a completed fake assessment.
+The configured worker independently probes Go/models and `ai_worker_ready()` **before
+every claim**, including after Docker/VM restart; Compose ordering alone is not a reboot
+guarantee. A missing safety migration/grant or pending historical job without a snapshot
+blocks readiness without consuming jobs. SQL claims independently exclude snapshot-less
+jobs, even if a worker bypasses dependency probes. Readiness is not an atomic guarantee
+against a model failing mid-job. Terminal failures remain terminal. No requeue/backfill/
+reset is automated. A real-model failure never produces a completed fake assessment.
 
 If checks fail, distinguish the stages:
 
@@ -246,7 +251,8 @@ If checks fail, distinguish the stages:
   real inference must still be exercised with a new synthetic incident.
 
 Diagnose missing DNS/SANs, cert expiry, group IDs, URL encoding, PostgreSQL TLS/HBA,
-Go's shared token, cold models and resource limits. Never print secret contents or
+Go's shared token, cold models, migration/grant state and pending snapshot-less jobs.
+Never print secret contents or
 incident/model input to diagnostics. Logs are bounded; llama.cpp logs and Kev prefix
 caching are disabled. Review upstream model-server logging before using sensitive data.
 
@@ -259,9 +265,9 @@ sudo bash deploy/ai-vm/manage.sh --config /etc/cyberguard/ai/config.env stop
 
 Restart policies resume previously running containers after Docker/VM reboot; explicitly
 stopped containers remain stopped. There is no separate application systemd unit or
-automatic release update. For updates: stop, review the checkout/pins, build, prepare
-models if changed, then up/check. Retain old release images/config/model directory for
-deliberate rollback. Do not prune unrelated Docker state or remove database volumes.
+automatic release update. For updates, use the procedure below. Retain old release
+images/config/model directory for reviewed recovery; database compatibility must be
+checked before rolling code back. Do not prune unrelated Docker state or remove volumes.
 Credential/certificate rotation needs deliberate changes on both hosts and container
 recreation; editing files alone does not rotate a DB role or reload the Python client.
 
@@ -271,13 +277,77 @@ reservations; 8 GiB Kev/4 GiB llama.cpp limits are unmeasured starting values, n
 guaranteed peak usage or justification for larger models. Measure startup/warm latency,
 peak RAM, disk growth and responsiveness on the actual VM. Use synthetic incidents and
 record model/source revisions. Validate cold reboot, Go/DB/model outages and recovery,
-staff access, reporter denial and no public inference/database/internal-route access.
+staff access including own reports, employee denial and no public inference/database/
+internal-route access.
 
 Deallocate the VM manually when unused; stopping containers or shutting down the guest
 is not Azure deallocation. Managed disks and other retained resources can still cost
 credit. Nothing in these scripts deletes Azure resources or automates backups.
 
-### Development checks
+## Upgrading an existing deployment
+
+The new Go context endpoint serves **immutable job-linked snapshots**, with the same
+worker JSON shape as before. Incident migration 00003 intentionally does not backfill
+historical jobs. Migration 00004 grants Go access to the job's snapshot link. Migration
+00005 preserves snapshot-less queued/running jobs (including expired exhausted claims),
+excludes them from SQL claims, and exposes a restricted readiness bit. Stored historical
+results remain readable; no job or result is deleted by this upgrade.
+
+1. Record deployed revisions, image tags, migration versions and protected backups on
+   the application VM. Review and test the forward migrations against disposable data
+   before scheduling maintenance. Do not place database backups or administrator/
+   migrator credentials on the AI VM.
+2. Pause new submissions and incident edits using the application deployment's
+   maintenance controls. **Before applying the new migrations**, drain pending jobs
+   with the old, compatible Go/worker pair where possible. Do not restart an old worker
+   against a partially upgraded schema/API. Failed jobs remain terminal; draining is
+   not permission to retry or change them.
+3. Stop every worker, including any local application-overlay worker. For this AI VM,
+   `sudo bash deploy/ai-vm/manage.sh --config /etc/cyberguard/ai/config.env stop` stops
+   its complete stack without removing models/secrets. Stop the application API for
+   the migration window and keep submissions paused. Ensure deployment/restart tooling
+   will not bring old containers back while migration is in progress.
+4. On the application VM, build the updated migration image/binary, then explicitly run
+   the established identity and incident migration tools with their respective scoped
+   migrator credentials. Apply **all pending** migrations through identity 00003 and
+   incidents 00005; do not edit applied migrations. Existing `python_incidents` receives
+   only the added `ai_worker_ready()` EXECUTE grant, without a password reset. If the
+   role does not exist, provision it separately with the updated AI bootstrap afterward.
+   Do not rerun credential provisioning merely to repair this grant.
+5. Have the authorized application-side database operator review a metadata-only
+   inventory in the incident database:
+
+   ```sql
+   SELECT status, count(*)
+   FROM assessment_jobs
+   WHERE context_id IS NULL
+   GROUP BY status;
+   ```
+
+   Any `queued`/`running` count requires an **explicit operator/team decision**. Keep
+   workers stopped until that decision is implemented and reviewed, or leave AI
+   processing unavailable. An approved retirement or separately designed historical
+   backfill is not supplied by these scripts. Never reconstruct an alleged original
+   snapshot from current mutable fields, silently requeue, or mass-fail historical jobs.
+   Completed/failed snapshot-less jobs do not block readiness. The runtime-role query
+   `SELECT ai_worker_ready();` must return true before worker startup; a missing function
+   or permission error is a deployment failure, not permission to disable probes.
+6. Rebuild/redeploy the updated Go API, Python API/worker and frontend/Caddy assets using
+   reviewed release tags. On the AI VM use `manage.sh ... build` explicitly before
+   `up`/`check`; ordinary startup never builds or migrates. The model services, dependency
+   pins and weights are unchanged by this integration, so no model download is needed
+   if existing pinned artifacts still verify. Start Go before the AI readiness checks.
+7. Verify a new synthetic submission end-to-end, original snapshot behavior after an
+   affected-system correction, staff reads including their own reports, employee denial
+   and restart readiness. Resume submissions only after the required checks pass.
+
+Migration 00005 is deliberately **forward-only**: restoring the old claim function could
+consume snapshot-less jobs. Do not run an automatic schema downgrade or assume the old
+Go/worker pair is a safe rollback. Recovery needs a reviewed code/schema compatibility
+plan (and a deliberate protected-backup restore if selected), with submissions/workers
+paused. This document does not authorize changing historical production jobs.
+
+## Development checks
 
 ```sh
 # Host ShellCheck required for this target (e.g. an explicitly installed shellcheck-py).
@@ -289,11 +359,15 @@ make ai-vm-smoke
 make docker-test-secrets
 make docker-smoke
 DOCKER_TEST_AI=1 make docker-smoke
+# Combined Go/PostgreSQL race suite and packaged real-browser fixture:
+DOCKER_TEST_AI=1 DOCKER_TEST_GO_INTEGRATION=1 DOCKER_TEST_FRONTEND=1 make docker-smoke
 ```
 
 `ai-vm-smoke` creates only a fresh `cyberguard-ai-vm-smoke-*` project, separate secrets,
 certificates and DB volumes. It tests real TLS to Go/PostgreSQL and into the AI gateway,
 actual job completion/staff reads, employee denial, cold-model no-claim behavior,
+immutable original context after a real Go affected-system edit, queued/expired legacy
+job preservation and readiness blocking, grants for an existing AI role,
 hostname-mismatch rejection and container restart persistence. It does not download
 weights or claim real inference. The test-only app TLS listener is not a production
 gateway configuration. Its own disposable volumes are removed on exit; failure
@@ -308,11 +382,11 @@ PYTHONPATH=backend/python python -m pytest -q backend/python/tests
 ```
 
 Mocked/bootstrap/fixture checks are not acceptance of real Ubuntu package installation,
-systemd/Docker reboot behavior, Azure NSGs, concurrent DB claims/lease recovery, real
+systemd/Docker reboot behavior, Azure NSGs, concurrent AI job claims/lease recovery, real
 Kev/Qwen inference, model quality or production resource use. Report those checks
 separately when the actual infrastructure is available.
 
-### Local validation evidence — 10 November 2026
+### Original deployment validation — 10 November 2026 (before main integration)
 
 - `make ai-vm-config` and `make ai-vm-build`, using the checked-in non-secret example,
   passed without an application VM or runtime secrets. Both Python and CPU Kev images
@@ -336,3 +410,44 @@ Docker used the local legacy-builder fallback (Buildx was absent on the developm
 host); the VM bootstrap installs Buildx explicitly. No Azure credentials/VM access were
 provided, so real host installation, private NSG connectivity, cold VM reboot and real
 model downloads/inference/resource measurements were **not run**.
+
+### Main integration validation — 10 November 2026
+
+The integration target was the locally available `main` merge `77ecf7f`.
+
+- `make go-sqlc` regenerated persistence output; `make go-sqlc-check`, `make go-check`
+  and `make go-build` passed with Go 1.27.3. Race tests passed and govulncheck reported
+  no affected called symbols (one advisory remains in a required module).
+- All **43 Python tests** passed on Python 3.13.18. Scoped Ruff formatting/lint and
+  Pyright passed for changed application modules, tests and deployment fixtures. The
+  existing Starlette/AnyIO deprecation warning remains.
+- `make frontend-check` passed: types, lint, formatting, **106 unit/component tests**
+  and the static production build.
+- `make frontend-test-e2e` passed all **148 Firefox/Chromium tests**, including staff
+  own-report assessment/severity visibility and employee no-fetch behavior. The initial
+  run reached its command time limit; the complete rerun passed without that limit.
+- `make ai-vm-test`, `make ai-vm-test-bootstrap` and `make docker-test-secrets` passed.
+  Bootstrap actions remain mocked, not privileged host installations.
+- An additional standalone ShellCheck run on `docker/smoke.sh` reported the same
+  pre-existing SC1007/SC2155/SC2034 warnings and SC2016 informational findings as the
+  pre-merge branch. No new findings were introduced there; this optional lint run did
+  not pass. The deployment-script ShellCheck gate in `make ai-vm-test` passed.
+- `make ai-vm-smoke` passed with real TLS/Go/PostgreSQL/Python/Caddy and synthetic model
+  responses. It verified original context after a Go field correction, unchanged
+  snapshot-less queued/expired jobs, worker readiness blocking, an existing role's
+  added grant, cold-model gating, staff reads, employee denial and restart persistence.
+- The combined `make docker-smoke` passed with `DOCKER_TEST_AI=1`,
+  `DOCKER_TEST_GO_INTEGRATION=1` and `DOCKER_TEST_FRONTEND=1`. It ran the full Go race
+  integration suite against two disposable PostgreSQL instances, all **148 browser
+  regressions against packaged assets**, and **4 packaged shell/live browser tests**.
+  Real same-origin flows/native HTTP verified staff own-report assessment access and
+  employee denial, stored fake provenance, migration repeatability, restart persistence,
+  SQL outages, gateway boundaries and credential isolation. No API interception or Vite
+  was used in the real same-origin flows.
+- A separate AI-disabled `make docker-smoke` also passed with the ordinary four-service
+  stack, including all forward migrations, unavailable-AI responses, Caddy validation,
+  first-initialization readiness, persistence/outage checks and credential isolation.
+
+Azure installation, cross-VM NSGs/TLS, a cold Azure VM reboot, real model inference and
+resource/quality measurements remain unverified. No model weights were downloaded by
+these fixture checks; no ordinary development/deployed databases were selected.

@@ -34,7 +34,7 @@ test('renders stored advisory output without changing confirmed incident fields'
   expect(reads).toBe(initialReads);
 });
 for (const role of ['employee', 'analyst', 'admin'] as const) {
-  test(`does not fetch or render AI on the ${role} reporter's own record`, async ({
+  test(`applies ${role} assessment access on the reporter's own record`, async ({
     page,
   }) => {
     const user = { ...employee, role };
@@ -46,8 +46,17 @@ for (const role of ['employee', 'analyst', 'admin'] as const) {
     });
     await page.goto(`/incidents/${first.id}`);
     await expect(page.getByRole('heading', { name: first.title })).toBeVisible();
-    await expect(page.getByTestId('assessment-panel')).toHaveCount(0);
-    expect(reads).toBe(0);
+    if (role === 'employee') {
+      await expect(page.getByTestId('assessment-panel')).toHaveCount(0);
+      expect(reads).toBe(0);
+    } else {
+      await expect(
+        page
+          .getByTestId('assessment-panel')
+          .getByRole('heading', { name: 'Draft summary' }),
+      ).toBeVisible();
+      expect(reads).toBeGreaterThanOrEqual(1);
+    }
   });
 }
 test('refreshes queued/running/completed states only on explicit request', async ({

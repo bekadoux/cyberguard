@@ -42,8 +42,9 @@ UI, light/dark themes, protected incident submission/list/detail, Vite developme
 and static frontend packaging in a separate Caddy image. `make docker-build` builds
 both application images; the packaged UI is at `http://127.0.0.1:8088/login` after
 the documented setup and `make docker-up`. Eligible staff can view stored AI assessment
-states/results with advisory and fixture labels; reporter views exclude AI output.
-Investigation actions and production HTTPS deployment remain future work.
+states/results with advisory and fixture labels, including on their own reports;
+employee views exclude AI output. Frontend investigation actions and production HTTPS
+deployment remain future work.
 
 ## AI Backend (proposed integration)
 
@@ -129,8 +130,12 @@ models does not start the application or establish real inference readiness.
 Before startup, complete the guide's
 [application/network prerequisites](docs/azure-ai-deployment.md#4-application-vm-and-network-prerequisites):
 
-- Prepare the application-side incident schema and restricted `python_incidents` role.
-  Go and Python must share the same server-only internal token.
+- Apply application-side identity migrations through `00003_user_admin_audit.sql` and
+  incident migrations through `00005_snapshot_worker_safety.sql`, including `00004`.
+  Provision the restricted `python_incidents` role separately. Existing deployments
+  must follow the [upgrade procedure](docs/azure-ai-deployment.md#upgrading-an-existing-deployment)
+  first: pending historical jobs without snapshots block worker readiness and are not
+  automatically changed. Go and Python must share the server-only internal token.
 - Provide verified private HTTPS to Go and verified TLS to incident PostgreSQL, plus
   application-gateway routing to the AI VM. Keep identity PostgreSQL inaccessible to AI.
 - Restrict cross-VM connections with NSGs/Docker-aware firewall rules. Default ports
@@ -170,3 +175,13 @@ Actual Azure installation/reboot and real Kev/Qwen inference/resource measuremen
 remain unverified. Validate a new synthetic incident end-to-end before a demonstration.
 When unused, **deallocate the VM in Azure**; stopping containers does not stop compute
 billing, and retained disks can still incur charges.
+
+## Go backend handoff implementation candidate
+
+The remaining investigation, user-administration and audit API candidate is documented
+in [`docs/handoff-implementation.md`](docs/handoff-implementation.md) with
+[`api/go-handoff.openapi.yaml`](api/go-handoff.openapi.yaml). It adds independent
+forward migrations `00003` for **both** PostgreSQL instances, plus incident `00004`/`00005`,
+immutable incident context snapshots, workflow transitions, comments, notifications and
+audit. The candidate is not a production release; architect/domain review and deployed
+acceptance remain separate from local Go 1.27.3/PostgreSQL integration checks.

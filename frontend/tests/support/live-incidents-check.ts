@@ -212,7 +212,7 @@ try {
     }
     await panel.getByText('Test fixture — not AI output.', { exact: true }).waitFor();
     requireTrue((await panel.textContent())?.includes('FAKE ASSESSMENT') === true);
-    check('checking staff reporter restrictions');
+    check('checking staff own-report access');
     await page.goto('/incidents/new');
     const ownTitle = `Staff own browser report ${randomUUID()}`;
     await page.getByLabel('Title', { exact: true }).fill(ownTitle);
@@ -221,13 +221,24 @@ try {
       .fill('Synthetic staff reporter authorization check.');
     await page.getByRole('button', { name: 'Submit incident', exact: true }).click();
     await page.getByRole('heading', { name: ownTitle, exact: true }).waitFor();
-    requireTrue((await page.getByTestId('assessment-panel').count()) === 0);
+    const ownPanel = page.getByTestId('assessment-panel');
+    await ownPanel.getByRole('heading', { name: 'AI assessment' }).waitFor();
+    await page.getByText('Severity', { exact: true }).waitFor();
     const ownId = new URL(page.url()).pathname.split('/').at(-1);
     requireTrue(
       (
         await context.request.get(`${api.origin}/ai/incidents/${ownId}/assessment`)
-      ).status() === 403,
+      ).status() === 200,
     );
+    for (let attempt = 0; attempt < 15; attempt++) {
+      if (
+        await ownPanel.getByText('Test fixture — not AI output.', { exact: true }).count()
+      )
+        break;
+      await page.waitForTimeout(1000);
+      await ownPanel.getByRole('button', { name: 'Refresh assessment' }).click();
+    }
+    await ownPanel.getByText('Test fixture — not AI output.', { exact: true }).waitFor();
   }
   check('signing out');
   await logout();

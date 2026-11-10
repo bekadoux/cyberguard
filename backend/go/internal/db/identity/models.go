@@ -8,6 +8,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type IdentityAudit struct {
+	ID        pgtype.UUID
+	ActorID   pgtype.UUID
+	SubjectID pgtype.UUID
+	Action    string
+	Details   []byte
+	CreatedAt pgtype.Timestamptz
+}
+
 type Session struct {
 	Token  string
 	Data   []byte
