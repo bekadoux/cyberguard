@@ -67,8 +67,57 @@
 
 ## Testing instructions
 
-- Frontend: Node 24.22.2/npm 12.2.2, `make frontend-install`, then
-  `make frontend-check`. `make frontend-test-e2e` runs Firefox and Chromium with
+### Test selection policy
+
+- **Run only the checks needed for the change.** Choose the smallest set that
+  meaningfully covers the changed behavior and affected contracts. Do not run every
+  suite, rebuild every image or start every fixture just to finish a task or commit.
+  These rules govern routine agent work; linked handoff/acceptance checklists are
+  not instructions to repeat full acceptance testing after every edit.
+- Select checks from the actual diff and risk:
+  - **Documentation/comments only:** `git diff --check` and applicable documentation
+    checks. No application tests, builds, browsers or Docker fixtures unless executable
+    examples or configuration behavior also change.
+  - **Go:** formatting and focused tests for affected packages/test cases; targeted
+    vet/build checks when relevant. Add `-race` for concurrency, authentication and
+    session behavior. Use broader package coverage for shared-code changes.
+  - **SQL, migrations, database permissions or session persistence:** relevant
+    PostgreSQL integration tests against the two disposable instances, plus affected
+    HTTP/race regressions. Mocked tests alone are not sufficient for these changes.
+  - **Frontend:** affected unit tests and relevant type/lint/format checks. For browser
+    behavior, start with affected Playwright specs in Chromium; add Firefox for
+    browser-sensitive changes. Shared navigation, authentication, themes, layout or
+    accessibility changes may warrant broader browser coverage, not unrelated backends.
+  - **Python AI:** focused tests and static checks for changed modules; add the AI
+    fixture only when worker/API/database or cross-service behavior needs validation.
+    Never download models or run real inference as a routine check.
+  - **Docker/Caddy:** affected configuration validation and relevant secret, readiness
+    or web assertion tests. Use base Docker smoke when image/runtime/network/routing
+    behavior needs real-container validation; enable optional Go integration, frontend
+    or AI coverage only for affected contracts.
+  - **VM deployment:** the affected VM's safety tests; bootstrap tests only for host
+    preparation changes; deployment smoke for affected TLS, service wiring, upgrade,
+    backup or persistence behavior. Do not run the other VM suite unless its contract
+    is also affected.
+- Expand coverage when focused checks fail, shared dependencies/toolchains or security
+  boundaries change, or focused tests cannot establish the required behavior. Explain
+  why a broad/slow suite is needed; do not use uncertainty to run everything by default.
+- Full merge/release validation is a separate scope: run the relevant aggregate and
+  integration/deployment suites when explicitly requested or justified by the change,
+  not automatically for every patch. `go-check`, `frontend-check`, full browser suites
+  and combined Docker/VM smokes are available gates, not a mandatory per-edit sequence.
+- Avoid duplicate coverage: the frontend-enabled Docker smoke already runs the full
+  browser regressions against packaged assets plus real same-origin flows. Do not
+  routinely rerun that same full suite through Vite, or rerun passed checks when only
+  unrelated documentation/comments changed afterward.
+- Report checks run, why they were selected, and relevant checks not run or blocked.
+  Never imply unrun integration, deployment or real-inference checks passed.
+
+### Available checks and prerequisites
+
+- Frontend: Node 24.22.2/npm 12.2.2; use `make frontend-install` when dependencies
+  need installation. `make frontend-check` is the aggregate quality/build check.
+  `make frontend-test-e2e` runs Firefox and Chromium with
   Playwright-managed browsers; the separate live suite requires the running demo
   backend and `E2E_PASSWORD_FILE`. `make frontend-test-incidents-live` performs writes
   only against an explicitly selected disposable fixture. See `docs/frontend-setup.md`.
@@ -158,14 +207,18 @@
 ## PR instructions
 
 - No required PR-title format.
-- For Docker/setup changes, run `make docker-test-secrets` and `make docker-smoke`;
-  the latter includes Compose/Caddy validation and the first-initialization readiness
-  regression. Use `DOCKER_TEST_GO_INTEGRATION=1` when also checking Go/SQL integration.
-- Before submitting Go changes, run `make go-check`, then `make go-build` (API,
-  migration and seed binaries under `backend/go/bin/`). For database/session changes,
-  also run `make go-test-integration` with the dedicated test instances.
-- Report checks run and any blocked by missing tools, network access or database
-  prerequisites; do not remove required checks or describe blocked checks as passing.
+- Follow the test selection policy above; preparing a PR or commit does not by itself
+  require all aggregate, browser or deployment suites.
+- When full Go validation is in scope, use `make go-check` and `make go-build` (API,
+  migration and seed binaries under `backend/go/bin/`); add relevant database/session
+  integration coverage with the dedicated test instances.
+- When Docker smoke is selected, it includes Compose/Caddy validation and the
+  first-initialization readiness regression. Secret-generation changes also need
+  `make docker-test-secrets`. Enable `DOCKER_TEST_GO_INTEGRATION=1`,
+  `DOCKER_TEST_FRONTEND=1` or `DOCKER_TEST_AI=1` only as required by the selected scope.
+- Report focused validation and any relevant checks not run or blocked by missing tools,
+  network access or database prerequisites. Do not remove tests or weaken assertions to
+  reduce runtime, or describe blocked checks as passing.
 
 ## Go handoff implementation candidate (post-main 7b91f0b)
 
