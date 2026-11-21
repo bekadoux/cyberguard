@@ -117,8 +117,10 @@ paths:
       description: |
         The transition graph is enforced under a row lock. A reporter can
         confirm resolution or request review; an admin can reopen terminal cases.
-        Reporter public comments (not internal comments) automatically resume
-        awaiting_reporter → investigating. Manual submitted → triage is unavailable;
+        Each transition to awaiting_reporter requires a fresh unanswered public
+        question. A public reporter reply (not an internal note) resumes investigating
+        from awaiting_reporter or resolved. A formal review request notifies the
+        assignee and clears the closure timer. Manual submitted → triage is unavailable;
         it happens on claim/assignment. False positive and reopening require reasons.
       parameters: *incident_id
       requestBody:
@@ -158,7 +160,7 @@ paths:
   /incidents/{id}/comments:
     get:
       summary: Read authorized comments
-      description: Reporter sees public comments only; analyst/admin see both types. Limited to 500 records.
+      description: Employees see only public comments; analysts/admins see both types. Returns the latest 500 visible entries in chronological order.
       parameters: *incident_id
       responses:
         '200':
@@ -177,7 +179,8 @@ paths:
       description: |
         Reporter may reply publicly on own incident; unassigned analysts may
         post internally but only assigned analysts/admin may post publicly
-        on the professional side. A reporter public reply resumes awaiting_reporter.
+        on the professional side. A reporter public reply reopens a resolved incident
+        or resumes one awaiting the reporter; the assigned analyst is notified.
       parameters: *incident_id
       requestBody:
         required: true
@@ -196,7 +199,7 @@ paths:
   /incidents/{id}/history:
     get:
       summary: Read incident action history
-      description: Professional roles only; append-only events, max 500 records. Admins may review archived incident history by ID.
+      description: Professional roles only; latest 500 append-only events in chronological order. Admins may review archived incident history by ID.
       parameters: *incident_id
       responses:
         '200': {description: Action history}
@@ -204,6 +207,7 @@ paths:
   /notifications:
     get:
       summary: List own recent incident notifications
+      description: Incident-linked notifications and their read/unread actions require current access to the non-archived incident.
       responses:
         '200': {description: Own notifications only, max 100 records}
   /notifications/{id}/read:

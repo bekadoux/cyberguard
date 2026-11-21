@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -309,53 +310,84 @@ func (a *HandoffAPI) transition(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Status == "awaiting_reporter" {
 		var found bool
-		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM incident_comments
-            WHERE incident_id=$1 AND visibility='public' AND author_id=$2)`, id, actor).Scan(&found)
+		// A public comment is a question only for this investigation cycle.
+		// A later public reporter reply answers it even before the status changes.
+		err = tx.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM incident_comments q
+			WHERE q.incident_id=$1 AND q.visibility='public' AND q.author_id=$2
+			  AND q.created_at > COALESCE((
+			    SELECT max(created_at) FROM incident_actions
+			    WHERE incident_id=$1 AND action='status_changed' AND details->>'to'='investigating'
+			  ), '-infinity'::timestamptz)
+			  AND NOT EXISTS (
+			    SELECT 1 FROM incident_comments reply
+			    WHERE reply.incident_id=$1 AND reply.visibility='public' AND reply.author_id=$3
+			      AND (reply.created_at,reply.id) > (q.created_at,q.id)
+			  )
+		)`, id, actor, current.reporter).Scan(&found)
 		if err != nil {
 			handoffStorageError(w, err)
 			return
 		}
 		if !found {
-			writeError(w, 409, "conflict", "Add a public question before requesting reporter information.")
+			writeError(w, 409, "conflict", "Add a new unanswered public question before requesting reporter information.")
 			return
 		}
 	}
-	if current.status == "resolved" && body.Status == "investigating" {
-		if _, err = tx.Exec(ctx, `INSERT INTO incident_comments(incident_id,author_id,visibility,body)
-           VALUES($1,$2,'public',$3)`, id, actor, body.Reason); err != nil {
+	reviewRequested := current.status == "resolved" && body.Status == "investigating"
+	if reviewRequested {
+		if _, err = tx.Exec(ctx, `INSERT INTO incident_comments(incident_id,author_id,visibility,body,created_at)
+           VALUES($1,$2,'public',$3,statement_timestamp())`, id, actor, body.Reason); err != nil {
 			handoffStorageError(w, err)
 			return
 		}
 	}
-	if _, err = tx.Exec(ctx, `UPDATE incidents SET status=$2,updated_at=now() WHERE id=$1`, id, body.Status); err != nil {
+	if err = changeIncidentStatus(ctx, tx, id, actor, current.status, body.Status, body.Reason); err != nil {
 		handoffStorageError(w, err)
 		return
 	}
-	if body.Status == "resolved" {
-		if _, err = tx.Exec(ctx, `INSERT INTO incident_resolutions(incident_id,resolved_at) VALUES($1,now())
-          ON CONFLICT(incident_id) DO UPDATE SET resolved_at=EXCLUDED.resolved_at`, id); err != nil {
-			handoffStorageError(w, err)
-			return
-		}
-	} else if body.Status == "investigating" {
-		if _, err = tx.Exec(ctx, `UPDATE incident_resolutions SET resolved_at=NULL WHERE incident_id=$1`, id); err != nil {
+	if reviewRequested {
+		if err = notifyReviewRequested(ctx, tx, current.assigned, id); err != nil {
 			handoffStorageError(w, err)
 			return
 		}
 	}
-
-	if err = recordIncidentAction(ctx, tx, id, actor, "status_changed", body.Reason, map[string]any{"from": current.status, "to": body.Status}); err != nil {
-		handoffStorageError(w, err)
-		return
-	}
-	if err = notifyIncident(ctx, tx, current.reporter, id, "status_changed", "Your incident status has changed."); err != nil {
-		handoffStorageError(w, err)
-		return
+	if !reviewRequested || current.reporter != current.assigned {
+		if err = notifyIncident(ctx, tx, current.reporter, id, "status_changed", "Your incident status has changed."); err != nil {
+			handoffStorageError(w, err)
+			return
+		}
 	}
 	if !commitOrError(w, tx, ctx) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"status": body.Status})
+}
+
+// The caller holds the incident lock. Use timestamps taken after acquiring it:
+// a transaction can start before a competing comment or transition commits.
+func changeIncidentStatus(ctx context.Context, tx pgx.Tx, id, actor pgtype.UUID, from, to, reason string) error {
+	if _, err := tx.Exec(ctx, `UPDATE incidents SET status=$2,updated_at=statement_timestamp() WHERE id=$1`, id, to); err != nil {
+		return err
+	}
+	switch to {
+	case "resolved":
+		if _, err := tx.Exec(ctx, `INSERT INTO incident_resolutions(incident_id,resolved_at) VALUES($1,statement_timestamp())
+			ON CONFLICT(incident_id) DO UPDATE SET resolved_at=EXCLUDED.resolved_at`, id); err != nil {
+			return err
+		}
+	case "investigating":
+		if _, err := tx.Exec(ctx, `UPDATE incident_resolutions SET resolved_at=NULL WHERE incident_id=$1`, id); err != nil {
+			return err
+		}
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO incident_actions(incident_id,actor_id,action,reason,details,created_at)
+		VALUES($1,$2,'status_changed',NULLIF($3,''),$4,statement_timestamp())`, id, actor, reason, map[string]string{"from": from, "to": to})
+	return err
+}
+
+func notifyReviewRequested(ctx context.Context, tx pgx.Tx, assigned, id pgtype.UUID) error {
+	return notifyIncident(ctx, tx, assigned, id, "review_requested", "The reporter requested a review of the resolution.")
 }
 
 func (a *HandoffAPI) archive(w http.ResponseWriter, r *http.Request) {
@@ -449,8 +481,8 @@ func (a *HandoffAPI) addComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var commentID pgtype.UUID
-	err = tx.QueryRow(ctx, `INSERT INTO incident_comments(incident_id,author_id,visibility,body)
-        VALUES($1,$2,$3,$4) RETURNING id`, id, actor, body.Visibility, body.Text).Scan(&commentID)
+	err = tx.QueryRow(ctx, `INSERT INTO incident_comments(incident_id,author_id,visibility,body,created_at)
+        VALUES($1,$2,$3,$4,statement_timestamp()) RETURNING id`, id, actor, body.Visibility, body.Text).Scan(&commentID)
 	if err != nil {
 		handoffStorageError(w, err)
 		return
@@ -459,26 +491,24 @@ func (a *HandoffAPI) addComment(w http.ResponseWriter, r *http.Request) {
 		handoffStorageError(w, err)
 		return
 	}
-	if body.Visibility == "public" && reporterOwn && current.status == "awaiting_reporter" {
-		if _, err = tx.Exec(ctx, `UPDATE incidents SET status='investigating',updated_at=now() WHERE id=$1`, id); err != nil {
-			handoffStorageError(w, err)
-			return
+	if body.Visibility == "public" {
+		if reporterOwn && (current.status == "awaiting_reporter" || current.status == "resolved") {
+			if err = changeIncidentStatus(ctx, tx, id, actor, current.status, "investigating", "Reporter replied"); err != nil {
+				handoffStorageError(w, err)
+				return
+			}
 		}
-		if err = recordIncidentAction(ctx, tx, id, actor, "status_changed", "Reporter replied", map[string]any{"from": "awaiting_reporter", "to": "investigating"}); err != nil {
-			handoffStorageError(w, err)
-			return
+		switch {
+		case !reporterOwn:
+			err = notifyIncident(ctx, tx, current.reporter, id, "new_comment", "A public comment was added to your incident.")
+		case current.status == "resolved":
+			err = notifyReviewRequested(ctx, tx, current.assigned, id)
+		case current.status == "awaiting_reporter":
+			err = notifyIncident(ctx, tx, current.assigned, id, "reporter_replied", "The reporter replied to an information request.")
+		default:
+			err = notifyIncident(ctx, tx, current.assigned, id, "reporter_replied", "The reporter added a comment.")
 		}
-		if err = notifyIncident(ctx, tx, current.assigned, id, "reporter_replied", "The reporter replied to an information request."); err != nil {
-			handoffStorageError(w, err)
-			return
-		}
-	} else if body.Visibility == "public" && !reporterOwn {
-		if err = notifyIncident(ctx, tx, current.reporter, id, "new_comment", "A public comment was added to your incident."); err != nil {
-			handoffStorageError(w, err)
-			return
-		}
-	} else if body.Visibility == "public" && reporterOwn {
-		if err = notifyIncident(ctx, tx, current.assigned, id, "reporter_replied", "The reporter added a comment."); err != nil {
+		if err != nil {
 			handoffStorageError(w, err)
 			return
 		}
@@ -513,7 +543,7 @@ func (a *HandoffAPI) listComments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.incidentDB.Query(ctx, `SELECT id,author_id,visibility,body,created_at FROM incident_comments
-        WHERE incident_id=$1 AND ($2 OR visibility='public') ORDER BY created_at,id LIMIT 500`, id, professional(u))
+        WHERE incident_id=$1 AND ($2 OR visibility='public') ORDER BY created_at DESC,id DESC LIMIT 500`, id, professional(u))
 	if err != nil {
 		handoffStorageError(w, err)
 		return
@@ -534,6 +564,7 @@ func (a *HandoffAPI) listComments(w http.ResponseWriter, r *http.Request) {
 		handoffStorageError(w, err)
 		return
 	}
+	slices.Reverse(out)
 	writeJSON(w, 200, map[string]any{"comments": out})
 }
 
@@ -563,7 +594,7 @@ func (a *HandoffAPI) listHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.incidentDB.Query(ctx, `SELECT id,actor_id,action,reason,details,created_at
-        FROM incident_actions WHERE incident_id=$1 ORDER BY created_at,id LIMIT 500`, id)
+        FROM incident_actions WHERE incident_id=$1 ORDER BY created_at DESC,id DESC LIMIT 500`, id)
 	if err != nil {
 		handoffStorageError(w, err)
 		return
@@ -591,6 +622,7 @@ func (a *HandoffAPI) listHistory(w http.ResponseWriter, r *http.Request) {
 		handoffStorageError(w, err)
 		return
 	}
+	slices.Reverse(out)
 	writeJSON(w, 200, map[string]any{"history": out})
 }
 

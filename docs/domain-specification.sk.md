@@ -151,11 +151,11 @@ Archivácia (`archived_at`) nie je stav v toku, ale príznak soft delete: admini
 | submitted → triage | Analyst | Analytik prevzal incident; priradenie je zaznamenané |
 | triage → investigating | Analyst | Hrozba je pravdepodobná; kategória a závažnosť sú určené |
 | triage → false_positive | Analyst | Hrozba neexistuje; dôvod je povinný; zamestnanec dostane notifikáciu |
-| investigating → awaiting_reporter | Analyst | Zamestnancovi bola položená otázka |
+| investigating → awaiting_reporter | Priradený analytik / administrátor | Osoba žiadajúca o odpoveď položila v aktuálnom cykle vyšetrovania verejnú otázku, na ktorú nahlasovateľ zatiaľ verejne neodpovedal |
 | awaiting_reporter → investigating | Nahlasovateľ | Nahlasovateľ odpovedal verejným komentárom (automaticky; interné poznámky sa nepočítajú) |
 | investigating → resolved | Analyst | Zaznamenané riešenie a prijaté opatrenia |
 | resolved → closed | Nahlasovateľ / systém | Nahlasovateľ potvrdil, alebo automaticky po 7 dňoch bez odpovede |
-| resolved → investigating | Nahlasovateľ | Nahlasovateľ požiadal o prehodnotenie s komentárom |
+| resolved → investigating | Nahlasovateľ | Verejná odpoveď alebo formálna žiadosť o prehodnotenie s odôvodnením obnoví vyšetrovanie. Lehota na uzatvorenie sa zruší, zmena stavu sa zaznamená a priradený analytik dostane notifikáciu |
 | closed / false_positive → investigating | Admin | Opätovné otvorenie s dôvodom |
 
 ## Matica práv

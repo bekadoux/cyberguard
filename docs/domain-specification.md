@@ -147,11 +147,11 @@ Archiving (`archived_at`) is not a workflow status but a soft-delete marker: an 
 | submitted → triage | Analyst | Analyst took the incident; assignment recorded |
 | triage → investigating | Analyst | Threat is likely; category and severity set |
 | triage → false_positive | Analyst | No threat; reason required; employee is notified |
-| investigating → awaiting_reporter | Analyst | A question was sent to the employee |
+| investigating → awaiting_reporter | Assigned analyst / admin | The requester posted a public question during this investigation cycle; the reporter has not answered it publicly |
 | awaiting_reporter → investigating | Reporter | Reporter answered with a public comment (automatic; internal notes do not count) |
 | investigating → resolved | Analyst | Resolution and measures taken recorded |
 | resolved → closed | Reporter / system | Reporter confirmed, or automatically after 7 days without a response |
-| resolved → investigating | Reporter | Reporter requested a review, with a comment |
+| resolved → investigating | Reporter | A public reply or a formal review request with a reason reopens the investigation, clears the closure timer, records the transition and notifies the assigned analyst |
 | closed / false_positive → investigating | Admin | Reopened with a reason |
 
 ## Permission matrix

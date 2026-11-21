@@ -9,7 +9,8 @@ Base: `main` at `7b91f0b` (archived 10 November 2026). **Review and tests requir
 - Go internal AI context endpoint now reads the snapshot associated with the persisted job, not mutable incident text. Historical jobs remain nullable/unbackfilled and will not have a snapshot in this new endpoint; no automatic backfill.
 - Professional analyst/admin own-report projection now includes severity as required by the domain clarification. Employee projections remain restricted; Python's AI read endpoint continues to check current role through Go.
 - Go incident API: claim (first claimant wins), admin assignment, restricted field updates, allowed status transitions, public/internal comments, soft archive, and professional action history.
-- Reporter public answer resumes `awaiting_reporter` → `investigating`, but internal comments do not. Unassigned analysts may add **internal** comments, not professional-side public comments. The responsible analyst/admin may post public questions.
+- To enter `awaiting_reporter`, the assigned analyst or admin making the request must have posted a public question since the current investigation began, with no later public reporter reply. Each new cycle needs a new question. Unassigned analysts can add internal notes, not professional-side public questions.
+- A public reply from the reporter on an `awaiting_reporter` or `resolved` incident returns it to `investigating`. Internal notes do not change status, including notes by a staff reporter. On a resolved incident, either a public reporter reply or a formal review request records the status change, clears the seven-day closure timer and notifies the assigned analyst in the same transaction. A formal request stores the reason as a public comment. When the reporter is the assigned analyst, they receive just the review notification.
 - Go session-protected admin API: create/list users, role change, block/unblock, password reset using Argon2id and `auth_version` invalidation; identity audit excludes passwords and hashes.
 - Session-protected in-app notifications for incident activity. A periodic Go maintenance task closes resolved incidents seven days after `resolved_at`, recording an audit event and notification.
 - New OpenAPI file `api/go-handoff.openapi.yaml` and Go unit/integration tests.
@@ -25,8 +26,8 @@ Base: `main` at `7b91f0b` (archived 10 November 2026). **Review and tests requir
 | POST | `/incidents/{id}/archive` | admin; reason required |
 | GET/POST | `/incidents/{id}/comments` | scoped; `public`/`internal` rules |
 | GET | `/incidents/{id}/history` | analyst/admin |
-| GET | `/notifications` | current user |
-| POST | `/notifications/{id}/read` | notification recipient |
+| GET | `/notifications` | recipient; incident-linked items require current access to the non-archived incident |
+| POST | `/notifications/{id}/read`, `/notifications/{id}/unread` | same scope as listing; missing or inaccessible items return 404 |
 | GET/POST | `/admin/users` | admin |
 | POST | `/admin/users/{id}/role` | admin |
 | POST | `/admin/users/{id}/block` | admin |
@@ -53,7 +54,7 @@ All changes use existing `protectedSession` middleware, which validates current 
 5. Identity and incident stores are separate PostgreSQL instances: user assignment validation reads identity before the incident transaction, so cross-database role changes cannot be made fully atomic without an agreed architecture. Test race/revocation paths.
 6. Auto-close runs every hour in the Go API (including once at startup). Dedicated scheduled maintenance would be preferable for multi-replica production deployments; current row locks prevent concurrent duplicate closures.
 7. `/admin/audit` returns identity-user administration events; per-incident actions are at `/incidents/{id}/history`. No global cross-DB combined audit feed is provided.
-8. Comment list, history list, notifications list, and users list have hard caps (500/500/100/500). Pagination and frontend screens remain separate follow-on work.
+8. Comments and history return the latest 500 visible entries, ordered oldest to newest by `(created_at, id)`. Notifications return the latest 100 visible items, newest first. After demotion to employee, incident-linked notifications remain accessible only for the employee's own non-archived reports. Unlinked notifications remain recipient-only.
 9. No new browser/frontend screens are bundled. Frontend remains assigned to the architect; supply them the updated OpenAPI and validate the UI jointly.
 10. AI models, secret files, `.local`, `.git`, `.vs`, build caches, and production deployment configuration are not bundled or overwritten. The existing AI inference services remain unchanged.
 11. Existing username/password admin calls have no dedicated request rate limiter beyond the authenticated system. Consider additional admin rate limits and HTTP audit monitoring before production.
