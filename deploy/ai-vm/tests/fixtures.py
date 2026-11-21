@@ -54,7 +54,10 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 }
             )
-        else:
+        elif self.path == '/v1/chat/completions/input_tokens':
+            # Fixed count for the synthetic smoke input; no tokenizer or model weights.
+            self.reply({'input_tokens': 256})
+        elif self.path == '/v1/chat/completions':
             self.reply(
                 {
                     'choices': [
@@ -76,6 +79,8 @@ class Handler(BaseHTTPRequestHandler):
                     ]
                 }
             )
+        else:
+            self.reply({}, 404)
 
 
 if __name__ == '__main__':

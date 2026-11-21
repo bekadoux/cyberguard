@@ -35,6 +35,12 @@ Instead the optional `ai-kev` container runs **Kev-0.8B**, a Jev-style *differen
 
 The optional `ai-llm` container runs **Qwen2.5-1.5B-Instruct Q4_K_M GGUF** with `llama.cpp` and a single CPU thread. The LLM produces a brief (summary, facts, unknowns, questions). `suggested_steps` are taken **only from** `docs/playbooks.md` (which is currently a draft awaiting domain-expert approval); the model cannot choose arbitrary playbook steps or run tools. `AI_MODE=models` is the default. A failed model call makes the job `failed`, never `completed` with a fake result.
 
+Local and AI-VM llama.cpp deployments use a 2,048-token context. Before generation,
+the worker posts the complete chat request to the same model's
+`/v1/chat/completions/input_tokens` endpoint. If the templated prompt exceeds 1,648
+tokens, it shortens long incident fields with an ellipsis and recounts, preserving
+400 tokens for the reply. An unavailable or invalid count fails the job.
+
 **No model weights are bundled**: models download at a separate explicit setup stage.
 Check licensing, provenance, SHA hashes and CPU performance. Use `AI_MODE=fake` only
 against disposable integration data, then enable real models. The Kev Dockerfile now
