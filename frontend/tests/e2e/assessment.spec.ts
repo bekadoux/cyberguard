@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { completedAssessment } from '../support/assessments';
 import { analyst, detail, employee, first, identity } from '../support/incidents';
 import { auditIncidents } from '../support/accessibility';
+import type { JobReview } from '../../src/features/incidents/workflow-api';
 
 test.beforeEach(async ({ page }) => {
   await identity(page, analyst);
@@ -33,6 +34,218 @@ test('renders stored advisory output without changing confirmed incident fields'
   await page.clock.fastForward(60_000);
   expect(reads).toBe(initialReads);
 });
+
+test('preserves sibling drafts, patches only changed fields, and reloads the saved job decision', async ({
+  page,
+}) => {
+  let report = {
+    ...detail,
+    category: null as string | null,
+    severity: 'low',
+    status: 'triage',
+    affected_system: detail.affected_system as string | null,
+    assigned_analyst_id: analyst.id,
+    assigned_analyst: { id: analyst.id, username: analyst.username },
+  };
+  let job = completedAssessment.job;
+  const reviews = new Map<string, JobReview>();
+  const patches: unknown[] = [];
+  await page.route(`**/api/incidents/${first.id}`, (r) =>
+    r.fulfill({ json: { incident: report } }),
+  );
+  await page.route('**/ai/incidents/*/assessment', (r) =>
+    r.fulfill({ json: { ...completedAssessment, job } }),
+  );
+  await page.route('**/api/incidents/*/ai-feedback/*', (r) => {
+    const id = new URL(r.request().url()).pathname.split('/').at(-1)!;
+    return r.fulfill({ json: { review: reviews.get(id) ?? null } });
+  });
+  await page.route('**/api/incidents/*/ai-feedback', (r) => {
+    const review: JobReview = r.request().postDataJSON();
+    reviews.set(review.job_id, review);
+    report.category = review.category;
+    return r.fulfill({ status: 201, json: { recorded: true } });
+  });
+  await page.route('**/api/incidents/*/fields', (r) => {
+    expect(r.request().method()).toBe('PATCH');
+    const patch = r.request().postDataJSON();
+    patches.push(patch);
+    report = { ...report, ...patch };
+    return r.fulfill({ json: { updated: true } });
+  });
+  await page.goto(`/incidents/${first.id}`);
+  const save = page.getByRole('button', { name: 'Save fields' });
+  await expect(save).toBeDisabled();
+  const system = page.getByLabel('Affected system');
+  await system.fill('  Company email ');
+  await expect(save).toBeDisabled();
+  await system.fill('');
+  await page.getByLabel('Your message').fill('Unsaved discussion');
+  await page.getByLabel('Next action').selectOption('false_positive');
+  await page.getByLabel('Reason (required)', { exact: true }).fill('Unsaved transition');
+  const reviewForm = page.getByRole('form', { name: 'AI feedback review' });
+  await reviewForm.getByLabel('Reason (optional)').fill('Analyst confirmed');
+  await page.getByRole('button', { name: 'Refresh assessment' }).click();
+  await expect(reviewForm.getByLabel('Reason (optional)')).toHaveValue(
+    'Analyst confirmed',
+  );
+  await reviewForm.getByRole('button', { name: 'Save human decision' }).click();
+  const recorded = page.getByRole('region', { name: 'Recorded human review' });
+  await expect(recorded).toContainText('Analyst confirmed');
+  await expect(page.getByRole('combobox', { name: 'Category', exact: true })).toHaveValue(
+    'phishing',
+  );
+  await expect(system).toHaveValue('');
+  await Promise.all([
+    page.waitForResponse(
+      (r) => new URL(r.url()).pathname === `/api/incidents/${first.id}` && r.ok(),
+    ),
+    save.click(),
+  ]);
+  await expect(save).toBeDisabled();
+  expect(patches).toEqual([{ affected_system: null }]);
+  await expect(page.getByLabel('Your message')).toHaveValue('Unsaved discussion');
+  await expect(page.getByLabel('Reason (required)')).toHaveValue('Unsaved transition');
+  await page.reload();
+  await expect(recorded).toContainText('accepted');
+  await expect(recorded).toContainText('Phishing / social engineering');
+  await expect(reviewForm).toHaveCount(0);
+  await expect(page.getByLabel('Your message')).toHaveValue('');
+  job = { ...job, id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' };
+  await page.getByRole('button', { name: 'Refresh assessment' }).click();
+  await expect(reviewForm).toBeVisible();
+  await expect(recorded).toHaveCount(0);
+});
+
+test('keeps review read failures distinct from an unreviewed job and displays terminal decisions', async ({
+  page,
+}) => {
+  let failed = true;
+  await identity(page, { ...analyst, role: 'admin' });
+  await page.route(`**/api/incidents/${first.id}`, (r) =>
+    r.fulfill({ json: { incident: { ...detail, status: 'closed' } } }),
+  );
+  await page.route('**/ai/incidents/*/assessment', (r) =>
+    r.fulfill({ json: completedAssessment }),
+  );
+  await page.route('**/api/incidents/*/ai-feedback/*', (r) =>
+    failed
+      ? r.fulfill({ status: 503, json: { error: { code: 'unavailable' } } })
+      : r.fulfill({
+          json: {
+            review: {
+              job_id: completedAssessment.job.id,
+              decision: 'corrected',
+              category: 'other',
+              reason: 'Correction on record',
+            },
+          },
+        }),
+  );
+  await page.goto(`/incidents/${first.id}`);
+  await expect(page.getByText(/Unable to load human review/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save human decision' })).toHaveCount(0);
+  failed = false;
+  await page.getByRole('button', { name: 'Retry review' }).click();
+  await expect(page.getByRole('region', { name: 'Recorded human review' })).toContainText(
+    'Correction on record',
+  );
+  await expect(page.getByRole('button', { name: 'Save human decision' })).toHaveCount(0);
+});
+
+test('recovers a concurrent review and keeps it read-only after reassignment', async ({
+  page,
+}) => {
+  let assigned = true;
+  let reviewed = false;
+  let reads = 0;
+  await page.route(`**/api/incidents/${first.id}`, (r) =>
+    r.fulfill({
+      json: {
+        incident: {
+          ...detail,
+          assigned_analyst_id: assigned ? analyst.id : null,
+          assigned_analyst: assigned ? analyst : null,
+        },
+      },
+    }),
+  );
+  await page.route('**/ai/incidents/*/assessment', (r) =>
+    r.fulfill({ json: completedAssessment }),
+  );
+  await page.route('**/api/incidents/*/ai-feedback/*', (r) => {
+    reads++;
+    return r.fulfill({
+      json: {
+        review: reviewed
+          ? {
+              job_id: completedAssessment.job.id,
+              decision: 'rejected',
+              category: null,
+              reason: 'Independent review',
+            }
+          : null,
+      },
+    });
+  });
+  await page.route('**/api/incidents/*/ai-feedback', (r) => {
+    reviewed = true;
+    return r.fulfill({ status: 409, json: { error: { code: 'conflict' } } });
+  });
+  await page.goto(`/incidents/${first.id}`);
+  await page.getByRole('button', { name: 'Save human decision' }).click();
+  await expect(page.getByText('Reason: Independent review')).toBeVisible();
+  const eligibleReads = reads;
+  await page.route('**/api/incidents/*/comments', (r) => {
+    if (r.request().method() === 'POST') {
+      assigned = false;
+      return r.fulfill({ status: 201, json: { saved: true } });
+    }
+    return r.fulfill({ json: { comments: [] } });
+  });
+  await page.getByLabel('Your message').fill('Public follow-up');
+  await page.getByRole('button', { name: 'Post comment' }).click();
+  await expect(page.locator('.incident-metadata')).toContainText('Unassigned');
+  await expect(page.getByText('Reason: Independent review')).toBeVisible();
+  await expect(page.getByRole('form', { name: 'AI feedback review' })).toHaveCount(0);
+  expect(reads).toBe(eligibleReads);
+});
+
+test('an unassigned analyst can read a saved review but cannot review a new job', async ({
+  page,
+}) => {
+  let job = completedAssessment.job;
+  await page.route('**/ai/incidents/*/assessment', (r) =>
+    r.fulfill({ json: { ...completedAssessment, job } }),
+  );
+  await page.route('**/api/incidents/*/ai-feedback/*', (r) =>
+    r.fulfill({
+      json: {
+        review: new URL(r.request().url()).pathname.endsWith(completedAssessment.job.id)
+          ? {
+              job_id: completedAssessment.job.id,
+              decision: 'corrected',
+              category: 'other',
+              reason: 'Recorded by the assigned analyst',
+            }
+          : null,
+      },
+    }),
+  );
+  await page.goto(`/incidents/${first.id}`);
+  const recorded = page.getByRole('region', { name: 'Recorded human review' });
+  const form = page.getByRole('form', { name: 'AI feedback review' });
+  await expect(recorded).toContainText('Recorded by the assigned analyst');
+  await expect(form).toHaveCount(0);
+  job = { ...job, id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' };
+  await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith(`/ai-feedback/${job.id}`) && r.ok()),
+    page.getByRole('button', { name: 'Refresh assessment' }).click(),
+  ]);
+  await expect(page.getByText('Loading human review…')).toHaveCount(0);
+  await expect(recorded).toHaveCount(0);
+  await expect(form).toHaveCount(0);
+});
 for (const role of ['employee', 'analyst', 'admin'] as const) {
   test(`applies ${role} assessment access on the reporter's own record`, async ({
     page,
@@ -40,6 +253,10 @@ for (const role of ['employee', 'analyst', 'admin'] as const) {
     const user = { ...employee, role };
     await identity(page, user);
     let reads = 0;
+    let reviewReads = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.includes('/ai-feedback/')) reviewReads++;
+    });
     await page.route('**/ai/incidents/*/assessment', (route) => {
       reads++;
       return route.fulfill({ json: completedAssessment });
@@ -49,6 +266,7 @@ for (const role of ['employee', 'analyst', 'admin'] as const) {
     if (role === 'employee') {
       await expect(page.getByTestId('assessment-panel')).toHaveCount(0);
       expect(reads).toBe(0);
+      expect(reviewReads).toBe(0);
     } else {
       await expect(
         page

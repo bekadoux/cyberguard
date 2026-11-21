@@ -1,5 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { ApiError } from '../../shared/api/client';
 import { useAuth } from '../auth/use-auth';
 import {
   assessmentError,
@@ -38,7 +39,6 @@ export function AssessmentPanel({
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
-      setState({ ...initial, source });
       if (pending) return;
       try {
         const data = await runProtected(() =>
@@ -48,13 +48,21 @@ export function AssessmentPanel({
           setState({ source, data, error: null, loading: false });
       } catch (error) {
         if (!controller.signal.aborted && !isAborted(error))
-          setState({ source, data: null, error, loading: false });
+          setState((previous) => ({
+            source,
+            data:
+              error instanceof ApiError && (error.status === 0 || error.status >= 500)
+                ? previous.data
+                : null,
+            error,
+            loading: false,
+          }));
       }
     }
     void load();
     return () => controller.abort();
   }, [incidentId, source, pending, runProtected]);
-  const current = state.source === source ? state : initial;
+  const current = state;
   const data = current.data;
   const result = data?.result;
   const brief = result?.assessment.brief;
@@ -69,7 +77,7 @@ export function AssessmentPanel({
         <button
           className="button button-secondary"
           type="button"
-          disabled={current.loading || pending}
+          disabled={current.source !== source || current.loading || pending}
           onClick={() => setReload((value) => value + 1)}
         >
           <RefreshCw size={15} aria-hidden="true" />
@@ -82,11 +90,16 @@ export function AssessmentPanel({
       </p>
       {current.loading ? (
         <p role="status">Loading assessment…</p>
-      ) : current.error !== null ? (
+      ) : current.error !== null && !data ? (
         <p role="status">{assessmentError(current.error)}</p>
       ) : (
         data && (
           <>
+            {current.error !== null && (
+              <p role="alert">
+                {assessmentError(current.error)} Showing the last loaded assessment.
+              </p>
+            )}
             <div className="assessment-state">
               <span className={`incident-status assessment-${data.job.status}`}>
                 {jobLabels[data.job.status]}
@@ -194,6 +207,7 @@ export function AssessmentPanel({
                 <AIReview
                   key={data.job.id}
                   assessment={data}
+                  version={current.source}
                   incident={incident}
                   onChanged={onChanged}
                 />

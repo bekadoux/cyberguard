@@ -1,19 +1,34 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { ApiError } from '../../shared/api/client';
 import { useAuth } from '../auth/use-auth';
 import type { Assessment } from './assessment';
 import { categoryLabels, type IncidentCategory, type IncidentDetail } from './model';
-import { workflowApi, type FeedbackDecision } from './workflow-api';
-import { actionError } from './workflow-ui';
+import { workflowApi, type FeedbackDecision, type JobReview } from './workflow-api';
+import { actionError, terminal } from './workflow-ui';
 
-export function AIReview({
-  assessment,
-  incident,
-  onChanged,
-}: {
+type Props = {
   assessment: Assessment;
   incident: IncidentDetail;
+  version: string;
   onChanged: () => void;
-}) {
+};
+
+export function AIReview(props: Props) {
+  const { user } = useAuth();
+  if (
+    props.assessment.result?.source_kind !== 'kev_llm' ||
+    (user?.role !== 'admin' && user?.role !== 'analyst')
+  )
+    return null;
+  return (
+    <JobReviewPanel
+      key={`${user.id}/${user.role}/${props.incident.id}/${props.assessment.job.id}`}
+      {...props}
+    />
+  );
+}
+
+function JobReviewPanel({ assessment, incident, version, onChanged }: Props) {
   const { user, pending, runProtected } = useAuth();
   const [decision, setDecision] = useState<FeedbackDecision>(
     assessment.result?.assessment.triage.suggested_category ? 'accepted' : 'corrected',
@@ -23,20 +38,61 @@ export function AIReview({
   );
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const source = `${version}/${revision}`;
+  const [read, setRead] = useState<{
+    source: string;
+    review: JobReview | null;
+    error?: string;
+  } | null>(null);
+  const jobId = assessment.job.id;
+  useEffect(() => {
+    const controller = new AbortController();
+    void runProtected(() =>
+      workflowApi.review(incident.id, jobId, controller.signal),
+    ).then(
+      (review) => {
+        if (!controller.signal.aborted) setRead({ source, review });
+      },
+      (err: unknown) => {
+        if (!controller.signal.aborted)
+          setRead({ source, review: null, error: actionError(err) });
+      },
+    );
+    return () => controller.abort();
+  }, [incident.id, jobId, source, runProtected]);
   const [error, setError] = useState('');
   const suggested = assessment.result?.assessment.triage.suggested_category;
-  const canReview =
+  if (read?.source !== source) return <p role="status">Loading human review…</p>;
+  if (read.error)
+    return (
+      <div className="workflow-form">
+        <p role="alert">Unable to load human review. {read.error}</p>
+        <button
+          className="button button-secondary"
+          onClick={() => setRevision((v) => v + 1)}
+        >
+          Retry review
+        </button>
+      </div>
+    );
+  if (read.review) {
+    const { decision, category, reason } = read.review;
+    return (
+      <section className="workflow-form" aria-label="Recorded human review">
+        <h3>Recorded human review</h3>
+        <p>
+          Decision: <strong>{decision}</strong>
+        </p>
+        {category && <p>Confirmed category: {categoryLabels[category]}</p>}
+        {reason && <p className="text-preserved">Reason: {reason}</p>}
+      </section>
+    );
+  }
+  const canSubmit =
     user?.role === 'admin' ||
     (user?.role === 'analyst' && incident.assigned_analyst_id === user.id);
-  if (
-    !assessment.result ||
-    assessment.result.source_kind !== 'kev_llm' ||
-    !canReview ||
-    incident.status === 'closed' ||
-    incident.status === 'false_positive'
-  )
-    return null;
+  if (!canSubmit || terminal.includes(incident.status)) return null;
   const invalid =
     (decision === 'accepted' && (!suggested || category !== suggested)) ||
     (decision === 'corrected' &&
@@ -44,7 +100,7 @@ export function AIReview({
     (decision === 'rejected' && !reason.trim());
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (invalid) return;
+    if (invalid || busy || pending) return;
     setBusy(true);
     setError('');
     try {
@@ -56,10 +112,14 @@ export function AIReview({
           reason: reason.trim(),
         }),
       );
-      setSaved(true);
+      setRevision((v) => v + 1);
       onChanged();
     } catch (e) {
       setError(actionError(e));
+      if (e instanceof ApiError && [403, 404, 409].includes(e.status)) {
+        setRevision((v) => v + 1);
+        onChanged();
+      }
     } finally {
       setBusy(false);
     }
@@ -81,64 +141,60 @@ export function AIReview({
           {error}
         </p>
       )}
-      {saved ? (
-        <p role="status">AI review recorded successfully. See incident history.</p>
-      ) : (
-        <>
-          <label>
-            Decision
-            <select
-              value={decision}
-              onChange={(e) => {
-                const value = e.target.value as FeedbackDecision;
-                setDecision(value);
-                if (value === 'accepted') setCategory(suggested ?? '');
-              }}
-            >
-              <option value="accepted" disabled={!suggested}>
-                Accept suggested category
-              </option>
-              <option value="corrected">Correct suggested category</option>
-              <option value="rejected">Reject assessment</option>
-            </select>
-          </label>
-          {decision !== 'rejected' && (
-            <label>
-              Confirmed category
-              <select
-                required
-                value={category}
-                disabled={decision === 'accepted'}
-                onChange={(e) => setCategory(e.target.value as IncidentCategory | '')}
-              >
-                <option value="">Select category</option>
-                {Object.entries(categoryLabels).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label>
-            Reason {decision === 'accepted' ? '(optional)' : '(required)'}
-            <textarea
-              rows={2}
-              maxLength={2000}
-              required={decision !== 'accepted'}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </label>
-          <button
-            type="submit"
-            className="button button-primary"
-            disabled={busy || pending || invalid}
+      <label>
+        Decision
+        <select
+          value={decision}
+          disabled={busy}
+          onChange={(e) => {
+            const value = e.target.value as FeedbackDecision;
+            setDecision(value);
+            if (value === 'accepted') setCategory(suggested ?? '');
+          }}
+        >
+          <option value="accepted" disabled={!suggested}>
+            Accept suggested category
+          </option>
+          <option value="corrected">Correct suggested category</option>
+          <option value="rejected">Reject assessment</option>
+        </select>
+      </label>
+      {decision !== 'rejected' && (
+        <label>
+          Confirmed category
+          <select
+            required
+            value={category}
+            disabled={busy || decision === 'accepted'}
+            onChange={(e) => setCategory(e.target.value as IncidentCategory | '')}
           >
-            Save human decision
-          </button>
-        </>
+            <option value="">Select category</option>
+            {Object.entries(categoryLabels).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
+      <label>
+        Reason {decision === 'accepted' ? '(optional)' : '(required)'}
+        <textarea
+          rows={2}
+          maxLength={2000}
+          required={decision !== 'accepted'}
+          value={reason}
+          disabled={busy}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </label>
+      <button
+        type="submit"
+        className="button button-primary"
+        disabled={busy || pending || invalid}
+      >
+        Save human decision
+      </button>
     </form>
   );
 }
