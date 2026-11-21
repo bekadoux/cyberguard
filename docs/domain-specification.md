@@ -1,16 +1,13 @@
 # CyberGuard — Domain Specification
 
-Version: draft, 8 Nov 2026 · Author: Vitalina (domain expert) · [Slovenská verzia](domain-specification.sk.md)
+Author: Vitalina (domain expert) · [Slovenská verzia](domain-specification.sk.md)
 
 ## Purpose
 
-This document describes the domain side of CyberGuard: incident fields, categories, severity, indicators, statuses, permissions, playbooks and demo scenarios. It covers the items in section 12 of `project-plan.md` that must be agreed before implementation.
-
-Who needs what:
-
-- **Architect (Nikita):** statuses and the permission matrix — for the database schema and API contracts.
-- **AI expert (SaiLenT):** categories, severity rubric and indicators — inputs for the model (Choice, Score and Noul operations).
-- **Go developer:** incident fields and the values of the `category`, `severity` and `status` enums.
+This document describes CyberGuard's incident fields, taxonomy, severity rubric,
+lifecycle, permissions, playbooks, and demo scenarios. See the
+[architecture overview](../README.md#architecture) for component contracts and the
+[temporary backlog](backlog.md) for unfinished work.
 
 ## Incident fields
 
@@ -20,24 +17,24 @@ What is stored about each incident, who fills each field in and who may change i
 | --- | --- | --- | --- | --- |
 | `id` | Unique identifier (UUID) | yes | system | nobody |
 | `reporter_id` | Who reported the incident | yes | system (from the session) | nobody |
-| `title` | Short title | yes | employee | nobody after submission |
-| `description` | Description of the situation | yes | employee | nobody after submission |
-| `affected_system` | Affected system (free text) | no | employee | assigned analyst, admin |
-| `status` | Incident status | yes (`submitted`) | system | analyst / admin, allowed transitions only |
-| `category` | Category | no (`null`) | analyst | assigned analyst, admin |
-| `severity` | Severity | no (`null`) | analyst | assigned analyst, admin |
-| `assigned_analyst_id` | Analyst handling the incident | no | analyst (takes it) | admin may reassign |
-| `resolution_note` | What was done and the outcome | when moving to `resolved` | analyst | assigned analyst, admin |
-| `status_reason` | Reason for false positive, reopening or review request | for those transitions | whoever makes the transition | nobody |
-| `archived_at`, `archive_reason` | Archiving (soft delete) | no | admin | nobody |
+| `title` | Short title | yes | reporter | nobody after submission |
+| `description` | Description of the situation | yes | reporter | nobody after submission |
+| `affected_system` | Affected system (free text) | no | reporter | assigned analyst, admin |
+| `status` | Incident status | yes (`submitted`) | system | allowed actors for each transition |
+| `category` | Confirmed category | no (`null`) | assigned analyst or admin | assigned analyst, admin |
+| `severity` | Confirmed severity | no (`null`) | assigned analyst or admin | assigned analyst, admin |
+| `assigned_analyst_id` | Staff member handling the incident | no | staff member who claims it, or admin assigning an active analyst | admin may reassign in eligible states |
+| `resolution_note` | What was done and the outcome | when moving to `resolved` | assigned analyst or admin | assigned analyst, admin |
+| `archived_at`, `archive_reason` | Archive marker and reason (soft delete) | when archiving | admin | nobody |
 | `created_at`, `updated_at` | Creation and last update time | yes | system | nobody |
 
 Rules:
 
-- **The description cannot be edited after submission.** It records what the employee originally reported. Further information is added as comments.
+- **The title and description cannot be edited after submission.** Further information is added as comments.
 - **Some fields become required only at a certain step.** For example, `resolution_note` may stay empty until the incident is resolved, but the transition to `resolved` is rejected without it.
 - **Maximum lengths:** `title` 200 characters, `description` 10,000, `affected_system` 500. Required fields must contain non-whitespace text.
 - **Comments** are a separate entity: incident, author, text, time and visibility — `public` or `internal`.
+- **Transition reasons** are recorded in the incident action history, not mutable incident fields. The archive reason is stored with the archive marker and also recorded in the action history.
 
 ### What the reporter sees
 
@@ -48,18 +45,21 @@ does not grant an unassigned analyst permission to change confirmed fields.
 
 | Information | Visible to the reporter |
 | --- | --- |
+| Current status and in-app notifications | yes |
 | Confirmed `category` | yes — it helps them recognise the threat next time |
 | Confirmed `severity` | no — it is an internal queue priority |
 | Assigned analyst (username) | yes |
 | `resolution_note` | yes, in full — the analyst writes it for the reporter; technical details go into internal comments |
 | Public comments | yes, and they may reply |
-| Internal comments, AI suggestions, brief | no |
+| Internal comments, staff action history, AI suggestions, brief | no |
 
 Being able to read a field does not grant permission to change it.
 
 ## Incident categories
 
-We propose 8 categories, phrased around what an employee can notice and describe themselves. Technical categories such as DDoS from the original proposal were dropped: an ordinary employee only sees "the site won't load", which is a service disruption.
+The eight categories are phrased around what an employee can notice and describe.
+For example, an employee can report "the site won't load" as a service disruption
+without having to diagnose its technical cause.
 
 | Code (`category`) | Name | What the employee reports | Example description |
 | --- | --- | --- | --- |
@@ -75,14 +75,14 @@ We propose 8 categories, phrased around what an employee can notice and describe
 Rules:
 
 - One incident has one main category. The analyst notes anything else in a comment.
-- `ransomware` is a subcategory of `malware`, not a separate main category: it marks malware that encrypts files and demands a ransom. Such incidents are usually `critical`. How the subcategory is stored is an engineering decision.
+- Ransomware is a type of `malware`, not a separately stored category or subtype. The report or comments can record that detail. Such incidents are often `critical`, depending on impact.
 - Incident descriptions may be written in English or Slovak. English is the main language for development, documentation and AI tuning.
-- `other` is a legitimate model answer under low confidence, not an error.
+- `other` is a valid confirmed category. If AI's best answer is `other` or below its category threshold, the UI shows no suggested category.
 - Basis: a simplified ENISA Reference Incident Classification Taxonomy and the VERIS categories.
 
 ## Severity
 
-Four levels on an ordinal scale — the input for the Score operation. The level is set by the most serious criterion that applies.
+Four levels on an ordinal scale. The confirmed level is set by the most serious criterion that applies.
 
 | Level (`severity`) | Criteria | Example | Target first analyst response |
 | --- | --- | --- | --- |
@@ -94,15 +94,21 @@ Four levels on an ordinal scale — the input for the Score operation. The level
 Rules:
 
 - A new incident has `severity = null` until someone assesses it.
-- The model only suggests a level; the analyst makes the final decision.
+- The model reports a separate 0–3 potential impact score. It does not set severity.
+  Assigned analysts or admins confirm severity separately from category-only AI feedback.
 - If the description mentions no signs of damage, the level is not lowered automatically: the employee may not have noticed the consequences.
-- Response times are guidance for the demo and dashboard, not a binding SLA.
+- Response times are domain guidance, not a binding or enforced SLA.
 
 ## Indicators (yes/no questions)
 
-Eight narrow questions for the Noul operation. Each checks only what the description **explicitly states**, not what probably happened.
+This eight-question **domain rubric** checks what the description **explicitly
+states**, not what probably happened. It is not the current AI output schema.
+Today the [AI service](ai-backend.md#models-and-output) evaluates four signals:
+suspicious link clicked, credentials entered, files encrypted, and unauthorized
+access reported. Staff can view their probabilities in the assessment details.
+Expanded coverage and highlighting are tracked in the [temporary backlog](backlog.md).
 
-| Code | Question about the description | Why it matters to the analyst | Effect on severity |
+| Code | Question about the description | Why it matters to the analyst | Severity guidance for human review |
 | --- | --- | --- | --- |
 | `clicked_link` | Does the employee say they clicked a link? | Possible malware download or data entry | ↑ to medium |
 | `credentials_entered` | Does the employee say they entered a password or code? | Immediate password change, login review | ↑ to high |
@@ -116,8 +122,7 @@ Eight narrow questions for the Noul operation. Each checks only what the descrip
 Rules:
 
 - A "no" probability ≠ "it did not happen". It means "the description does not say".
-- Indicators with high probability are highlighted on the incident card and are candidates for follow-up questions in the brief.
-- Probability thresholds are set by the AI expert after evaluation on the demo data.
+- The severity guidance is for analysts. An indicator never changes incident severity automatically.
 
 ## Lifecycle and statuses
 
@@ -126,7 +131,7 @@ Seven statuses following the NIST/SANS model. They are separate from AI job stat
 ```mermaid
 stateDiagram-v2
     [*] --> submitted
-    submitted --> triage : analyst takes it
+    submitted --> triage : staff claim or admin assignment
     triage --> investigating : threat likely
     triage --> false_positive : no threat
     investigating --> awaiting_reporter : question to employee
@@ -144,41 +149,40 @@ Archiving (`archived_at`) is not a workflow status but a soft-delete marker: an 
 
 | Transition | Who | Condition / what is recorded |
 | --- | --- | --- |
-| submitted → triage | Analyst | Analyst took the incident; assignment recorded |
-| triage → investigating | Analyst | Threat is likely; category and severity set |
-| triage → false_positive | Analyst | No threat; reason required; employee is notified |
+| submitted → triage | Analyst / admin | Staff member claims it, or an admin assigns an active analyst; assignment is recorded |
+| triage → investigating | Assigned analyst / admin | Threat is likely; category and severity set |
+| triage → false_positive | Assigned analyst / admin | No threat; reason required; reporter is notified |
 | investigating → awaiting_reporter | Assigned analyst / admin | The requester posted a public question during this investigation cycle; the reporter has not answered it publicly |
 | awaiting_reporter → investigating | Reporter | Reporter answered with a public comment (automatic; internal notes do not count) |
-| investigating → resolved | Analyst | Resolution and measures taken recorded |
+| investigating → resolved | Assigned analyst / admin | Resolution and measures taken recorded |
 | resolved → closed | Reporter / system | Reporter confirmed, or automatically after 7 days without a response |
 | resolved → investigating | Reporter | A public reply or a formal review request with a reason reopens the investigation, clears the closure timer, records the transition and notifies the assigned analyst |
 | closed / false_positive → investigating | Admin | Reopened with a reason |
 
 ## Permission matrix
 
-The Employee ⊂ Analyst ⊂ Admin hierarchy from the plan, broken down by action. All checks run on the backend.
+The backend checks role, assignment, and reporter ownership separately.
 
 | Action | Employee | Analyst | Admin |
 | --- | --- | --- | --- |
 | Create an incident | ✓ | ✓ | ✓ |
 | See own incidents | ✓ | ✓ | ✓ |
 | See all company incidents | — | ✓ | ✓ |
-| Add information / answer a question | own | ✓ | ✓ |
 | Read public comments | own | ✓ | ✓ |
-| Write public comments | own | assigned to self | ✓ |
+| Write public comments / reply as reporter | own | own report or assigned to self | ✓ |
 | Read and write internal comments | — | ✓ (including unassigned) | ✓ |
 | See AI suggestions and brief | — | ✓ | ✓ |
-| Take an incident (assign to self) | — | ✓ | ✓ |
-| Assign or reassign someone else | — | — | ✓ |
-| Change category, severity, status | — | assigned to self | ✓ |
-| Accept or correct an AI suggestion | — | assigned to self | ✓ |
-| Close as resolved / false positive | — | assigned to self | ✓ |
+| Claim an unassigned `submitted` incident | — | ✓ | ✓ |
+| Assign or reassign to an active analyst | — | — | ✓ |
+| Change confirmed fields / make staff transitions | — | assigned to self | ✓ |
+| Record a category review or reject an AI assessment | — | assigned to self | ✓ |
+| Mark as resolved / false positive | — | assigned to self | ✓ |
 | Confirm resolution or request review (own incident) | ✓ | ✓ | ✓ |
 | Reopen a closed incident | — | — | ✓ |
 | Archive (soft delete with reason) | — | — | ✓ |
 | Manage users and roles | — | — | ✓ |
-| See the audit log | — | — | ✓ |
-| Run the demo import | — | — | ✓ |
+| Read incident action history | — | non-archived incidents | includes archived incidents by ID |
+| Read the account administration audit | — | — | ✓ |
 
 Constraints:
 
@@ -186,11 +190,18 @@ Constraints:
 - Employees never see internal comments.
 - An analyst may handle an incident they reported themselves.
 - Confirming resolution and requesting review are rights of the reporter, based on ownership, not on role.
-- Analysts who are not assigned to an incident can read it but not change it.
+- Unassigned analysts can read accessible incidents and add internal notes. They can
+  also post publicly as the reporter on their own reports; they do not gain
+  permission to change confirmed fields.
+- Reassignment is unavailable in `resolved`, `closed`, and `false_positive`.
+  Confirmed-field edits and new AI reviews are unavailable in `closed` and
+  `false_positive`; reopening follows the lifecycle rules above.
 
 ## Playbooks for the LLM brief
 
-We propose one short playbook per category (except `other`), 5–8 steps, following containment → eradication → recovery. The LLM takes steps only from these and does not invent its own.
+There is one playbook per category except `other`. The worker supplies up to four
+steps from the matching playbook; the LLM does not generate the steps. The full
+playbook remains a reference for the analyst.
 
 Example — `phishing`:
 
@@ -212,7 +223,7 @@ All seven playbooks are in [playbooks.md](playbooks.md).
 
 ## Demo scenarios
 
-Ten synthetic incidents cover all categories and levels, including two hard cases for the model. Texts are in English (the main model input), with no real passwords or data. A few Slovak descriptions will be added to the demo set, because the system also accepts Slovak.
+The examples below are synthetic and contain no real passwords or company data.
 
 | # | Employee description (short) | Expected category | Expected severity | What it shows |
 | --- | --- | --- | --- | --- |
@@ -227,7 +238,10 @@ Ten synthetic incidents cover all categories and levels, including two hard case
 | 9 | My computer is slow and fan is loud since this morning | other / malware | low | Low confidence → manual assessment |
 | 10 | Supplier asked to change bank details for next invoice payment | phishing | high | Fraud without a link (BEC) |
 
-The full demo set of 40 labelled descriptions (32 English, 8 Slovak) is in [demo-incidents.csv](demo-incidents.csv); the ten above are its first rows.
+The full set contains 80 labelled descriptions (61 English, 19 Slovak) in
+[demo-incidents.csv](demo-incidents.csv). These are reference labels, not measured
+model results. The local demo script can submit scenario no. 2 only; account seeding
+does not import incidents.
 
 Presentation scenario: no. 2 goes through the full cycle — report, AI suggestion, question to the employee, analyst corrects severity, resolution, confirmation.
 
@@ -238,12 +252,12 @@ Presentation scenario: no. 2 goes through the full cycle — report, AI suggesti
 | After how many days does `resolved` automatically become `closed`? | After 7 days without an employee response | Nikita |
 | May an analyst handle an incident they reported? | Yes | Nikita |
 | Format of project documents | Plain text (.md, .org) so they are readable on GitHub | Nikita |
-| Documentation language | English by default; a Slovak version may be added alongside | Nikita |
+| Documentation language | English by default; this domain specification is maintained in both languages | Nikita |
 | Maximum input lengths | `title` 200, `description` 10,000, `affected_system` 500 | Vitalina, Daniil |
-| What the reporter sees | Category, assigned analyst, resolution note and public comments; not severity, internal comments or AI output | Vitalina |
+| What an employee reporter sees | Current status, category, assigned analyst, resolution note, public comments and notifications; not professional fields or AI output | Vitalina |
 | Reporter actions | Confirm / request review are ownership rights, for any role | Vitalina, Daniil |
-| Who changes category, severity, `affected_system`, `resolution_note`, AI suggestions | Assigned analyst and admin only | Vitalina, Daniil |
+| Who changes category, severity, `affected_system`, `resolution_note`, or records AI feedback | Assigned analyst and admin only; the stored AI assessment is not edited | Vitalina, Daniil |
 | Comment visibility | Two types: `public` and `internal` | Vitalina, Daniil |
-| `ransomware` | A subcategory of `malware`, not a main category | SaiLenT |
+| Ransomware | Classified under `malware`; not stored separately | SaiLenT |
 | Number of categories | All 8 stay; `other` only for incidents that fit no category | SaiLenT |
 | Description language | English and Slovak accepted; English is the main language | SaiLenT |

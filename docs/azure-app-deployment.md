@@ -1,32 +1,9 @@
-# Azure application VM — Ubuntu 26.04 post-install setup
+# Azure application VM runbook
 
-This is post-install automation for an **existing Ubuntu 26.04 amd64 VM**, not Azure
-provisioning or production acceptance. The selected Standard D2as v4 has 2 vCPUs and
-8 GiB RAM. The initial environment is a synthetic-data demonstration with an
-Azure-provided public DNS hostname. Disk size has not been supplied; 128 GiB is a
-comfortable recommendation, not a provisioned resource or cost guarantee.
-
-Read [the AI VM guide](azure-ai-deployment.md), [Go handoff](handoff-implementation.md)
-and [local Docker guide](docker-setup.md). The local HTTP override is **not** deployment
-configuration. No real Azure install, public ACME renewal, NSG isolation, cold VM reboot
-or real model inference is established by disposable local tests.
-
-## Architecture and boundaries
-
-| Container | Exposure and responsibility |
-| --- | --- |
-| `web` | Public HTTP redirect/ACME and HTTPS; compiled frontend, `/api`, verified remote `/ai` |
-| `go-api` | No published port; identity, incidents, workflow, admin, notifications and maintenance |
-| `identity-db` | Separate PostgreSQL instance; TLS; internal Docker network; never published |
-| `incident-db` | Separate PostgreSQL instance; TLS; private published port for the restricted AI role |
-| `private-go` | Private HTTPS, read-only allowlist for Python authorization/context |
-
-No Node, Go toolchain, Python, models, Redis or separate scheduler is installed on the
-host. Build toolchains stay in images. Go owns hourly incident auto-close, also run at
-startup: restarting Go can close eligible incidents. Frontend workflow/admin screens
-and human AI review are supplied by the merged
-[frontend handoff](frontend-handoff-implementation.md); deployed browser acceptance
-remains separate from this deployment increment.
+This runbook targets an **existing Ubuntu 26.04 amd64 VM**. Bootstrap does not
+create Azure resources. See [deployment architecture](deployment.md) for service
+boundaries and the [AI VM runbook](azure-ai-deployment.md) for the optional second
+host. Do not use the local HTTP override on this VM.
 
 The manager explicitly selects root `compose.yaml` plus `deploy/app-vm/compose.yaml`;
 provided-certificate mode adds only `provided.compose.yaml`. It never selects
@@ -36,8 +13,8 @@ selects runtime services by name, never the `tools` profile wholesale.
 
 ## 1. Prepare the host
 
-Transfer a reviewed committed checkout with the README's archive-over-SSH pattern,
-using a new stable directory, not by copying workstation secrets or `.local/`.
+Transfer a reviewed committed checkout using Git or an archive of tracked files,
+in a stable directory. Do not copy workstation secrets or `.local/`.
 On the application VM, as its existing sudo-capable operator:
 
 ```sh
@@ -123,8 +100,9 @@ Private Go and DB names must resolve **inside AI containers**. Use approved priv
 not just host `/etc/hosts`; Docker service DNS does not span VMs. App-to-AI routing uses
 the explicit private IP while verifying `APP_AI_TLS_NAME` as TLS SNI/hostname.
 
-Install these externally issued certificate/full-chain and unencrypted key files in
-`secrets/tls/`, with directory mode 0700, files **0640**, group `APP_SECRET_GID`:
+Install the CA bundle, externally issued server certificates/full chains, and matching
+unencrypted keys in `secrets/tls/`, with directory mode 0700, files **0640**, group
+`APP_SECRET_GID`:
 
 | Files | Required certificate SANs |
 | --- | --- |
@@ -170,6 +148,7 @@ sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env db-up
 sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env bootstrap
 sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env migrate
 sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env migration-status
+# If connecting an AI VM, provision its restricted role before starting Go:
 sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env bootstrap-ai
 ```
 
@@ -203,7 +182,7 @@ URL without changing its password. Go/Python must receive the same internal toke
 ```sh
 sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env up
 sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env check
-# Complete the AI VM's own up/check procedure, then:
+# When connecting an AI VM, complete its up/check procedure, then:
 sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env check-ai
 sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env maintenance-off
 ```
@@ -227,8 +206,8 @@ maintenance tasks continue independently. Staff, including staff reporters, may 
 AI; employees cannot. The private gateway permits only GET readiness/current-user,
 single-incident detail, authenticated job context and `GET /internal/ai/auth-check`.
 The last route checks the same worker bearer credential without touching storage or
-sessions (204 on success, 401 on rejection). Update Go and the private allowlist before
-starting an upgraded worker. The public gateway denies both internal routes.
+sessions (204 on success, 401 on rejection). The public gateway denies both internal
+routes. Roll out Go and its private allowlist before starting an upgraded worker.
 
 ## 6. Maintenance, upgrades and protected backups
 
@@ -267,17 +246,20 @@ Do not run the fresh credential/bootstrap sequence over retained data.
 5. Review the new checkout and build its images explicitly, then run `migrate`.
    Go must be stopped and maintenance enabled. Successful migration/version checks
    remove the startup guard, but leave public writes paused. Failure leaves it in place.
-   The frontend handoff requires all incident migrations through `00007_ai_feedback_uuid.sql`
-   and rebuilt Go/migration and frontend images. If 00007 reports duplicate normalized
-   job UUIDs, keep writes paused for [audit review](handoff-implementation.md#feedback-migration-conflicts).
+   Deploy the rebuilt Go and frontend images only after both databases reach their
+   migration heads. If 00007 refuses historical review data, keep writes paused for
+   [audit review](#feedback-migration-conflicts).
 6. Migration 00005 grants an existing AI role its added readiness permission without
    resetting its password. Pending legacy jobs without snapshots block worker readiness;
    no automatic backfill, retirement, retry, reset or mass-failure is supplied. Keep
    processing unavailable until an explicit reviewed decision. Historical results remain.
-7. Start updated Go with `up`, then updated AI API/worker using the AI guide. Verify a new
-   synthetic submission, original immutable context after an affected-system edit, staff
-   own-report access and employee denial. Resume public writes using `maintenance-off`
-   only after the required checks/operator decisions.
+7. Start updated Go with `up`, then the AI stack if enabled. Run the read-only
+   `check` and, when applicable, `check-ai`. Once checks and required operator
+   decisions have passed, use `maintenance-off` to resume writes. The pause also
+   blocks synthetic browser submissions: run write verification in a disposable
+   fixture first, or on the deployment only in an explicitly authorized test window.
+   Verify original context after an affected-system edit, staff own-report access,
+   and employee denial. Re-enable maintenance if verification fails.
 
 Migration 00005 is forward-only. Retain old images/configuration, but do not assume old
 code is compatible with the upgraded schema. Recovery is a reviewed compatibility or
@@ -285,8 +267,27 @@ protected-backup restoration decision, with writers/workers paused, not automati
 
 `status`/`logs` provide service status/bounded logs. `stop` preserves data, certificates,
 credentials and maintenance markers. No normal command prunes Docker, removes volumes,
-upgrades PostgreSQL majors or updates releases. Scheduled backups, cloud storage,
-production account provisioning and distributed admin abuse controls are not supplied.
+upgrades PostgreSQL majors or updates releases. Deallocate unused VMs in Azure;
+stopping containers does not deallocate a VM or stop charges for retained resources.
+
+### Feedback migration conflicts
+
+Incident migration 00007 enforces one decision per normalized job UUID without
+rewriting historical actions. If it rejects duplicate, missing, or invalid UUIDs,
+keep writes paused and retain the backup. For valid UUIDs the migrator can group
+duplicates without disclosing reason text:
+
+```sql
+SELECT (details->>'job_id')::uuid AS job_id, count(*) AS reviews
+FROM incident_actions
+WHERE action = 'ai_feedback_submitted'
+GROUP BY (details->>'job_id')::uuid
+HAVING count(*) > 1;
+```
+
+If invalid UUIDs are reported, do not run the cast query until the audit owner
+has identified the invalid records. Reconciliation requires explicit approval;
+the migration does not select or delete any decision for you.
 
 ### Restore both archives on fresh instances
 
@@ -337,81 +338,12 @@ allowed job/result columns and call `ai_worker_ready()`; `claim_token` must rema
 unreadable. A false readiness bit requires the same legacy-job review as on the
 source. Verify deployment TLS/HBA, sessions, Go and AI separately before cutover.
 
-## Resource limits and acceptance
+## Disposable checks
 
-Initial caps: PostgreSQL 1 GiB each, Go 768 MiB, public Caddy 256 MiB and private Caddy
-128 MiB. Each database starts with 40 connections, 128 MiB shared buffers and 4 MiB
-work memory. CPU caps are shared ceilings, not reserved cores; there are only 2 vCPUs.
-These are **unmeasured starting values**, not a throughput guarantee. Measure CPU/RAM,
-login/admin password hashing, warm responsiveness, disk/WAL/audit/snapshot growth and
-certificate renewal on the actual VM. Do not run inference here or enable swap silently.
-
-```sh
-make app-vm-config APP_VM_CONFIG=deploy/app-vm/config.env.example
-make app-vm-test                 # host ShellCheck required
-make app-vm-test-bootstrap       # disposable Ubuntu; apt/systemd/network mocked
-make app-vm-smoke                # real app/TLS/SQL, disposable synthetic data
-make docker-test-secrets
-make docker-smoke
-DOCKER_TEST_AI=1 DOCKER_TEST_FRONTEND=1 make docker-smoke
-make ai-vm-test
-make ai-vm-smoke
-```
-
-The smoke owns only `cyberguard-app-vm-smoke-*` resources and protected `.local/app-vm-smoke.*`
-state; it removes only its own disposable volumes. Failures retain protected diagnostics
-which may contain synthetic credentials. Never reuse them for deployment.
-The default smoke additionally creates a separate AI fixture project and a disposable
-routed Docker transit network, preserving an exact source `/32` for HBA rejection tests.
-It requires a Linux Docker host supporting routed bridge mode (Docker 28+ recommended),
-host `ip`, and the pinned Python image build, but downloads no models. `APP_TEST_AI=0`
-runs only application/AI-offline checks; do not describe that as AI integration acceptance.
-Default host test ports are 18089/18446/18447/15435; explicit `APP_TEST_HTTP_PORT`,
-`APP_TEST_HTTPS_PORT`, `APP_TEST_PRIVATE_PORT`, `APP_TEST_DB_PORT` overrides avoid conflicts.
-Keep local fixture acceptance distinct from real Azure NSGs/ACME/reboot, model inference
-and production security/capacity acceptance. Deallocate VMs in Azure when unused;
-stopping containers is not deallocation, and retained resources may still cost money.
-
-Before a real demonstration, separately verify the public certificate/redirect and
-renewal state, browser Secure/HttpOnly/host-only session behavior, cold VM reboot and
-session/data persistence, source-specific private connectivity and denial from public
-and unauthorized VNet sources. Exercise a new synthetic incident end-to-end with the
-actual AI VM, including immutable context and staff/employee visibility. Record measured
-D2as v4 CPU/RAM/disk behavior; a healthy container or fixture test is not that evidence.
-
-### Local validation — 10 November 2026
-
-Validated on Linux with Docker Engine 29.9.3 / Compose 5.7.0, Go 1.27.3,
-Node 24.22.2 / npm 12.2.2 and the pinned images:
-
-- `app-vm-config` and `app-vm-build` passed with the non-secret example, without
-  runtime secrets or a running application/AI VM. The host used the legacy builder
-  fallback; bootstrap installs Buildx, but its real installation is not tested here.
-- `app-vm-test` (ShellCheck supplied by an explicit `uv tool run --from shellcheck-py`)
-  and `app-vm-test-bootstrap` passed. Host apt/systemd/network actions were mocked.
-- `make app-vm-smoke` passed using the actual deployment gateway, separate AI fixture
-  project and routed transit network. It verified public/private/SQL TLS, original
-  immutable context, stored fake output, staff own-report access, employee denial,
-  wrong-hostname rejection, exact AI source IP, role/database/plaintext/other-source
-  HBA rejection, and snapshot-less job readiness blocking without modifying that job.
-- The same smoke verified Secure cookies, CSRF/admin boundaries, forwarded-header
-  spoof rejection, maintenance/migration guards, **no version-table creation during
-  startup status checks**, retained data/sessions/Caddy state and both SQL outages.
-  Both dumps restored into fresh disposable databases on the test instances; restored
-  row counts and migration versions matched. This is not an off-host disaster-recovery test.
-- The explicit `APP_TEST_AI=0` application/AI-offline variant passed separately.
-- `make docker-test-secrets`, `make docker-smoke`, `make ai-vm-test`,
-  `make ai-vm-test-bootstrap` and `make ai-vm-smoke` passed.
-- `DOCKER_TEST_AI=1 DOCKER_TEST_FRONTEND=1 make docker-smoke` passed all **148** packaged
-  Firefox/Chromium regressions and **4** live packaged browser flows. Those are the
-  existing local HTTP browser checks, not a deployed HTTPS browser acceptance claim.
-- A separate `DOCKER_TEST_AI=1 DOCKER_TEST_GO_INTEGRATION=1 make docker-smoke`, using
-  alternate disposable ports, passed the full Go/PostgreSQL race integration suite.
-  Go/Python/SQL application source was unchanged; no new schema or authentication
-  implementation was introduced by this deployment work.
-
-Only disposable test containers/networks/volumes were removed. Ordinary application
-data and secrets were not selected. Protected failed-iteration diagnostics may remain
-under `.local/`. No Azure credentials or VM access were supplied, no weights downloaded,
-and no real inference, public ACME issuance/renewal, NSG isolation, VM reboot or deployed
-resource/cost measurements were performed.
+`make app-vm-test` needs ShellCheck; `make app-vm-test-bootstrap` mocks host setup.
+`make app-vm-smoke` exercises actual application containers, TLS, SQL, backup/restore,
+and synthetic AI on a disposable routed Linux Docker network. It needs supported
+routed bridge networking and host `ip`. `APP_TEST_AI=0` selects the app-only variant.
+Protect retained diagnostics. See the [backlog](backlog.md#validation-and-release-work)
+for separate real-host checks; smoke does not validate public ACME, Azure networking,
+reboot behavior, or model inference.

@@ -1,195 +1,66 @@
-# Go Backend Foundation
+# Go API
 
-This increment provides a runnable HTTP service, typed configuration, two independent
-PostgreSQL pools, liveness/readiness probes, and tests. The SQL increment adds database/
-role bootstrap, identity migrations, generated queries and demo accounts; see
-[database setup](database-setup.md) and the [architect handoff](architect-handoff.md).
-The [authentication increment](authentication-handoff.md) adds login/logout/current-user
-and session security. [Incident core](incidents-handoff.md) adds create/list/detail;
-assessment enqueueing and workflow mutations are not implemented yet. This is not
-the complete first milestone in the
-[engineer handoff](software-engineer-handoff.md).
+The Go service is the authority for user identity and incident changes. The Chi
+router is wired in [`backend/go/cmd/api/main.go`](../backend/go/cmd/api/main.go),
+with handlers in `internal/httpapi`, auth and session logic in `internal/auth` and
+`internal/sessionstore`, and separate pgx pools for the two databases.
 
-## Prerequisites and ownership
+| Contract | Responsibility |
+| --- | --- |
+| [Foundation](../api/go-foundation.openapi.yaml) | Process liveness and connectivity readiness |
+| [Authentication](../api/go-authentication.openapi.yaml) | Login, current user, and logout |
+| [Incident intake](../api/go-incidents.openapi.yaml) | Create, scoped list, and detail |
+| [Incident workflows](../api/go-handoff.openapi.yaml) | Assignment, transitions, archive, comments, history, notifications, administration, and AI feedback |
 
-The [local Docker guide](docker-setup.md) provides a containerized alternative to the
-host-run commands below. Caddy exposes the same Go routes through `/api` on local
-port 8088; direct Go access on 8080 remains available for development.
+Direct Go routes are unprefixed; Caddy exposes them under `/api`. The private AI
+worker routes are not public. JSON uses UUIDs, `snake_case` fields, UTC/RFC 3339
+timestamps, and the error envelope `{"error":{"code":"…","message":"…"}}`.
+Responses are no-store. Logs use route templates and request IDs, not report text,
+raw URLs, or credentials. HTTP DTOs do not serialize persistence models.
 
-- Use Go **1.27.4** for local development and the architect's build image/CI. This
-  patch fixes `GO-2026-6859` in the HTTP server; rebuild deployed Go images rather
-  than only updating the host toolchain. The `go` directive in
-  `backend/go/go.mod` sets the minimum version; it does not prevent
-  a newer installed toolchain from being used.
-- Run commands below from the repository root. GNU Make is optional; each target
-  displays the underlying Go command.
-- The architect owns Compose, database containers, networking, and volumes. This
-  increment intentionally adds no competing Compose configuration.
-- The engineer owns database roles/grants and coordinated goose migrations, now
-  provided by the SQL increment. No application tables are needed for the current
-  connectivity-only readiness probe, even though users/sessions exist after migration.
-- Successful readiness requires both PostgreSQL instances and working runtime roles.
-  Without them, the API can still start and expose liveness, but stays unready.
+## Sessions and request ordering
 
-### Local connection contract
+- Passwords are Argon2id hashes. SCS manages opaque host-only HttpOnly cookies,
+  backed by the identity database. Defaults are an eight-hour absolute lifetime and
+  30 minutes of inactivity. Deployment uses Secure cookies; plain HTTP requires
+  explicit development settings. Trusted browser origins are exact, and CORS does
+  not replace CSRF or authorization checks.
+- Every protected request checks the current role, blocked state, and `auth_version`.
+  Password reset, role changes, and block/unblock invalidate existing sessions.
+  Login limiting and password-verification concurrency limits are per process.
+- The revocation-safe store inserts new tokens and updates existing tokens only
+  while present and unexpired. An upsert could recreate a concurrently revoked token.
+  Preserve request state across SCS persistence when changing this code.
+- Auth responses are buffered until session persistence finishes. Only successful
+  explicit login or logout may set/delete the cookie; passive reads and failed auth
+  requests must not replace it. The cookie lifetime reflects the absolute deadline;
+  idle expiry is enforced server-side.
+- Incident and other protected business routes validate and refresh the session
+  **before** their operation. They do not emit cookies or save the session afterward.
+  This avoids a late refresh error after a committed business write. Revocation
+  cannot retract an already-authorized in-flight operation or response.
 
-| Component | Host-side address | Database | Runtime role |
-| --- | --- | --- | --- |
-| Go API | `127.0.0.1:8080` | — | — |
-| Identity PostgreSQL | `127.0.0.1:5433` | `cyberguard_identity` | `go_identity` |
-| Incident PostgreSQL | `127.0.0.1:5434` | `cyberguard_incidents` | `go_incidents` |
+## Workflow and service boundaries
 
-Give these settings to the architect. Database port publishing is for local development
-only and must bind to loopback, not all interfaces. Credentials must be generated locally;
-the example file deliberately contains no usable passwords. Runtime roles must not be
-superusers or have `CREATEDB`/`CREATEROLE` privileges. Migrations use separate
-credentials and do not run automatically during API startup.
+The [domain specification](domain-specification.md) describes roles, visible fields,
+and transitions. The incident database stores state, public/internal comments,
+append-only action history, and notifications. Comments and history return the
+latest 500 visible entries; notifications return the latest 100. These feeds
+do not paginate. A create transaction includes the first
+assessment job; a worker result never updates incident fields. An authorized human
+can record one decision per real assessment and update the category through Go.
 
-Inside Compose, use the architect's database service names and their internal `5432`
-ports, not the host-side addresses above. Set `HTTP_ADDR=:8080` for a container to accept
-traffic through its Docker network/published port. The default loopback binding is for
-running Go directly on the host.
+Go runs resolution maintenance at startup and hourly to close eligible
+seven-day-old resolutions. Account administration has a separate audit trail in the
+identity database. Assignment eligibility is read from identity before the incident
+transaction; this is not an atomic operation across databases.
 
-## Configure and run
+The AI API delegates browser authorization to Go's current-user and incident detail
+handlers. The worker uses separate bearer-authenticated GETs for credential preflight
+and for the saved snapshot tied to the job. See [Python AI](ai-backend.md).
 
-1. Copy the example and replace both password placeholders with local credentials:
-
-   ```sh
-   cp .env.example .env
-   ```
-
-2. Export the configuration in a POSIX-compatible shell, then start the API:
-
-   ```sh
-   set -a
-   . ./.env
-   set +a
-   make go-run
-   ```
-
-   Only source a file you trust. The API and Makefile do **not** automatically read
-   `.env`; configuration comes from the process environment. Passwords containing
-   reserved URL characters must be percent-encoded in the connection URLs.
-
-3. In another terminal:
-
-   ```sh
-   curl -i http://127.0.0.1:8080/healthz
-   curl -i http://127.0.0.1:8080/readyz
-   ```
-
-For a directly executable binary, run `make go-build`, then `backend/go/bin/api` with
-the same environment. Ctrl+C or SIGTERM initiates graceful HTTP shutdown and closes
-both pools. A shutdown deadline forces remaining HTTP connections closed and exits
-with a nonzero status. Signal the binary directly when testing process lifecycle;
-`go run` adds a tool-process wrapper.
-
-### Environment variables
-
-| Variable | Default | Validation / purpose |
-| --- | --- | --- |
-| `HTTP_ADDR` | `127.0.0.1:8080` | `host:port`; numeric port 1–65535; `:8080` binds all interfaces |
-| `IDENTITY_DATABASE_URL` | Required | `postgres://` or `postgresql://` URL with explicit host, user, database |
-| `INCIDENT_DATABASE_URL` | Required | Independently configured PostgreSQL URL with explicit host, user, database |
-| `DATABASE_TIMEOUT` | `3s` | Positive duration, at most `1m`; readiness deadline, connection and pool ping timeouts |
-| `SHUTDOWN_TIMEOUT` | `10s` | Positive duration, at most `1m`; graceful HTTP shutdown deadline |
-
-Explicit empty values are invalid rather than silently using defaults. Driver-level
-connection options are also parsed before the HTTP listener opens. Configuration
-errors name the affected setting/dependency without printing its secret value.
-
-`sslmode=disable` in the example is only for trusted local development. Use the TLS
-policy agreed with the architect for deployment; do not copy local security exceptions
-to a remote deployment.
-
-## HTTP contract
-
-The machine-readable contract is [Go foundation OpenAPI](../api/go-foundation.openapi.yaml).
-These public probes contain no incident or account data:
-
-| Route | Healthy response | Failure |
-| --- | --- | --- |
-| `GET /healthz` | `200 {"status":"ok"}` | Independent of databases, Python, models, and application schemas |
-| `GET /readyz` | `200 {"status":"ready"}` | `503` if either database cannot be pinged before the deadline |
-
-Both database probes run concurrently within one `DATABASE_TIMEOUT` budget. Pools
-are lazy: unavailable databases do not stop HTTP startup, while malformed configuration
-does. Readiness is a connectivity check, not proof that migrations, authentication,
-or incident functionality are ready. A recovered database is checked on subsequent
-readiness requests; no process restart is required.
-
-Readiness failure has this deliberately generic body:
-
-```json
-{"error":{"code":"not_ready","message":"Service is not ready."}}
-```
-
-Unknown routes, unsupported methods, and recovered handler panics use the same error
-envelope with `not_found`, `method_not_allowed`, and `internal_error` respectively.
-If a handler panics after starting a response, the connection is aborted rather than
-appending an error to the partially written response.
-Responses are JSON, use `Cache-Control: no-store`, and include `X-Request-ID` and
-`X-Content-Type-Options: nosniff`.
-
-### Operational defaults
-
-- Maximum 4 connections per database; no eagerly opened minimum connections.
-- Connection lifetime 30 minutes plus up to 1 minute jitter; idle lifetime 5 minutes.
-- HTTP header/read/write/idle timeouts: 5s / 15s / 65s / 60s. The write timeout exceeds
-  the maximum configurable readiness deadline.
-- Maximum request body: 1 MiB, enforced when a handler reads it; maximum headers: 1 MiB.
-- JSON logs go to stdout. Request logs contain route templates, status, duration and
-  request ID, not raw URLs/query strings, bodies, cookies or authorization headers.
-  Driver errors and panic values are not exposed in probe responses or routine logs.
-- The subsequent authentication increment adds SCS and explicit CORS/CSRF policy
-  on its `/auth` routes; see its handoff. Probes remain session-independent.
-
-## Checks
-
-```sh
-make go-check
-make go-build
-```
-
-`go-check` verifies formatting and sqlc regeneration without editing files, runs `go vet`, tests with the
-race detector, and `govulncheck` pinned to `v1.9.0`. Dependency/tool downloads and
-vulnerability database access need network connectivity. Go module dependencies are
-pinned in `go.mod` and verified by `go.sum`. This increment provides local check
-commands, not a CI workflow.
-
-Ordinary tests require no PostgreSQL. They cover configuration, safe errors/logging,
-pool settings, stalled dependency deadlines, liveness/readiness HTTP behavior, request
-body limits, graceful shutdown, and forced shutdown on deadline. HTTP lifecycle tests
-and stalled-connection tests bind ephemeral loopback ports.
-
-### PostgreSQL integration suite
-
-Use **two dedicated disposable PostgreSQL instances**, never development or deployed
-data. Provision the database names and restricted runtime roles before running:
-
-```sh
-export TEST_IDENTITY_DATABASE_URL='postgres://go_identity:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15433/cyberguard_identity?sslmode=disable'
-export TEST_INCIDENT_DATABASE_URL='postgres://go_incidents:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15434/cyberguard_incidents?sslmode=disable'
-export TEST_IDENTITY_MIGRATION_DATABASE_URL='postgres://identity_migrator:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15433/cyberguard_identity?sslmode=disable'
-export TEST_INCIDENT_MIGRATION_DATABASE_URL='postgres://incidents_migrator:URL_ENCODED_TEST_PASSWORD@127.0.0.1:15434/cyberguard_incidents?sslmode=disable'
-make go-test-integration
-```
-
-Replace placeholders with the dedicated test credentials. The suite fails clearly if
-any required variable is missing. It checks actual connectivity, configured database/user,
-restricted runtime role attributes, and readiness failure after closing one pool.
-The identity persistence suite also applies migrations and tests users/SCS/seeding in
-a newly created isolated schema, removing only that schema on cleanup. It does not
-provision roles or manage containers. See [database setup](database-setup.md) for test
-isolation details. Integration tests are separate from the default test target.
-
-For the joint Compose acceptance check, start both databases and confirm readiness
-returns `200`. Stop either instance and confirm readiness changes to `503` while
-liveness stays `200`; restart it and confirm readiness recovers. Python need not run.
-
-## Next increment
-
-Integrate SQL/authentication setup with the architect and complete their deployment
-acceptance checks. Incident core create/read is implemented separately; atomic
-assessment enqueueing still requires the engineer–AI specialist agreement first. Frontend
-authentication is a separate later increment, not part of the backend auth branch.
+`/healthz` checks the process; `/readyz` checks both database connections, not schema
+versions or AI. Startup never bootstraps, migrates, or seeds. Use Go `1.27.4` and
+`make go-build` for the API, migration, and seed binaries. See the
+[local runbook](docker-setup.md#host-go) and
+[database integration checks](database-setup.md#integration-tests).

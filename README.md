@@ -1,7 +1,11 @@
 # CyberGuard
 
-A self-hosted application for reporting and managing cybersecurity incidents,
-with optional AI-assisted analysis.
+A self-hosted application for reporting, investigating, and resolving
+cybersecurity incidents. Employees follow their own reports, analysts work the
+incident queue, and administrators manage accounts and assignment. Optional AI
+produces advisory assessments; it does not take response actions or decide outcomes.
+
+See [Architecture](#architecture) for how the components fit together.
 
 ## Quick start
 
@@ -48,7 +52,7 @@ registration; users sign in with an account provided by their administrator.
 ## Enable AI
 
 AI is optional: the application can run without it. To configure the AI service
-and download its models, follow the [AI setup guide](docs/ai-backend.md).
+and download its models for local use, follow the [local AI runbook](docs/docker-setup.md#optional-local-ai).
 Models require additional disk space and memory.
 
 ## Deploy on a server
@@ -87,3 +91,39 @@ For configuration, port changes and setup details, see the
 [local Docker guide](docs/docker-setup.md). For an existing server installation,
 use the deployment guides' maintenance and upgrade procedures rather than
 repeating the fresh-install steps.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Browser["Browser · React"] --> Caddy["Caddy · static UI and routing"]
+    Caddy -->|"/api"| Go["Go · identity and incident workflow"]
+    Caddy -->|"/ai · optional"| API["FastAPI · stored assessments"]
+    Go --> Identity[("Identity PostgreSQL")]
+    Go --> Incidents[("Incidents PostgreSQL")]
+    API -->|session and incident authorization| Go
+    API -->|restricted result reads| Incidents
+    Worker["Python worker"] -->|claim and save| Incidents
+    Worker -->|authenticated snapshot read| Go
+    Worker --> Models["Private CPU inference · Kev and Qwen"]
+```
+
+Go owns identity, authorization, and the incident workflow. Saving a new report
+atomically queues an assessment in the incident database, even when AI is disabled.
+Submission does not wait for inference, and closing the browser does not cancel
+the job. The browser uses the same origin for both APIs; the worker uses a separate
+service credential.
+
+| Component | Documentation |
+| --- | --- |
+| Browser routing, session UI, and data access | [React frontend](docs/frontend.md) |
+| HTTP service, sessions, and authorization | [Go API](docs/go-backend.md) |
+| Incident states, field ownership, and permissions | Domain specification: [English](docs/domain-specification.md) · [Slovak](docs/domain-specification.sk.md) |
+| Storage, database roles, and migrations | [PostgreSQL](docs/database-setup.md) |
+| Assessment API, worker, and model boundaries | [Python AI](docs/ai-backend.md) |
+| Gateway, containers, and network topology | [Deployment architecture](docs/deployment.md) |
+
+The AI worker uses the [playbooks](docs/playbooks.md) as input. The
+[demo incidents](docs/demo-incidents.csv) are labelled synthetic scenarios,
+not an import or evaluation report. The [temporary backlog](docs/backlog.md)
+tracks unfinished work and acceptance checks separately from current behavior.

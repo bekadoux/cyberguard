@@ -1,10 +1,12 @@
 # CyberGuard — Response Playbooks
 
-Version: draft, 9 Nov 2026 · Author: Vitalina (domain expert) · Related: [Domain specification](domain-specification.md)
+Author: Vitalina (domain expert) · Related: [Domain specification](domain-specification.md)
 
 ## Purpose
 
-Short, approved step lists for each incident category. The LLM brief takes response steps **only** from these playbooks and does not invent its own. Analysts use them as a checklist, not as a script: they skip steps that do not apply.
+These checked-in playbooks are read by the assessment worker. It includes up to
+four steps from the matched category in the brief; the model does not generate
+steps. Analysts use the full lists as a checklist and skip steps that do not apply.
 
 Each playbook follows the NIST SP 800-61 order: understand the incident → contain the damage → remove the cause → recover → record and inform.
 

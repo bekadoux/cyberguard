@@ -1,23 +1,13 @@
 # CyberGuard — doménová špecifikácia
 
-Verzia: návrh, 8. 11. 2026 · Autor: Vitalina (doménová expertka) · [English version](domain-specification.md)
+Autor: Vitalina (doménová expertka) · [English version](domain-specification.md)
 
 ## Účel
 
-Tento dokument popisuje doménovú časť systému CyberGuard: polia incidentu, kategórie incidentov, závažnosť, indikátory, stavy, prístupové práva, playbooky a demo scenáre. Pokrýva body zo sekcie 12 dokumentu `project-plan.md`, ktoré treba dohodnúť pred implementáciou.
-
-Kto čo potrebuje:
-
-- **Architekt (Nikita):** stavy a matica práv — pre databázovú schému a API kontrakty.
-- **AI expert (SaiLenT):** kategórie, škála závažnosti a indikátory — vstupy pre model (operácie Choice, Score, Noul).
-- **Go vývojár:** polia incidentu a hodnoty enum polí `category`, `severity`, `status`.
-
-> **Aktualizácia oprávnení (handoff):** Analytik a administrátor vidia závažnosť,
-> interné komentáre a AI odporúčania aj pri incidente, ktorý sami nahlásili.
-> Nepriradený analytik môže písať **interné** komentáre, ale profesionálne
-> verejné komentáre môže písať len priradený analytik alebo administrátor.
-> Nahlasovateľ si ponecháva právo verejne odpovedať na vlastný incident.
-> Implementácia a OpenAPI: `docs/handoff-implementation.md`.
+Tento dokument popisuje polia incidentu, kategórie, závažnosť, indikátory, životný
+cyklus, prístupové práva, playbooky a demo scenáre systému CyberGuard. Rozhrania
+komponentov opisuje [prehľad architektúry](../README.md#architecture); nedokončené úlohy sú v
+[dočasnom zozname úloh](backlog.md).
 
 ## Polia incidentu
 
@@ -27,43 +17,50 @@ Kto čo potrebuje:
 | --- | --- | --- | --- | --- |
 | `id` | Jedinečný identifikátor (UUID) | áno | systém | nikto |
 | `reporter_id` | Kto incident nahlásil | áno | systém (zo session) | nikto |
-| `title` | Krátky názov | áno | zamestnanec | nikto po odoslaní |
-| `description` | Popis situácie | áno | zamestnanec | nikto po odoslaní |
-| `affected_system` | Zasiahnutý systém (voľný text) | nie | zamestnanec | priradený analytik, admin |
-| `status` | Stav incidentu | áno (`submitted`) | systém | analytik / admin, iba povolené prechody |
-| `category` | Kategória | nie (`null`) | analytik | priradený analytik, admin |
-| `severity` | Závažnosť | nie (`null`) | analytik | priradený analytik, admin |
-| `assigned_analyst_id` | Analytik, ktorý incident rieši | nie | analytik (prevezme si ho) | admin môže preradiť |
-| `resolution_note` | Čo sa urobilo a aký je výsledok | pri prechode do `resolved` | analytik | priradený analytik, admin |
-| `status_reason` | Dôvod pri false positive, opätovnom otvorení alebo žiadosti o prehodnotenie | pri týchto prechodoch | ten, kto prechod vykonáva | nikto |
-| `archived_at`, `archive_reason` | Archivácia (soft delete) | nie | admin | nikto |
+| `title` | Krátky názov | áno | nahlasovateľ | nikto po odoslaní |
+| `description` | Popis situácie | áno | nahlasovateľ | nikto po odoslaní |
+| `affected_system` | Zasiahnutý systém (voľný text) | nie | nahlasovateľ | priradený analytik, admin |
+| `status` | Stav incidentu | áno (`submitted`) | systém | podľa pravidiel jednotlivých prechodov |
+| `category` | Potvrdená kategória | nie (`null`) | priradený analytik alebo admin | priradený analytik, admin |
+| `severity` | Potvrdená závažnosť | nie (`null`) | priradený analytik alebo admin | priradený analytik, admin |
+| `assigned_analyst_id` | Kto incident rieši | nie | analytik alebo admin pri prevzatí, prípadne admin priradí aktívneho analytika | admin môže preradiť v povolených stavoch |
+| `resolution_note` | Čo sa urobilo a aký je výsledok | pri prechode do `resolved` | priradený analytik alebo admin | priradený analytik, admin |
+| `archived_at`, `archive_reason` | Príznak a dôvod archivácie (soft delete) | pri archivácii | admin | nikto |
 | `created_at`, `updated_at` | Čas vytvorenia a poslednej zmeny | áno | systém | nikto |
 
 Pravidlá:
 
-- **Popis sa po odoslaní nedá upravovať.** Zachytáva, čo zamestnanec pôvodne nahlásil. Ďalšie informácie sa pridávajú ako komentáre.
+- **Názov ani popis sa po odoslaní nedajú upravovať.** Ďalšie informácie sa pridávajú ako komentáre.
 - **Niektoré polia sú povinné až v určitom kroku.** Napríklad `resolution_note` môže zostať prázdne, kým incident nie je vyriešený, ale bez neho prechod do `resolved` nie je možný.
 - **Maximálne dĺžky:** `title` 200 znakov, `description` 10 000, `affected_system` 500. Povinné polia musia obsahovať text, nielen medzery.
 - **Komentáre** sú samostatná entita: incident, autor, text, čas a viditeľnosť — `public` alebo `internal`.
+- **Dôvody zmeny stavu** patria do histórie akcií, nie do upraviteľných polí
+  incidentu. Dôvod archivácie sa ukladá s príznakom archivácie aj do histórie akcií.
 
 ### Čo vidí nahlasovateľ
 
-Nahlasovateľ je ten, kto incident odoslal, bez ohľadu na jeho rolu. Pri vlastnom incidente vidí:
+Nahlasovateľ je ten, kto incident odoslal, bez ohľadu na jeho rolu. Nasledujúca
+tabuľka platí pre bežného zamestnanca. Analytici a administrátori vidia závažnosť,
+interné komentáre a AI výstupy aj pri vlastných hláseniach. Samotné autorstvo
+nedáva nepriradenému analytikovi právo meniť potvrdené polia.
 
 | Informácia | Viditeľná pre nahlasovateľa |
 | --- | --- |
+| Aktuálny stav a notifikácie v aplikácii | áno |
 | Potvrdená `category` | áno — pomôže mu hrozbu nabudúce rozpoznať |
 | Potvrdená `severity` | nie — je to interná priorita fronty |
 | Priradený analytik (používateľské meno) | áno |
 | `resolution_note` | áno, celé — analytik ho píše pre nahlasovateľa; technické detaily patria do interných komentárov |
 | Verejné komentáre | áno, a môže na ne odpovedať |
-| Interné komentáre, AI návrhy, bríf | nie |
+| Interné komentáre, história akcií, AI návrhy, bríf | nie |
 
 Možnosť pole čítať neznamená právo ho meniť.
 
 ## Kategórie incidentov
 
-Navrhujeme 8 kategórií formulovaných podľa toho, čo dokáže zamestnanec sám spozorovať a opísať. Technické kategórie ako DDoS z pôvodného návrhu sme vynechali: bežný zamestnanec vidí len „stránka sa nenačíta", čo je výpadok dostupnosti.
+Osem kategórií vychádza z toho, čo zamestnanec vie sám spozorovať a opísať.
+Napríklad „stránka sa nenačíta“ možno nahlásiť ako výpadok dostupnosti bez
+určenia technickej príčiny.
 
 | Kód (`category`) | Názov | Čo hlási zamestnanec | Príklad popisu |
 | --- | --- | --- | --- |
@@ -79,14 +76,18 @@ Navrhujeme 8 kategórií formulovaných podľa toho, čo dokáže zamestnanec s�
 Pravidlá:
 
 - Jeden incident má jednu hlavnú kategóriu. Ďalšie súvislosti analytik uvedie v komentári.
-- `ransomware` je podkategória `malware`, nie samostatná hlavná kategória: označuje škodlivý softvér, ktorý šifruje súbory a žiada výkupné. Takéto incidenty sú zvyčajne `critical`. Spôsob uloženia podkategórie je technické rozhodnutie vývojárov.
+- Ransomware patrí pod `malware` a neukladá sa ako samostatná kategória ani
+  podkategória. Možno ho uviesť v hlásení alebo komentári. Také incidenty sú
+  často `critical`, podľa dopadu.
 - Popisy incidentov môžu byť v angličtine alebo v slovenčine. Angličtina je hlavný jazyk pre vývoj, dokumentáciu a ladenie AI.
-- `other` je legitímna odpoveď modelu pri nízkej istote, nie chyba.
+- `other` je platná potvrdená kategória. Ak je najlepšou odpoveďou AI `other`
+  alebo je pravdepodobnosť pod prahom, rozhranie nezobrazí návrh kategórie.
 - Základ: zjednodušená ENISA Reference Incident Classification Taxonomy a kategórie VERIS.
 
 ## Závažnosť (severity)
 
-Štyri úrovne na ordinálnej škále — vstup pre operáciu Score. Úroveň sa určuje podľa najzávažnejšieho splneného kritéria.
+Štyri úrovne na ordinálnej škále. Potvrdená úroveň sa určuje podľa
+najzávažnejšieho splneného kritéria.
 
 | Úroveň (`severity`) | Kritériá | Príklad | Cieľová prvá reakcia analytika |
 | --- | --- | --- | --- |
@@ -98,15 +99,22 @@ Pravidlá:
 Pravidlá:
 
 - Nový incident má `severity = null`, kým ho niekto neohodnotí.
-- Model úroveň iba navrhuje; konečné rozhodnutie robí analytik.
+- Model uvádza samostatné skóre možného dopadu od 0 do 3. Závažnosť nenastavuje.
+  Priradený analytik alebo admin ju potvrdzuje nezávisle od AI hodnotenia kategórie.
 - Ak popis neuvádza znaky škody, úroveň sa automaticky neznižuje: zamestnanec si následky nemusel všimnúť.
-- Čas reakcie je orientačný pre demo a dashboard, nie záväzné SLA.
+- Čas reakcie je orientačný; nejde o záväzné ani systémom vynucované SLA.
 
 ## Indikátory (otázky áno/nie)
 
-Osem úzkych otázok pre operáciu Noul. Každá overuje len to, čo je v popise **výslovne uvedené**, nie to, čo sa pravdepodobne stalo.
+Týchto osem otázok tvorí **doménovú metodiku**. Každá overuje len to, čo je
+v popise **výslovne uvedené**, nie to, čo sa pravdepodobne stalo. Nejde o aktuálnu
+schému výstupu AI. [Služba AI](ai-backend.md#models-and-output) dnes vyhodnocuje
+štyri signály: kliknutie na podozrivý odkaz, zadanie prihlasovacích údajov,
+zašifrovanie súborov a nahlásený neoprávnený prístup. Analytici a administrátori
+vidia pravdepodobnosti v detaile posúdenia. Rozšírenie a zvýraznenie signálov je v
+[dočasnom zozname úloh](backlog.md).
 
-| Kód | Otázka k popisu | Prečo je to dôležité pre analytika | Vplyv na závažnosť |
+| Kód | Otázka k popisu | Prečo je to dôležité pre analytika | Odporúčanie pre posúdenie závažnosti |
 | --- | --- | --- | --- |
 | `clicked_link` | Zamestnanec uvádza, že klikol na odkaz? | Možné stiahnutie malvéru alebo zadanie údajov | ↑ na medium |
 | `credentials_entered` | Zamestnanec uvádza, že zadal heslo alebo kód? | Okamžitá zmena hesla, kontrola prihlásení | ↑ na high |
@@ -120,8 +128,7 @@ Osem úzkych otázok pre operáciu Noul. Každá overuje len to, čo je v popise
 Pravidlá:
 
 - Pravdepodobnosť „nie" ≠ „nestalo sa". Znamená to „v popise sa to neuvádza".
-- Indikátory s vysokou pravdepodobnosťou sa zvýraznia v karte incidentu a sú kandidátmi na doplňujúce otázky v brífe.
-- Prahy pravdepodobnosti určí AI expert po vyhodnotení na demo dátach.
+- Odporúčania sú určené analytikom. Indikátory nikdy automaticky nemenia závažnosť incidentu.
 
 ## Životný cyklus a stavy
 
@@ -130,7 +137,7 @@ Sedem stavov podľa modelu NIST/SANS. Sú oddelené od stavov AI úlohy (`queued
 ```mermaid
 stateDiagram-v2
     [*] --> submitted
-    submitted --> triage : analytik prevzal
+    submitted --> triage : prevzatie alebo priradenie
     triage --> investigating : hrozba je pravdepodobná
     triage --> false_positive : bez hrozby
     investigating --> awaiting_reporter : otázka zamestnancovi
@@ -148,40 +155,40 @@ Archivácia (`archived_at`) nie je stav v toku, ale príznak soft delete: admini
 
 | Prechod | Kto | Podmienka / čo sa zaznamená |
 | --- | --- | --- |
-| submitted → triage | Analyst | Analytik prevzal incident; priradenie je zaznamenané |
-| triage → investigating | Analyst | Hrozba je pravdepodobná; kategória a závažnosť sú určené |
-| triage → false_positive | Analyst | Hrozba neexistuje; dôvod je povinný; zamestnanec dostane notifikáciu |
+| submitted → triage | Analytik / admin | Analytik alebo admin incident prevezme, prípadne admin priradí aktívneho analytika; priradenie sa zaznamená |
+| triage → investigating | Priradený analytik / admin | Hrozba je pravdepodobná; kategória a závažnosť sú určené |
+| triage → false_positive | Priradený analytik / admin | Hrozba neexistuje; dôvod je povinný; nahlasovateľ dostane notifikáciu |
 | investigating → awaiting_reporter | Priradený analytik / administrátor | Osoba žiadajúca o odpoveď položila v aktuálnom cykle vyšetrovania verejnú otázku, na ktorú nahlasovateľ zatiaľ verejne neodpovedal |
 | awaiting_reporter → investigating | Nahlasovateľ | Nahlasovateľ odpovedal verejným komentárom (automaticky; interné poznámky sa nepočítajú) |
-| investigating → resolved | Analyst | Zaznamenané riešenie a prijaté opatrenia |
+| investigating → resolved | Priradený analytik / admin | Zaznamenané riešenie a prijaté opatrenia |
 | resolved → closed | Nahlasovateľ / systém | Nahlasovateľ potvrdil, alebo automaticky po 7 dňoch bez odpovede |
 | resolved → investigating | Nahlasovateľ | Verejná odpoveď alebo formálna žiadosť o prehodnotenie s odôvodnením obnoví vyšetrovanie. Lehota na uzatvorenie sa zruší, zmena stavu sa zaznamená a priradený analytik dostane notifikáciu |
 | closed / false_positive → investigating | Admin | Opätovné otvorenie s dôvodom |
 
 ## Matica práv
 
-Hierarchia Employee ⊂ Analyst ⊂ Admin z plánu, rozpísaná podľa akcií. Všetky kontroly prebiehajú na backende.
+Backend kontroluje rolu, priradenie a vlastníctvo hlásenia samostatne.
 
 | Akcia | Employee | Analyst | Admin |
 | --- | --- | --- | --- |
 | Vytvoriť incident | ✓ | ✓ | ✓ |
 | Vidieť vlastné incidenty | ✓ | ✓ | ✓ |
 | Vidieť všetky incidenty firmy | — | ✓ | ✓ |
-| Doplniť informácie / odpovedať na otázku | vlastné | ✓ | ✓ |
-| Čítať a písať verejné komentáre | vlastné | ✓ | ✓ |
-| Čítať a písať interné komentáre | — | ✓ | ✓ |
+| Čítať verejné komentáre | vlastné | ✓ | ✓ |
+| Písať verejné komentáre / odpovedať ako nahlasovateľ | vlastné | vlastné alebo priradené sebe | ✓ |
+| Čítať a písať interné komentáre | — | ✓ (aj nepriradené) | ✓ |
 | Vidieť AI návrhy a bríf | — | ✓ | ✓ |
-| Prevziať incident (priradiť sebe) | — | ✓ | ✓ |
-| Priradiť alebo preradiť iného | — | — | ✓ |
-| Meniť kategóriu, závažnosť, stav | — | priradené sebe | ✓ |
-| Prijať alebo opraviť AI návrh | — | priradené sebe | ✓ |
-| Uzavrieť ako vyriešený / false positive | — | priradené sebe | ✓ |
+| Prevziať nepriradený incident v stave `submitted` | — | ✓ | ✓ |
+| Priradiť alebo preradiť k aktívnemu analytikovi | — | — | ✓ |
+| Meniť potvrdené polia / vykonať prechod podľa roly | — | priradené sebe | ✓ |
+| Zaznamenať posúdenie kategórie alebo zamietnuť AI posúdenie | — | priradené sebe | ✓ |
+| Označiť ako vyriešený / false positive | — | priradené sebe | ✓ |
 | Potvrdiť riešenie alebo požiadať o prehodnotenie (vlastný incident) | ✓ | ✓ | ✓ |
 | Opätovne otvoriť uzavretý incident | — | — | ✓ |
 | Archivovať (soft delete s dôvodom) | — | — | ✓ |
 | Spravovať používateľov a roly | — | — | ✓ |
-| Vidieť auditný záznam | — | — | ✓ |
-| Spustiť demo import | — | — | ✓ |
+| Čítať históriu akcií incidentu | — | nearchivované incidenty | aj archivované podľa ID |
+| Čítať audit správy účtov | — | — | ✓ |
 
 Obmedzenia:
 
@@ -189,11 +196,18 @@ Obmedzenia:
 - Interné komentáre zamestnanec nikdy nevidí.
 - Analytik môže riešiť aj incident, ktorý sám nahlásil.
 - Potvrdenie riešenia a žiadosť o prehodnotenie sú práva nahlasovateľa podľa vlastníctva incidentu, nie podľa roly.
-- Analytici, ktorí nie sú k incidentu priradení, ho môžu čítať, ale nie meniť.
+- Nepriradení analytici môžu čítať prístupné incidenty a pridať interné poznámky.
+  Pri vlastnom hlásení môžu tiež verejne odpovedať ako nahlasovatelia. Tým
+  nezískavajú právo meniť potvrdené polia.
+- Preradenie nie je možné v stavoch `resolved`, `closed` a `false_positive`.
+  V stavoch `closed` a `false_positive` nemožno meniť potvrdené polia ani
+  pridať nové AI hodnotenie; opätovné otvorenie sa riadi životným cyklom.
 
 ## Playbooky pre LLM bríf
 
-Navrhujeme jeden krátky playbook na kategóriu (okrem `other`), 5–8 krokov, podľa schémy obmedzenie → odstránenie → obnova. LLM preberá kroky iba z nich a nevymýšľa vlastné.
+Každá kategória okrem `other` má vlastný playbook. Worker dopĺňa najviac štyri
+kroky z príslušného playbooku; LLM kroky negeneruje. Celý playbook slúži ako
+pomôcka pre analytika.
 
 Príklad — `phishing`:
 
@@ -215,7 +229,7 @@ Všetkých sedem playbookov je v súbore [playbooks.md](playbooks.md) (v anglič
 
 ## Demo scenáre
 
-Desať syntetických incidentov pokrýva všetky kategórie a úrovne vrátane dvoch ťažkých prípadov pre model. Texty sú v angličtine (hlavný vstup modelu), bez skutočných hesiel a údajov. Do demo sady pribudne aj niekoľko slovenských popisov, keďže systém prijíma aj slovenčinu.
+Nasledujúce príklady sú syntetické, bez skutočných hesiel a firemných údajov.
 
 | # | Popis zamestnanca (skrátene) | Očakávaná kategória | Očakávaná závažnosť | Čo ukazujeme |
 | --- | --- | --- | --- | --- |
@@ -230,7 +244,10 @@ Desať syntetických incidentov pokrýva všetky kategórie a úrovne vrátane d
 | 9 | My computer is slow and fan is loud since this morning | other / malware | low | Nízka istota → ručné hodnotenie |
 | 10 | Supplier asked to change bank details for next invoice payment | phishing | high | Podvod bez odkazu (BEC) |
 
-Celá demo sada 40 označených popisov (32 anglických, 8 slovenských) je v súbore [demo-incidents.csv](demo-incidents.csv); desať vyššie uvedených sú jej prvé riadky.
+Celá sada obsahuje 80 označených popisov (61 anglických, 19 slovenských) v súbore
+[demo-incidents.csv](demo-incidents.csv). Ide o referenčné označenia, nie výsledky
+merania modelu. Lokálny demo skript vie odoslať len scenár č. 2; vytváranie demo
+účtov neimportuje incidenty.
 
 Scenár pre prezentáciu: č. 2 prejde celým cyklom — nahlásenie, AI návrh, otázka zamestnancovi, úprava závažnosti analytikom, riešenie, potvrdenie.
 
@@ -241,12 +258,12 @@ Scenár pre prezentáciu: č. 2 prejde celým cyklom — nahlásenie, AI návrh,
 | Po koľkých dňoch sa `resolved` automaticky mení na `closed`? | Po 7 dňoch bez odpovede zamestnanca | Nikita |
 | Môže analytik riešiť incident, ktorý sám nahlásil? | Áno | Nikita |
 | Formát projektových dokumentov | Textové formáty (.md, .org), aby sa dali čítať na GitHube | Nikita |
-| Jazyk dokumentácie | Predvolene angličtina; slovenská verzia môže byť uložená vedľa | Nikita |
+| Jazyk dokumentácie | Predvolene angličtina; doménová špecifikácia sa udržiava v oboch jazykoch | Nikita |
 | Maximálne dĺžky vstupov | `title` 200, `description` 10 000, `affected_system` 500 | Vitalina, Daniil |
-| Čo vidí nahlasovateľ | Kategóriu, priradeného analytika, `resolution_note` a verejné komentáre; nie závažnosť, interné komentáre ani AI výstupy | Vitalina |
+| Čo vidí bežný zamestnanec | Aktuálny stav, kategóriu, priradeného analytika, `resolution_note`, verejné komentáre a notifikácie; nie interné polia ani AI výstupy | Vitalina |
 | Akcie nahlasovateľa | Potvrdenie / žiadosť o prehodnotenie sú práva vlastníka, pre každú rolu | Vitalina, Daniil |
-| Kto mení kategóriu, závažnosť, `affected_system`, `resolution_note`, AI návrhy | Iba priradený analytik a admin | Vitalina, Daniil |
+| Kto mení kategóriu, závažnosť, `affected_system`, `resolution_note` alebo zaznamenáva AI spätnú väzbu | Iba priradený analytik a admin; uložený výstup AI sa nemení | Vitalina, Daniil |
 | Viditeľnosť komentárov | Dva typy: `public` a `internal` | Vitalina, Daniil |
-| `ransomware` | Podkategória `malware`, nie hlavná kategória | SaiLenT |
+| Ransomware | Patrí pod `malware`, neukladá sa samostatne | SaiLenT |
 | Počet kategórií | Zostáva všetkých 8; `other` iba pre incidenty, ktoré nepatria nikam inam | SaiLenT |
 | Jazyk popisov | Prijíma sa angličtina aj slovenčina; hlavný jazyk je angličtina | SaiLenT |

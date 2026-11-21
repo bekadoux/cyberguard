@@ -2,23 +2,16 @@
 
 ## Dev environment tips
 
-- The Go API implements incident core create/read plus a handoff candidate for
-  incident workflow, comments, audit, notifications and user administration.
-  The frontend implements login/session UI, themes, scoped incident create/list/detail,
-  investigation actions, comments/history, notifications, administration and AI review.
-  Eligible analysts/admins can read stored AI assessments, including on their own reports;
-  employee views never fetch AI output. Assessment refresh is manual, not a keepalive poll.
-  See `docs/frontend-setup.md`, `docs/frontend-handoff-implementation.md` and
-  `docs/incidents-handoff.md` for implementation boundaries and acceptance checks. Application
-  wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
-  contracts are in `docs/architect-handoff.md`.
-- An AI implementation candidate under `backend/python/` adds FastAPI, PostgreSQL job
-  processing and optional CPU models. AI services are not enabled in base Compose.
-  Applying `db/migrations/incidents/00002_ai_assessments.sql` installs a trigger that
-  enqueues an initial job in the incident INSERT transaction, even without a running
-  worker; existing incidents are not backfilled. Processing requires the optional AI
-  services. See `docs/ai-backend.md` for setup, pending approvals and unverified runtime
-  checks. This is not production or complete vertical-slice acceptance.
+- Start with the architecture section of the root `README.md`. Go API wiring is in
+  `backend/go/cmd/api/main.go`; see `docs/go-backend.md` and `docs/frontend.md`
+  for component boundaries. The English and Slovak domain specs both describe
+  workflow and permissions. Unfinished work and acceptance checks are tracked
+  in `docs/backlog.md`, not treated as delivered behavior.
+- Staff can read stored AI assessments, including on their own reports; employee
+  views never fetch AI output. Assessment refresh is manual, not a keepalive poll.
+  Incident inserts queue an initial job against an immutable snapshot even with
+  AI disabled. Processing requires the optional FastAPI/worker stack under
+  `backend/python/`. See `docs/ai-backend.md` and the local/VM runbooks.
 - Local Docker runs Caddy, Go and two PostgreSQL instances; commands and prerequisites
   are in `docs/docker-setup.md`. Set `DOCKER_SECRET_GID=$(id -g)` for file permissions.
   Bootstrap/migrate/seed are explicit one-off tools, never API startup actions. Do not
@@ -51,12 +44,8 @@
   Azure/ACME/real inference. Keep fixture and real deployment acceptance distinct.
 - Business rules are in `docs/domain-specification.md`. `docs/playbooks.md` and
   `docs/demo-incidents.csv` supply domain reference material and labelled scenarios,
-  not an implemented incident importer/seed or measured AI evaluation results.
-- `docs/assessment-job-contract.md` is a proposal, not an implemented/final contract.
-  The Go handoff retains trigger-based enqueueing and replaces stale-revision rejection
-  with immutable job-linked snapshots after the new incident migrations. Historical
-  jobs are not backfilled. Confirm these choices, schema, grants and service contracts
-  with the Go engineer, AI specialist and architect before accepting the handoff.
+  not a bulk incident importer or measured AI evaluation results. Both files have
+  code consumers; do not move them as prose-only docs.
 - The Go module is `backend/go` (Go 1.27.4). Run Make targets from the repository
   root; run direct Go commands from `backend/go`, not the root.
 - Make targets use GNU Make. Database bootstrap requires `psql` 15+ for `\getenv`;
@@ -72,7 +61,7 @@
 - **Run only the checks needed for the change.** Choose the smallest set that
   meaningfully covers the changed behavior and affected contracts. Do not run every
   suite, rebuild every image or start every fixture just to finish a task or commit.
-  These rules govern routine agent work; linked handoff/acceptance checklists are
+  These rules govern routine agent work; linked release acceptance checklists are
   not instructions to repeat full acceptance testing after every edit.
 - Select checks from the actual diff and risk:
   - **Documentation/comments only:** `git diff --check` and applicable documentation
@@ -120,7 +109,8 @@
   `make frontend-test-e2e` runs Firefox and Chromium with
   Playwright-managed browsers; the separate live suite requires the running demo
   backend and `E2E_PASSWORD_FILE`. `make frontend-test-incidents-live` performs writes
-  only against an explicitly selected disposable fixture. See `docs/frontend-setup.md`.
+  only against an explicitly selected disposable fixture. See `docs/frontend.md`
+  and `docs/docker-setup.md`.
   Never put secrets in frontend configuration, browser storage or test artifacts.
   `DOCKER_TEST_FRONTEND=1 make docker-smoke` also runs all browser regressions against
   the packaged assets plus real same-origin flows, without Vite or API interception
@@ -128,8 +118,8 @@
   Add `DOCKER_TEST_AI=1` to include the real AI API/worker/DB pipeline in explicitly
   labelled fixture mode. This provisions only disposable AI secrets/roles and never
   downloads models or enables model profiles. It does not validate real inference.
-- AI candidate tests and outstanding integration checks are documented in
-  `docs/ai-backend.md`. Mocked unit tests alone do not validate PostgreSQL or Docker.
+- AI unit tests and integration boundaries are documented in `docs/ai-backend.md`.
+  Mocked unit tests alone do not validate PostgreSQL or Docker.
   The disposable fixture smoke covers the real happy-path DB/worker/API integration,
   not concurrent claims, lease expiry, real model inference or production resource usage.
 - No CI workflow is checked in; `Makefile` defines the available checks.
@@ -200,9 +190,9 @@
   not trust cached session roles. Password, block/unblock and role changes increment
   `auth_version`. Generated `identity.User` includes the password hash: return safe
   HTTP DTOs, never serialize the persistence model.
-- Before changing auth middleware/store behavior, consult
-  `docs/authentication-handoff.md`, `docs/authentication-security-review.md` and
-  `api/go-authentication.openapi.yaml` for the contract and concurrency regressions.
+- Before changing auth middleware/store behavior, consult `docs/go-backend.md`,
+  `api/go-authentication.openapi.yaml`, and the `internal/httpapi` and
+  `internal/sessionstore` regression tests.
 
 ## PR instructions
 
@@ -220,10 +210,10 @@
   network access or database prerequisites. Do not remove tests or weaken assertions to
   reduce runtime, or describe blocked checks as passing.
 
-## Go handoff implementation candidate (post-main 7b91f0b)
+## Workflow and AI migration safeguards
 
-- See `docs/handoff-implementation.md` for new migrations, Go handlers,
-  incident workflow rights, limitations, testing gates and the new OpenAPI file.
+- See `docs/database-setup.md` for migration heads and `docs/domain-specification.md`
+  for workflow rights.
 - Do not edit sqlc-generated files to accommodate `resolved_at`: resolution times
   live in a separate table to keep generated incident row shapes compatible.
 - Apply `db/migrations/identity/00003_user_admin_audit.sql`,
@@ -238,4 +228,3 @@
   Never silently retire/requeue/backfill them. See the AI deployment upgrade guide.
 - Staff retain professional severity/AI visibility on their own reports; employees
   remain denied AI access. Preserve current-account/incident authorization on each read.
-- Review newly added Go tests and run with the pinned Go 1.27.4 toolchain.
