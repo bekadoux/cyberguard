@@ -1,16 +1,97 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useAuth } from '../auth/use-auth';
 import { actionError, localTime } from './workflow-ui';
 import { adminApi, type ManagedUser, type IdentityEvent } from './workflow-api';
 import './workflow.css';
 
 const roles: ManagedUser['role'][] = ['employee', 'analyst', 'admin'];
+const passwordHelp =
+  'Use 12–128 UTF-8 bytes, including a non-whitespace character and no NUL characters.';
+
+function NewPasswordField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (password: string) => void;
+}) {
+  const hintId = useId();
+  return (
+    <div>
+      <label>
+        {label}
+        <input
+          type="password"
+          required
+          autoComplete="new-password"
+          aria-describedby={hintId}
+          value={value}
+          onChange={({ currentTarget }) => {
+            const next = currentTarget.value;
+            const bytes = new TextEncoder().encode(next).length;
+            const valid =
+              bytes >= 12 &&
+              bytes <= 128 &&
+              /\P{White_Space}/u.test(next) &&
+              !next.includes('\0');
+            currentTarget.setCustomValidity(valid ? '' : passwordHelp);
+            onChange(next);
+          }}
+        />
+      </label>
+      <small id={hintId}>{passwordHelp}</small>
+    </div>
+  );
+}
+
+function ResetPasswordForm({
+  username,
+  disabled,
+  onSubmit,
+  onCancel,
+}: {
+  username: string;
+  disabled: boolean;
+  onSubmit: (password: string) => void;
+  onCancel: () => void;
+}) {
+  const [password, setPassword] = useState('');
+  return (
+    <form
+      className="workflow-form"
+      aria-label={`Reset password for ${username}`}
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit(password);
+      }}
+    >
+      <NewPasswordField
+        label={`New password for ${username}`}
+        value={password}
+        onChange={setPassword}
+      />
+      <div className="workflow-actions">
+        <button type="submit" className="button button-primary" disabled={disabled}>
+          Confirm password reset
+        </button>
+        <button type="button" className="button button-secondary" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function AdminPage() {
   const { user, pending, runProtected } = useAuth();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [audit, setAudit] = useState<IdentityEvent[]>([]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [resetId, setResetId] = useState<string | null>(null);
+  const resetOpener = useRef<HTMLButtonElement | null>(null);
   const [role, setRole] = useState<ManagedUser['role']>('employee');
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
@@ -94,7 +175,7 @@ export function AdminPage() {
                 required
                 minLength={3}
                 maxLength={64}
-                pattern="[a-z0-9][a-z0-9_.-]{2,63}"
+                pattern="[a-z0-9][a-z0-9_.\-]{2,63}"
                 autoComplete="off"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -114,18 +195,11 @@ export function AdminPage() {
               </select>
             </label>
           </div>
-          <label>
-            Initial password
-            <input
-              type="password"
-              required
-              minLength={12}
-              maxLength={128}
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
+          <NewPasswordField
+            label="Initial password"
+            value={password}
+            onChange={setPassword}
+          />
           <button
             type="submit"
             className="button button-primary"
@@ -162,9 +236,8 @@ export function AdminPage() {
                 <label>
                   Role
                   <select
-                    key={`${account.id}-${account.role}`}
                     aria-label={`Role for ${account.username}`}
-                    defaultValue={account.role}
+                    value={account.role}
                     disabled={busy || account.id === user.id}
                     onChange={(e) => {
                       const nextRole = e.target.value as ManagedUser['role'];
@@ -173,7 +246,6 @@ export function AdminPage() {
                           () => adminApi.role(account.id, nextRole, reason),
                           'Role updated.',
                         );
-                      else setRevision((r) => r + 1);
                     }}
                   >
                     {roles.map((r) => (
@@ -204,26 +276,34 @@ export function AdminPage() {
                 <button
                   type="button"
                   className="button button-secondary"
-                  disabled={busy}
-                  onClick={() => {
-                    const next = window.prompt(
-                      `New password for ${account.username} (12–128 characters):`,
-                    );
-                    if (next === null) return;
-                    if (next.length < 12 || next.length > 128) {
-                      setError('Password must be between 12 and 128 characters.');
-                      return;
-                    }
-                    if (window.confirm(`Reset password for ${account.username}?`))
-                      void mutate(
-                        () => adminApi.password(account.id, next, reason),
-                        'Password reset.',
-                      );
+                  aria-label={`Reset password for ${account.username}`}
+                  aria-expanded={resetId === account.id}
+                  disabled={busy || pending}
+                  onClick={(e) => {
+                    resetOpener.current = e.currentTarget;
+                    setResetId(resetId === account.id ? null : account.id);
                   }}
                 >
                   Reset password
                 </button>
               </div>
+              {resetId === account.id && (
+                <ResetPasswordForm
+                  username={account.username}
+                  disabled={busy || pending}
+                  onCancel={() => {
+                    setResetId(null);
+                    resetOpener.current?.focus();
+                  }}
+                  onSubmit={(next) => {
+                    setResetId(null);
+                    void mutate(
+                      () => adminApi.password(account.id, next, reason),
+                      'Password reset.',
+                    );
+                  }}
+                />
+              )}
             </li>
           ))}
         </ul>

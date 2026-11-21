@@ -40,6 +40,11 @@ components:
         username: {type: string}
         role: {type: string, enum: [employee, analyst, admin]}
         is_blocked: {type: boolean}
+    NewPassword:
+      type: string
+      writeOnly: true
+      maxLength: 128
+      description: Nonblank, NUL-free text of 12 to 128 UTF-8 bytes. JSON Schema string lengths alone cannot express the byte limits.
 security:
   - sessionCookie: []
 paths:
@@ -215,8 +220,24 @@ paths:
   /admin/users:
     get:
       summary: Admin lists users (without credentials/hashes)
+      description: Filters apply before pagination. Results are ordered by username. Start a new traversal when changing filters.
+      parameters:
+        - {in: query, name: eligible, schema: {type: string, enum: [analyst]}, description: Return only active analysts eligible for assignment.}
+        - {in: query, name: q, schema: {type: string, maxLength: 64}, description: Case-insensitive literal username prefix.}
+        - {in: query, name: cursor, schema: {type: string}, description: The next_cursor from the previous page.}
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 500, default: 500}}
       responses:
-        '200': {description: Up to 500 safe user DTOs}
+        '200':
+          description: One directory page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users, next_cursor]
+                properties:
+                  users: {type: array, items: {$ref: '#/components/schemas/User'}}
+                  next_cursor: {type: [string, 'null']}
+        '400': {description: Invalid filter, cursor or page size}
         '403': {description: Admin role required}
     post:
       summary: Admin creates an account
@@ -230,9 +251,8 @@ paths:
               additionalProperties: false
               properties:
                 username: {type: string, minLength: 3, maxLength: 64}
-                password: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+                password: {$ref: '#/components/schemas/NewPassword'}
                 role: {type: string, enum: [employee, analyst, admin]}
-                reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
       responses:
         '201': {description: Account created; password never returned}
         '409': {description: Username already exists}
@@ -285,7 +305,7 @@ paths:
               required: [password]
               additionalProperties: false
               properties:
-                password: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+                password: {$ref: '#/components/schemas/NewPassword'}
                 reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
       responses:
         '200': {description: Password reset; no hash or password returned}

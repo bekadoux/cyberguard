@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,7 +51,7 @@ func (a *HandoffAPI) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, err := hashNewPassword(body.Password)
 	if err != nil {
-		writeError(w, 400, "invalid_request", "Password must be 12 to 128 UTF-8 bytes/characters.")
+		writeError(w, 400, "invalid_request", "Password must be nonblank and 12 to 128 UTF-8 bytes.")
 		return
 	}
 	actor, _ := actorUUID(a.user(r))
@@ -83,25 +85,83 @@ func (a *HandoffAPI) createUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]any{"user": map[string]any{"id": id.String(), "username": username, "role": body.Role, "is_blocked": false}})
 }
 
+type directoryQuery struct {
+	eligibleOnly bool
+	prefix       string
+	after        string
+	limit        int
+}
+
+var directoryPrefixPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,63}$`)
+
+func parseDirectoryQuery(raw string) (directoryQuery, bool) {
+	options := directoryQuery{limit: 500}
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return options, false
+	}
+	for key, items := range values {
+		if len(items) != 1 {
+			return options, false
+		}
+		value := items[0]
+		switch key {
+		case "eligible":
+			if value != "analyst" {
+				return options, false
+			}
+			options.eligibleOnly = true
+		case "q":
+			options.prefix = strings.ToLower(value)
+			if value != "" && !directoryPrefixPattern.MatchString(options.prefix) {
+				return options, false
+			}
+		case "cursor":
+			if !adminUsernamePattern.MatchString(value) {
+				return options, false
+			}
+			options.after = value
+		case "limit":
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 || n > 500 {
+				return options, false
+			}
+			options.limit = n
+		default:
+			return options, false
+		}
+	}
+	return options, true
+}
+
 func (a *HandoffAPI) listUsers(w http.ResponseWriter, r *http.Request) {
 	if !a.adminOnly(w, r) {
 		return
 	}
-	if r.URL.RawQuery != "" {
-		writeError(w, 400, "invalid_request", "Unexpected query parameters.")
+	options, ok := parseDirectoryQuery(r.URL.RawQuery)
+	if !ok {
+		writeError(w, 400, "invalid_request", "Invalid user directory query.")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	rows, err := a.identityDB.Query(ctx, `SELECT id,username,role,is_blocked,created_at,updated_at
-      FROM users ORDER BY username LIMIT 500`)
+      FROM users WHERE (NOT $1::boolean OR (role='analyst' AND NOT is_blocked))
+        AND starts_with(username, $2) AND username > $3
+      ORDER BY username LIMIT $4`, options.eligibleOnly, options.prefix, options.after, options.limit+1)
 	if err != nil {
 		handoffStorageError(w, err)
 		return
 	}
 	defer rows.Close()
 	users := make([]any, 0)
+	var nextCursor *string
+	var lastUsername string
 	for rows.Next() {
+		if len(users) == options.limit {
+			nextCursor = &lastUsername
+			break
+		}
 		var id pgtype.UUID
 		var name, role string
 		var blocked bool
@@ -111,12 +171,13 @@ func (a *HandoffAPI) listUsers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		users = append(users, map[string]any{"id": id.String(), "username": name, "role": role, "is_blocked": blocked, "created_at": created, "updated_at": updated})
+		lastUsername = name
 	}
 	if err = rows.Err(); err != nil {
 		handoffStorageError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"users": users})
+	writeJSON(w, 200, map[string]any{"users": users, "next_cursor": nextCursor})
 }
 
 func (a *HandoffAPI) changeRole(w http.ResponseWriter, r *http.Request) {
