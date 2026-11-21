@@ -45,7 +45,30 @@ cat > "$temporary/bin/docker" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$APP_TEST_COMMANDS"
 printf '%s\n' "$DOCKER_GO_IMAGE" >> "$APP_TEST_IMAGES"
-if [[ ${APP_TEST_PS_FAIL:-no} == yes && " $* " == *' ps --status running --services '* ]]; then exit 7; fi
+case "$*" in
+    *' ps --all --quiet go-api')
+        [[ ${APP_TEST_PS_FAIL:-no} == no ]] || exit 7
+        if [[ -n ${APP_TEST_GO_STATE:-} ]]; then echo go-id; fi ;;
+    *' ps --all --quiet web')
+        if [[ -n ${APP_TEST_WEB_MOUNT:-} ]]; then echo web-id; fi ;;
+    'inspect --format {{.State.Status}} go-id') echo "$APP_TEST_GO_STATE" ;;
+    'inspect --format {{.State.Status}} web-id') echo running ;;
+    'inspect --format '*web-id) echo "bind:false:$APP_TEST_WEB_MOUNT" ;;
+    'exec web-id '*)
+        stat -c '%d:%i' "$APP_TEST_WEB_MOUNT"
+        if [[ -f $APP_TEST_WEB_MOUNT/enabled ]]; then echo "${APP_TEST_WEB_MARKER:-enabled}"; fi ;;
+    'image inspect '*) echo "$APP_TEST_IMAGE_ID" ;;
+    'run '*)
+        [[ " $* " == *" --entrypoint /bin/sh $APP_TEST_IMAGE_ID "* ]] || exit 2
+        cd "$APP_TEST_MIGRATIONS" || exit 1
+        export LC_ALL=C
+        sha256sum identity/*.sql incidents/*.sql ;;
+    *' status-identity'|*' status-incidents')
+        database=${!#}; database=${database#status-}
+        files=("$APP_TEST_MIGRATIONS/$database/"*.sql)
+        version=${files[-1]##*/}; version=$((10#${version%%_*}))
+        printf '{"msg":"migration versions","database":"%s","current":%d,"target":%d}\n' "$database" "$version" "$version" ;;
+esac
 SH
 chmod 0755 "$temporary/bin/docker"
 export APP_TEST_COMMANDS=$temporary/commands APP_TEST_IMAGES=$temporary/images
@@ -65,8 +88,7 @@ PATH="$temporary/bin:$PATH" bash "$root/deploy/app-vm/manage.sh" --config "$conf
 grep -Fq 'stop private-go go-api' "$APP_TEST_COMMANDS"
 if grep -Eq '(down|--volumes|prune)' "$APP_TEST_COMMANDS"; then echo 'Destructive management action' >&2; exit 1; fi
 [[ $before == "$(find "$temporary/secrets/credentials" -type f -exec sha256sum {} + | sort)" ]]
-# Only this negative state-inspection test mocks certificate tooling. Real certificate
-# verification, hostname mismatches and HBA behavior are covered by app-vm-smoke.
+# These management guard tests mock Docker and certificate tooling.
 mkdir -m 0700 "$temporary/secrets/tls"
 for name in ca.crt identity.crt identity.key incident.crt incident.key go.crt go.key; do
     printf 'synthetic input; not a certificate\n' > "$temporary/secrets/tls/$name"
@@ -83,7 +105,38 @@ reject env PATH="$temporary/bin:$PATH" bash "$root/deploy/app-vm/manage.sh" --co
 grep -Fq 'Credential URL must use its scoped role/endpoint and verified TLS' "$temporary/error"
 printf '%s\n' "$original_url" > "$temporary/secrets/credentials/runtime/identity_runtime_url"
 reject env APP_TEST_PS_FAIL=yes PATH="$temporary/bin:$PATH" bash "$root/deploy/app-vm/manage.sh" --config "$config" migrate
-grep -Fq 'Could not inspect running services' "$temporary/error"
+grep -Fq 'Could not inspect Go service' "$temporary/error"
 if grep -q ' run ' "$APP_TEST_COMMANDS"; then echo 'Database tool ran after state inspection failed' >&2; exit 1; fi
+manage() { PATH="$temporary/bin:$PATH" bash "$root/deploy/app-vm/manage.sh" --config "$config" "$@"; }
+for state in running restarting paused dead; do
+    APP_TEST_GO_STATE=$state reject manage migrate
+    grep -Fq "state: $state" "$temporary/error"
+done
+rm "$temporary/state/maintenance/public/enabled"
+APP_TEST_WEB_MOUNT=$temporary/state reject manage maintenance-on
+grep -Fq 'does not match the web gateway bind mount' "$temporary/error"
+[[ ! -e $temporary/state/maintenance/public/enabled ]]
+export APP_TEST_WEB_MOUNT=$temporary/state/maintenance/public
+manage maintenance-on >/dev/null
+APP_TEST_WEB_MARKER=absent reject manage quiesce
+grep -Fq 'Live web gateway does not see' "$temporary/error"
+if grep -q ' run ' "$APP_TEST_COMMANDS"; then echo 'Database tool ran before state guards passed' >&2; exit 1; fi
+export APP_TEST_MIGRATIONS=$temporary/migrations APP_TEST_IMAGE_ID
+APP_TEST_IMAGE_ID="sha256:$(printf '%064d' 1)"
+cp -r "$root/db/migrations" "$APP_TEST_MIGRATIONS"
+for database in identity incidents; do
+    # Same version number, different bytes. Neither database may be touched.
+    files=("$APP_TEST_MIGRATIONS/$database/"*.sql)
+    printf '\n-- test drift\n' >> "${files[0]}"
+    reject manage migrate
+    grep -Fq 'do not match this checkout' "$temporary/error"
+    [[ -f $APP_TEST_WEB_MOUNT/upgrade-blocked ]]
+    if grep -Eq ' migrate-(identity|incidents)$' "$APP_TEST_COMMANDS"; then echo 'Migration ran before verifying both directories' >&2; exit 1; fi
+    cp "$root/db/migrations/$database/${files[0]##*/}" "${files[0]}"
+done
+APP_TEST_GO_STATE=exited manage migrate >/dev/null
+[[ ! -e $APP_TEST_WEB_MOUNT/upgrade-blocked && -f $APP_TEST_WEB_MOUNT/enabled ]]
+[[ $(tail -4 "$APP_TEST_IMAGES" | sort -u) == "$APP_TEST_IMAGE_ID" ]]
+[[ $(awk '/ (migrate|status)-(identity|incidents)$/ {print $NF}' "$APP_TEST_COMMANDS") == $'migrate-identity\nmigrate-incidents\nstatus-identity\nstatus-incidents' ]]
 [[ $before == "$(find "$temporary/secrets/credentials" -type f -exec sha256sum {} + | sort)" ]]
 printf '%s\n' 'Application VM literal config, path safety and non-overwriting TLS credential generation passed.'

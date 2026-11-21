@@ -72,17 +72,56 @@ state_check() {
     [[ -d $APP_STATE_DIR/maintenance/public && ! -L $APP_STATE_DIR/maintenance/public && $(stat -c %a "$APP_STATE_DIR/maintenance/public") == 755 ]] || fail 'Maintenance mount must be a real 0755 directory.'
     for file in enabled upgrade-blocked; do
         [[ ! -L $APP_STATE_DIR/maintenance/public/$file ]] || fail 'Maintenance markers must not be symlinks.'
+        [[ ! -e $APP_STATE_DIR/maintenance/public/$file || -f $APP_STATE_DIR/maintenance/public/$file ]] || fail 'Expected a regular maintenance marker.'
+    done
+}
+verify_web_bind() {
+    local dir=$APP_STATE_DIR/maintenance/public ids id state mount expected observed
+    ids=$(compose ps --all --quiet web) || fail 'Could not inspect the web gateway.'
+    for id in $ids; do
+        mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/maintenance"}}{{.Type}}:{{.RW}}:{{.Source}}{{end}}{{end}}' "$id")
+        [[ $mount == "bind:false:$dir" ]] || fail 'Configured maintenance directory does not match the web gateway bind mount.'
+        state=$(docker inspect --format '{{.State.Status}}' "$id")
+        case "$state" in
+            created|exited) continue ;;
+            running) ;;
+            *) fail 'Cannot verify the maintenance marker on the web gateway in its current state.' ;;
+        esac
+        # A replaced host directory can have the same path as a detached live bind.
+        expected=$(stat -c '%d:%i' "$dir")
+        if [[ -f $dir/enabled ]]; then expected+=$'\nenabled'; fi
+        observed=$(docker exec "$id" sh -ec 'stat -c "%d:%i" /run/maintenance; if [ -f /run/maintenance/enabled ]; then echo enabled; fi')
+        [[ $observed == "$expected" ]] || fail 'Live web gateway does not see the configured maintenance directory/marker.'
     done
 }
 pause_writes() {
-    install -m 0644 /dev/null "$APP_STATE_DIR/maintenance/public/enabled"
+    verify_web_bind
+    if [[ ! -f $APP_STATE_DIR/maintenance/public/enabled ]]; then
+        install -m 0644 /dev/null "$APP_STATE_DIR/maintenance/public/enabled"
+    fi
+    verify_web_bind
 }
 require_stopped() {
-    local running
-    running=$(compose ps --status running --services) || fail 'Could not inspect running services; refusing database changes.'
-    if grep -Fxq go-api <<< "$running"; then fail 'Stop Go using quiesce before changing databases/roles.'; fi
+    local ids id state
+    ids=$(compose ps --all --quiet go-api) || fail 'Could not inspect Go service; refusing database changes.'
+    for id in $ids; do
+        state=$(docker inspect --format '{{.State.Status}}' "$id")
+        [[ $state == exited ]] || fail "Stop Go using quiesce before changing databases/roles (state: $state)."
+    done
 }
 tool() { compose run --rm -T --no-deps --pull never "$@"; }
+verify_migration_image() {
+    local image expected actual
+    image=$(docker image inspect --format '{{.Id}}' "$APP_GO_IMAGE")
+    [[ $image =~ ^sha256:[a-f0-9]{64}$ ]] || fail 'Cannot identify the local migration image.'
+    expected=$(cd "$APP_REPO_ROOT/db/migrations" && export LC_ALL=C && sha256sum identity/*.sql incidents/*.sql)
+    actual=$(docker run --rm --pull never --network none --read-only --cap-drop ALL \
+        --security-opt no-new-privileges --entrypoint /bin/sh "$image" -ec \
+        'cd /app/migrations; export LC_ALL=C; sha256sum identity/*.sql incidents/*.sql')
+    [[ $expected == "$actual" ]] || fail 'Migration files in the image do not match this checkout; rebuild before migrating.'
+    # Both migration containers and their post-write status checks use these same bytes.
+    export APP_GO_IMAGE=$image DOCKER_GO_IMAGE=$image
+}
 expected_version() {
     local file number maximum=0
     for file in "$APP_REPO_ROOT/db/migrations/$1/"*.sql; do
@@ -96,8 +135,8 @@ migration_check() {
     for database in identity incidents; do
         target=$(expected_version "$database")
         result=$(tool "status-$database")
-        if ! jq -es --argjson expected "$target" \
-            'map(select(.msg == "migration versions")) | last | .current == $expected and .target == $expected' <<< "$result" >/dev/null; then
+        if ! jq -es --arg database "$database" --argjson expected "$target" \
+            'map(select(.msg == "migration versions")) | last | .database == $database and .current == $expected and .target == $expected' <<< "$result" >/dev/null; then
             fail "Migration versions do not match this checkout/image: $database"
         fi
     done
@@ -119,7 +158,7 @@ case "$action" in
         # Sequential builds suit the D2as v4; no startup/setup or runtime credentials.
         docker build -f "$APP_REPO_ROOT/backend/go/Dockerfile" -t "$APP_GO_IMAGE" "$APP_REPO_ROOT"
         docker build -f "$APP_REPO_ROOT/frontend/Dockerfile" -t "$APP_WEB_IMAGE" "$APP_REPO_ROOT"
-        compose pull identity-db incident-db private-go prepare-web
+        compose pull --policy missing identity-db incident-db private-go prepare-web
         exit ;;
     status) compose ps; exit ;;
     logs) compose logs --tail 100; exit ;;
@@ -149,7 +188,9 @@ case "$action" in
             migrate)
                 require_stopped
                 [[ -f $APP_STATE_DIR/maintenance/public/enabled ]] || fail 'Enable maintenance before migrations.'
+                verify_web_bind
                 install -m 0644 /dev/null "$APP_STATE_DIR/maintenance/public/upgrade-blocked"
+                verify_migration_image
                 tool migrate-identity
                 tool migrate-incidents
                 migration_check
@@ -166,6 +207,7 @@ case "$action" in
                 migration_check
                 tool seed-demo ;;
             up|check|maintenance-off)
+                verify_web_bind
                 [[ ! -e $APP_STATE_DIR/maintenance/public/upgrade-blocked ]] || fail 'Upgrade incomplete; successful explicit migrate is required before startup/resume.'
                 if [[ $action == up ]]; then
                     compose up -d --no-build --pull never --wait --wait-timeout 90 identity-db incident-db
@@ -177,7 +219,10 @@ case "$action" in
                     compose up -d --no-build --pull never --wait --wait-timeout 120 identity-db incident-db go-api web private-go
                 fi
                 gateway_check
-                if [[ $action == maintenance-off ]]; then rm -f -- "$APP_STATE_DIR/maintenance/public/enabled"; fi
+                if [[ $action == maintenance-off ]]; then
+                    rm -f -- "$APP_STATE_DIR/maintenance/public/enabled"
+                    verify_web_bind
+                fi
                 printf '%s\n' 'Application TLS/connectivity/schema checks passed; AI and browser acceptance are separate.' ;;
             check-ai)
                 migration_check
