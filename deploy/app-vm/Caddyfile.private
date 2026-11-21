@@ -16,7 +16,7 @@
 	route {
 		@read {
 			method GET
-			path_regexp private_read ^/(readyz|auth/me|incidents/[0-9a-f-]{36}|internal/ai/jobs/[0-9a-f-]{36}/context)$
+			path_regexp private_read ^/(readyz|auth/me|incidents/[0-9a-f-]{36}|internal/ai/auth-check|internal/ai/jobs/[0-9a-f-]{36}/context)$
 		}
 		handle @read {
 			reverse_proxy go-api:8080

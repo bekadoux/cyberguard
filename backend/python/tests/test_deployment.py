@@ -3,11 +3,13 @@
 import asyncio
 import ssl
 from dataclasses import replace
+from uuid import UUID
 
 import httpx
 import pytest
 from cyberguard_ai import preflight, worker
 from cyberguard_ai.config import Settings
+from cyberguard_ai.db import Claim
 from cyberguard_ai.db import Storage as DatabaseStorage
 from cyberguard_ai.preflight import dependencies_ready
 
@@ -71,11 +73,16 @@ def test_tls_policy_rejects_http_and_insecure_database_without_leaking_secrets(t
         ).validate_tls()
 
 
-@pytest.mark.parametrize('unavailable', ['go', 'kev', 'llm', None])
+@pytest.mark.parametrize('unavailable', ['auth', 'go', 'kev', 'llm', None])
 def test_dependency_probes_require_all_services(unavailable):
     cfg = settings(kev_base_url='http://kev', llm_base_url='http://llm')
 
     def handle(request):
+        if request.url.path == '/internal/ai/auth-check':
+            assert request.url.host == 'go'
+            assert request.headers['Authorization'] == 'Bearer test'
+            return httpx.Response(401 if unavailable == 'auth' else 204)
+        assert 'Authorization' not in request.headers
         if request.url.host == unavailable:
             return httpx.Response(503)
         if request.url.host == 'kev':
@@ -94,6 +101,8 @@ def test_dependency_probes_require_all_services(unavailable):
 )
 def test_invalid_model_readiness_fails_closed(body):
     def handle(request):
+        if request.url.path == '/internal/ai/auth-check':
+            return httpx.Response(204)
         return httpx.Response(200, json=body if request.url.host == 'kev' else {})
 
     async def run():
@@ -108,7 +117,7 @@ def test_worker_does_not_claim_until_dependencies_recover(monkeypatch):
     observations = []
     ready = iter([False, True, False, True])
 
-    async def probe(*_args):
+    async def probe(*_args, **_kwargs):
         value = next(ready)
         observations.append(value)
         return value
@@ -144,7 +153,7 @@ def test_worker_preserves_queue_until_snapshot_safety_is_ready(monkeypatch, unav
     stop = asyncio.Event()
     calls = []
 
-    async def probe(*_args):
+    async def probe(*_args, **_kwargs):
         return True
 
     class Storage(DatabaseStorage):
@@ -177,3 +186,65 @@ def test_preflight_rejects_pending_legacy_jobs_before_http_probes(monkeypatch):
     monkeypatch.setattr(preflight, 'Storage', Storage)
     monkeypatch.setattr(Settings, 'from_env', classmethod(lambda cls: settings()))
     assert not asyncio.run(preflight.check())
+
+
+@pytest.mark.parametrize('denial', [401, 403])
+@pytest.mark.parametrize('check_services', [False, True])
+def test_worker_auth_fault_preserves_claim_and_blocks_queue(
+    monkeypatch, denial, check_services
+):
+    """Exercise startup mismatch, rotation between probe and read, then recovery."""
+    stop = asyncio.Event()
+    events = []
+    probe_statuses = iter([denial, 204, denial, 200, 204])
+    job = Claim(UUID(int=1), UUID(int=2), 1, UUID(int=3))
+
+    def respond(request):
+        if request.url.path == '/internal/ai/auth-check':
+            status = next(probe_statuses)
+            events.append(('probe', status))
+            assert request.headers['Authorization'] == 'Bearer test'
+            return httpx.Response(status)
+        if request.url.path == '/readyz' and check_services:
+            return httpx.Response(200)
+        assert request.url.path == f'/internal/ai/jobs/{job.job_id}/context'
+        events.append(('context', denial))
+        return httpx.Response(denial)
+
+    class Storage(DatabaseStorage):
+        def worker_ready(self) -> bool:
+            return True
+
+        def claim(self, attempts: int, lease: int) -> Claim | None:
+            events.append('claim')
+            if events.count('claim') == 1:
+                return job
+            stop.set()
+            return None
+
+        def fail(self, job: UUID, token: UUID, code: str) -> bool:
+            events.append('fail')
+            return True
+
+        def finish(self, job: UUID, token: UUID, data: dict, source: str) -> bool:
+            events.append('finish')
+            return True
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(worker.httpx, 'AsyncClient', lambda **_kwargs: client)
+    cfg = settings(check_dependencies=check_services, mode='fake', poll_seconds=0.001)
+
+    async def run():
+        await asyncio.wait_for(worker.worker_loop(cfg, Storage('unused'), stop), 3)
+
+    asyncio.run(run())
+    assert events == [
+        ('probe', denial),
+        ('probe', 204),
+        'claim',
+        ('context', denial),
+        ('probe', denial),
+        ('probe', 200),  # A successful generic readiness/SPA page is not this probe.
+        ('probe', 204),
+        'claim',
+    ]

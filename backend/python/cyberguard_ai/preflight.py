@@ -7,14 +7,21 @@ import httpx
 
 from .config import Settings
 from .db import Storage
+from .go_client import worker_authenticated
 
 
-async def dependencies_ready(cfg: Settings, http: httpx.AsyncClient) -> bool:
+async def dependencies_ready(
+    cfg: Settings, http: httpx.AsyncClient, *, check_services: bool = True
+) -> bool:
     """Gate each claim, including after reboot and during model recovery.
 
     Probes establish availability, not inference quality or an atomic guarantee that
     a dependency will remain available for the following job.
     """
+    if not await worker_authenticated(cfg, http):
+        return False
+    if not check_services:
+        return True
     try:
         response = await http.get(f'{cfg.go_base_url}/readyz', timeout=5)
         response.raise_for_status()

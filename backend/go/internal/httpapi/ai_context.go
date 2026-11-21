@@ -13,20 +13,27 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// MountAIWorkerContext provides only the context of a persisted job to a
-// credentialed private service. Never expose /internal/* through Caddy.
+// MountAIWorkerContext exposes worker authentication and persisted job context
+// only to the private service. Never publish these routes on the public gateway.
 func MountAIWorkerContext(router chi.Router, pool *pgxpool.Pool, serviceToken string) {
 	if serviceToken == "" {
 		return
 	}
-	router.Get("/internal/ai/jobs/{id}/context", func(w http.ResponseWriter, r *http.Request) {
-		supplied := r.Header.Get("Authorization")
-		expected := "Bearer " + serviceToken
-		if len(supplied) != len(expected) ||
-			subtle.ConstantTimeCompare([]byte(supplied), []byte(expected)) != 1 {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "Service authentication is required.")
-			return
-		}
+	expected := []byte("Bearer " + serviceToken)
+	worker := router.With(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store")
+			if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), expected) != 1 {
+				writeError(w, http.StatusUnauthorized, "unauthorized", "Service authentication is required.")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+	worker.Get("/internal/ai/auth-check", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	worker.Get("/internal/ai/jobs/{id}/context", func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		var uuid pgtype.UUID
 		if len(id) != 36 || uuid.Scan(id) != nil || !uuid.Valid || uuid.String() != id {

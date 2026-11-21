@@ -10,7 +10,9 @@ ai_start() {
     # A numeric private endpoint avoids depending on cross-project Docker DNS. The
     # disposable certificates include its IP SAN, as well as the production DNS SANs.
     sed "s/@$APP_DB_TLS_NAME:/@$APP_BIND_IP:/" "$APP_RUNTIME_DIR/ai_runtime_url" > "$test_dir/ai_runtime_url"
-    chmod 0640 "$test_dir/ai_runtime_url"
+    # Start with a mismatched AI-side token. Never change Go's credential.
+    printf 'disposable-mismatched-worker-token\n' > "$test_dir/worker-token"
+    chmod 0640 "$test_dir/ai_runtime_url" "$test_dir/worker-token"
     ai_compose up -d --no-build --pull never --wait --wait-timeout 60 ai-api ai-gateway
 }
 sql() { compose exec -T incident-db psql -X -v ON_ERROR_STOP=1 -U bootstrap_admin -d cyberguard_incidents -qAtc "$1"; }
@@ -21,10 +23,24 @@ ai_check() {
         --data '{"affected_system":"revised fixture system"}' "$base/api/incidents/$incident/fields"
     job=$(sql "SELECT id FROM assessment_jobs WHERE incident_id='$incident'")
     printf 'Authorization: Bearer %s\n' "$(cat "$APP_RUNTIME_DIR/ai_internal_token")" > "$test_dir/service-header"
+    request 404 --header "@$test_dir/service-header" "$base/api/internal/ai/auth-check"
+    local probe="https://$APP_GO_TLS_NAME:$APP_PRIVATE_PORT/internal/ai/auth-check"
+    local -a private=(curl --silent --show-error --noproxy '*' --cacert "$APP_TLS_DIR/ca.crt"
+        --resolve "$APP_GO_TLS_NAME:$APP_PRIVATE_PORT:$APP_BIND_IP" -o /dev/null -w '%{http_code}')
+    [[ $("${private[@]}" "$probe") == 401 ]]
+    [[ $("${private[@]}" --header "@$test_dir/service-header" "$probe") == 204 ]]
+    [[ $("${private[@]}" --header "@$test_dir/service-header" -X POST "$probe") == 404 ]]
     [[ $(curl --fail --silent --noproxy '*' --cacert "$APP_TLS_DIR/ca.crt" \
         --resolve "$APP_GO_TLS_NAME:$APP_PRIVATE_PORT:$APP_BIND_IP" --header "@$test_dir/service-header" \
         "https://$APP_GO_TLS_NAME:$APP_PRIVATE_PORT/internal/ai/jobs/$job/context" | jq -er '.affected_system') == 'original fixture system' ]]
     ai_compose up -d --no-build --pull never ai-worker
+    if ai_compose run --rm --no-deps ai-worker python -m cyberguard_ai.preflight; then
+        fail 'AI preflight accepted a mismatched worker token.'
+    fi
+    sleep 3 # Allow several one-second claim polls with the bad token.
+    [[ $(sql "SELECT status || attempt_count FROM assessment_jobs WHERE id='$job'") == queued0 ]] || fail 'Worker token mismatch consumed a job.'
+    cat "$APP_RUNTIME_DIR/ai_internal_token" > "$test_dir/worker-token"
+    ai_compose restart ai-worker
     for _ in {1..40}; do
         [[ $(sql "SELECT status FROM assessment_jobs WHERE id='$job'") == completed ]] && break
         sleep 1

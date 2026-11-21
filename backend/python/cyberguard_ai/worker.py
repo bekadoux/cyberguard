@@ -9,7 +9,7 @@ import httpx
 
 from .config import Settings
 from .db import Claim, Storage
-from .go_client import ContextUnavailable, job_context
+from .go_client import ContextUnavailable, WorkerAuthError, job_context
 from .models import ModelUnavailable, run_assessment
 from .preflight import dependencies_ready
 
@@ -49,6 +49,10 @@ async def execute_claim(
             assessment.model_dump(mode='json'),
             'fake' if assessment.is_fake else 'kev_llm',
         )
+    except WorkerAuthError:
+        # Configuration may have changed after the preclaim probe. Leave the
+        # claim fenced for normal lease recovery rather than failing the job.
+        raise
     except ContextUnavailable as exc:
         log.warning('Context failed: job_id=%s code=%s', claim.job_id, exc.code)
         await asyncio.to_thread(storage.fail, claim.job_id, claim.claim_token, exc.code)
@@ -86,7 +90,9 @@ async def worker_loop(cfg: Settings, storage: Storage, stop: asyncio.Event):
     async with httpx.AsyncClient(trust_env=False, verify=cfg.http_verify()) as http:
         while not stop.is_set():
             try:
-                ready = not cfg.check_dependencies or await dependencies_ready(cfg, http)
+                ready = await dependencies_ready(
+                    cfg, http, check_services=cfg.check_dependencies
+                )
                 if ready and cfg.check_dependencies:
                     ready = await asyncio.to_thread(storage.worker_ready)
                 claim = (
@@ -102,6 +108,8 @@ async def worker_loop(cfg: Settings, storage: Storage, stop: asyncio.Event):
                         'Job processed: job_id=%s completed=%s', claim.job_id, success
                     )
                     continue
+            except WorkerAuthError:
+                log.warning('Worker authentication rejected; pausing claims')
             except Exception:  # noqa: BLE001 - Keep polling; DB errors can contain secrets.
                 log.error('AI queue temporarily unavailable')
             try:

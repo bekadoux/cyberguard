@@ -12,13 +12,38 @@ class ContextUnavailable(RuntimeError):
         super().__init__(code)
 
 
-async def job_context(job_id, cfg: Settings, http: httpx.AsyncClient) -> IncidentContext:
+class WorkerAuthError(RuntimeError):
+    """Go rejected the worker credential, independently of the job being processed."""
+
+
+def _worker_headers(cfg: Settings) -> dict[str, str]:
+    return {'Authorization': f'Bearer {cfg.internal_token}'}
+
+
+async def worker_authenticated(cfg: Settings, http: httpx.AsyncClient) -> bool:
+    """Check the service credential without using a job, session or incident."""
+    try:
+        response = await http.get(
+            f'{cfg.go_base_url}/internal/ai/auth-check',
+            headers=_worker_headers(cfg),
+            timeout=5,
+        )
+        return response.status_code == 204
+    except httpx.HTTPError:
+        return False
+
+
+async def job_context(
+    job_id: UUID, cfg: Settings, http: httpx.AsyncClient
+) -> IncidentContext:
     try:
         response = await http.get(
             f'{cfg.go_base_url}/internal/ai/jobs/{job_id}/context',
-            headers={'Authorization': f'Bearer {cfg.internal_token}'},
+            headers=_worker_headers(cfg),
             timeout=10,
         )
+        if response.status_code in (401, 403):
+            raise WorkerAuthError
         if response.status_code == 409:
             raise ContextUnavailable('stale_context')
         if response.status_code != 200:

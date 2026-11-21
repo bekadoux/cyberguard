@@ -21,7 +21,7 @@ x-python: &python
     AI_POLL_SECONDS: '1'
   volumes:
     - ${APP_TEST_DIR}/ai_runtime_url:/run/secrets/ai_runtime_url:ro
-    - ${APP_RUNTIME_DIR}/ai_internal_token:/run/secrets/ai_internal_token:ro
+    - ${APP_TEST_DIR}/worker-token:/run/secrets/ai_internal_token:ro
     - ${APP_TLS_DIR}/ca.crt:/run/certs/ca.crt:ro
 
 services:
