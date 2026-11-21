@@ -295,3 +295,48 @@ paths:
       responses:
         '200': {description: Last 500 identity events; no credential content}
         '403': {description: Admin role required}
+  /incidents/{id}/ai-feedback:
+    post:
+      summary: Record human review of a real AI assessment and optionally confirm category
+      description: |
+        Assigned analyst or admin only. The job must have a stored real (non-fixture)
+        result for this incident. At most one feedback decision per job. An accepted
+        category must match the stored suggestion. Accepted/corrected decisions update
+        the human-confirmed incident category in the same transaction as audit history;
+        rejected decisions leave the incident unchanged. Reasons are mandatory for
+        corrected/rejected decisions. Category and decision are recorded in history;
+        model output is never automatically trusted.
+      parameters: *incident_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [job_id, decision, category, reason]
+              properties:
+                job_id: {type: string, format: uuid}
+                decision: {type: string, enum: [accepted, corrected, rejected]}
+                category:
+                  type: [string, 'null']
+                  enum: [phishing, malware, account_compromise, data_exposure, lost_device, policy_violation, service_disruption, other, null]
+                reason: {type: string, maxLength: 2000}
+      responses:
+        '201': {description: Human AI review saved and incident category confirmed when applicable}
+        '400': {description: Invalid decision or category}
+        '403': {description: Assigned analyst or admin required}
+        '404': {description: Incident or assessment unavailable}
+        '409': {description: Duplicate review, terminal incident or synthetic fixture}
+  /notifications/{id}/unread:
+    post:
+      summary: Mark an own notification as unread
+      description: Only the current recipient may reset its read timestamp.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200': {description: Unread timestamp cleared}
+        '404': {description: Not the user's notification or missing}

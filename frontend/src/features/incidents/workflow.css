@@ -1,0 +1,94 @@
+.workflow-card {
+  margin-top: 24px;
+}
+.workflow-card h2 {
+  margin-bottom: 16px;
+}
+.workflow-card h3 {
+  font-size: 15px;
+  margin: 4px 0 12px;
+}
+.workflow-form {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 18px;
+  margin-top: 20px;
+}
+.workflow-form label,
+.workflow-card > label,
+.workflow-actions label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.workflow-form input,
+.workflow-form select,
+.workflow-form textarea,
+.workflow-card textarea,
+.workflow-actions select {
+  width: 100%;
+  max-width: 100%;
+  min-height: 42px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  font: inherit;
+}
+.workflow-form textarea,
+.workflow-card textarea {
+  resize: vertical;
+}
+.workflow-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.workflow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.workflow-actions {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.workflow-actions label {
+  min-width: 150px;
+}
+.activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.activity-list > li {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.activity-list > li:last-child {
+  border-bottom: 0;
+}
+.activity-list p {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.unread-indicator {
+  display: inline-block;
+  margin-left: 10px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--accent);
+}
+@media (max-width: 720px) {
+  .workflow-pair {
+    grid-template-columns: 1fr;
+  }
+}

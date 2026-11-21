@@ -36,6 +36,7 @@ func (a *HandoffAPI) mountIncidentRoutes(r chi.Router) {
 	r.Get("/{id}/comments", a.listComments)
 	r.Post("/{id}/comments", a.addComment)
 	r.Get("/{id}/history", a.listHistory)
+	r.Post("/{id}/ai-feedback", a.reviewAIFeedback)
 }
 
 func (a *HandoffAPI) mountAuxiliaryRoutes(router chi.Router) {
@@ -43,6 +44,7 @@ func (a *HandoffAPI) mountAuxiliaryRoutes(router chi.Router) {
 		r.Use(a.auth.browserPolicy, a.auth.withDeadline, a.auth.protectedSession)
 		r.Get("/", a.listNotifications)
 		r.Post("/{id}/read", a.readNotification)
+		r.Post("/{id}/unread", a.unreadNotification)
 	})
 	router.Route("/admin", func(r chi.Router) {
 		r.Use(a.auth.browserPolicy, a.auth.withDeadline, a.auth.protectedSession)

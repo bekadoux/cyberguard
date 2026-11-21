@@ -6,13 +6,15 @@ themes, plus a protected workspace, incident submission and role-scoped list/det
 with status/category filters and cursor pagination. Firefox is the primary test browser;
 the same browser suite also runs on Chromium. Sign-in now lands on `/incidents`;
 `/account` retains the account information screen.
-Eligible staff can also read stored AI assessment states and results on another
-person's incident when the optional AI service is enabled.
+Eligible staff can also read stored AI assessment states and results, including on
+their own incidents, when the optional AI service is enabled.
 
-This increment does **not** implement investigation mutations, comments, account
-administration, password recovery, notifications, model execution in the browser or
-assessment retry mutations. The merged AI migration queues an initial job on new
-incident inserts; processing requires the optional AI services. See
+The merged [frontend handoff](frontend-handoff-implementation.md) adds investigation
+actions, comments/history, account administration, notifications and human AI review.
+It requires incident migration `00006_ai_feedback.sql` plus rebuilt Go and frontend
+images; it does not add password recovery, model execution in the browser or assessment
+retry mutations. The merged AI migration queues an initial job on new incident inserts;
+processing requires the optional AI services. See
 [AI backend setup](ai-backend.md) for candidate-contract and real-inference boundaries.
 
 ## Prerequisites and startup

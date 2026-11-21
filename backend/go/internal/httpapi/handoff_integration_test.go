@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/bekadoux/cyberguard/backend/go/internal/demoseed"
 	"github.com/bekadoux/cyberguard/backend/go/internal/sessionstore"
 	"github.com/bekadoux/cyberguard/backend/go/internal/testutil"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TestHandoffWorkflowDatabasePermissions(t *testing.T) {
@@ -71,6 +73,37 @@ func TestHandoffWorkflowDatabasePermissions(t *testing.T) {
 	request("POST", base+"/claim", "{}", emp1, 403)
 	request("POST", base+"/claim", "{}", analyst, 200)
 	request("POST", base+"/claim", "{}", admin, 409)
+	// Synthetic stored results exercise the real runtime grants and transaction,
+	// not model inference. A fixture source must be rejected before any review.
+	var job pgtype.UUID
+	err = reports.Migrator.QueryRow(ctx, `WITH completed AS (
+        UPDATE assessment_jobs SET status='completed',finished_at=now()
+        WHERE incident_id=$1 RETURNING id,incident_id
+    ) INSERT INTO assessment_results(job_id,incident_id,assessment,source_kind)
+      SELECT id,incident_id,'{"triage":{"suggested_category":"phishing"}}'::jsonb,'fake'
+      FROM completed RETURNING job_id`, id).Scan(&job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feedback := fmt.Sprintf(`{"job_id":%q,"decision":"accepted","category":"phishing","reason":""}`, job.String())
+	request("POST", base+"/ai-feedback", feedback, emp1, 403)
+	request("POST", base+"/ai-feedback", feedback, analyst, 409)
+	if _, err = reports.Migrator.Exec(ctx, `UPDATE assessment_results SET source_kind='kev_llm' WHERE job_id=$1`, job); err != nil {
+		t.Fatal(err)
+	}
+	mismatch := fmt.Sprintf(`{"job_id":%q,"decision":"accepted","category":"malware","reason":""}`, job.String())
+	request("POST", base+"/ai-feedback", mismatch, analyst, 400)
+	request("POST", base+"/ai-feedback", feedback, analyst, 201)
+	duplicate := fmt.Sprintf(`{"job_id":%q,"decision":"corrected","category":"malware","reason":"Duplicate must roll back"}`, job.String())
+	request("POST", base+"/ai-feedback", duplicate, admin, 409)
+	var category string
+	var reviews int
+	err = reports.Runtime.QueryRow(ctx, `SELECT category,
+        (SELECT count(*) FROM incident_actions WHERE incident_id=$1 AND action='ai_feedback_submitted')
+        FROM incidents WHERE id=$1`, id).Scan(&category, &reviews)
+	if err != nil || category != "phishing" || reviews != 1 {
+		t.Fatalf("feedback category=%q reviews=%d err=%v", category, reviews, err)
+	}
 	request("PATCH", base+"/fields", `{"category":"phishing","severity":"high"}`, analyst, 200)
 	request("POST", base+"/transition", `{"status":"investigating"}`, analyst, 200)
 	request("POST", base+"/comments", `{"text":"Internal evidence","visibility":"internal"}`, analyst, 201)

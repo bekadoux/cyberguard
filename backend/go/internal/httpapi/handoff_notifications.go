@@ -76,3 +76,31 @@ func (a *HandoffAPI) readNotification(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"read": true})
 }
+
+// unreadNotification reverses an own read acknowledgement. It never exposes
+// another user's notification, even when the supplied UUID exists.
+func (a *HandoffAPI) unreadNotification(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" {
+		writeError(w, 400, "invalid_request", "Unexpected query.")
+		return
+	}
+	id, ok := uuidForPath(w, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	actor, _ := actorUUID(a.user(r))
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	var got pgtype.UUID
+	err := a.incidentDB.QueryRow(ctx, `UPDATE incident_notifications SET read_at=NULL
+        WHERE id=$1 AND recipient_id=$2 RETURNING id`, id, actor).Scan(&got)
+	if err == pgx.ErrNoRows {
+		writeError(w, 404, "not_found", "Notification not found.")
+		return
+	}
+	if err != nil {
+		handoffStorageError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"read": false})
+}

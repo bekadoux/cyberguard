@@ -24,7 +24,9 @@ or real model inference is established by disposable local tests.
 No Node, Go toolchain, Python, models, Redis or separate scheduler is installed on the
 host. Build toolchains stay in images. Go owns hourly incident auto-close, also run at
 startup: restarting Go can close eligible incidents. Frontend workflow/admin screens
-remain outside this increment, even though their authenticated API routes exist.
+and human AI review are supplied by the merged
+[frontend handoff](frontend-handoff-implementation.md); deployed browser acceptance
+remains separate from this deployment increment.
 
 The manager explicitly selects root `compose.yaml` plus `deploy/app-vm/compose.yaml`;
 provided-certificate mode adds only `provided.compose.yaml`. It never selects
@@ -175,7 +177,7 @@ sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env bootst
 managed role passwords**, including AI bootstrap: never routine startup or a grant-repair
 shortcut. Migration uses separate scoped migrators, checks both current and image target
 versions against the checkout, and exposes no automatic downgrade. Currently identity
-must reach 00003 and incidents 00005. API and worker never migrate themselves.
+must reach 00003 and incidents 00006. API and worker never migrate themselves.
 Status uses separate file-backed migrator connections with server-side
 `default_transaction_read_only=on`. This is deliberate: Goose can lazily create its
 version table even in status mode. Startup/check must reject an unmigrated database
@@ -258,6 +260,8 @@ Do not run the fresh credential/bootstrap sequence over retained data.
 5. Review the new checkout and build its images explicitly, then run `migrate`.
    Go must be stopped and maintenance enabled. Successful migration/version checks
    remove the startup guard, but leave public writes paused. Failure leaves it in place.
+   The frontend handoff requires incident migration `00006_ai_feedback.sql` and rebuilt
+   Go/migration and frontend images; it is not a frontend-only static asset upgrade.
 6. Migration 00005 grants an existing AI role its added readiness permission without
    resetting its password. Pending legacy jobs without snapshots block worker readiness;
    no automatic backfill, retirement, retry, reset or mass-failure is supplied. Keep

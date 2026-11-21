@@ -121,6 +121,10 @@ request() {
 request 200 "$base/login"
 if grep -qi '^Alt-Svc:' "$test_dir/headers"; then fail 'Gateway advertised an unpublished HTTP/3 port.'; fi
 request 200 "$base/incidents/new"
+request 200 "$base/notifications"
+request 200 "$base/admin"
+request 404 "$base/admin/missing"
+request 404 "$base/notifications/missing"
 request 404 "$base/.env"
 request 404 "$base/api/internal/ai/jobs/11111111-1111-4111-8111-111111111111/context"
 request 502 "$base/ai/readyz"

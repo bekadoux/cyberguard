@@ -4,11 +4,12 @@
 
 - The Go API implements incident core create/read plus a handoff candidate for
   incident workflow, comments, audit, notifications and user administration.
-  The frontend implements login/session UI, themes and scoped incident create/list/detail.
+  The frontend implements login/session UI, themes, scoped incident create/list/detail,
+  investigation actions, comments/history, notifications, administration and AI review.
   Eligible analysts/admins can read stored AI assessments, including on their own reports;
   employee views never fetch AI output. Assessment refresh is manual, not a keepalive poll.
-  Frontend investigation mutations remain planned. See
-  `docs/frontend-setup.md` and `docs/incidents-handoff.md` for the explicit boundaries. Application
+  See `docs/frontend-setup.md`, `docs/frontend-handoff-implementation.md` and
+  `docs/incidents-handoff.md` for implementation boundaries and acceptance checks. Application
   wiring is in `backend/go/cmd/api/main.go`; deployment ownership and integration
   contracts are in `docs/architect-handoff.md`.
 - An AI implementation candidate under `backend/python/` adds FastAPI, PostgreSQL job
@@ -174,9 +175,10 @@
   live in a separate table to keep generated incident row shapes compatible.
 - Apply `db/migrations/identity/00003_user_admin_audit.sql`,
   incident migrations `00003_context_and_investigations.sql`,
-  `00004_job_context_read.sql` and `00005_snapshot_worker_safety.sql` before restarting
-  the updated application/AI worker. Historical jobs are not backfilled. Migration
-  00005 preserves snapshot-less jobs and grants a boolean `ai_worker_ready()` probe;
+  `00004_job_context_read.sql`, `00005_snapshot_worker_safety.sql` and
+  `00006_ai_feedback.sql` before restarting the updated application/AI worker.
+  Historical jobs are not backfilled. Migration 00005 preserves snapshot-less jobs
+  and grants a boolean `ai_worker_ready()` probe;
   pending legacy jobs block worker readiness until an explicit operator decision.
   Never silently retire/requeue/backfill them. See the AI deployment upgrade guide.
 - Staff retain professional severity/AI visibility on their own reports; employees

@@ -8,7 +8,10 @@ import { incidentErrorMessage } from './messages';
 import { categoryLabels, incidentListBackLink, isRecord, severityLabels } from './model';
 import { useIncidentDetail } from './use-incident-detail';
 import { AssessmentPanel } from './AssessmentPanel';
+import { IncidentWorkflow } from './IncidentWorkflow';
+import { IncidentDiscussion } from './IncidentDiscussion';
 import './incidents.css';
+import './workflow.css';
 
 const dateTime = (date: string) =>
   new Date(date).toLocaleString(undefined, {
@@ -175,11 +178,19 @@ export function IncidentDetailPage() {
               <p className="metadata-hint">Times are shown in your local time zone.</p>
             </aside>
           </div>
-          {professional && <AssessmentPanel incidentId={incident.id} />}
-          <p className="readonly-note">
-            Read-only record. Editing, comments and investigation actions are not
-            available in this release.
-          </p>
+          {professional && (
+            <AssessmentPanel
+              incidentId={incident.id}
+              incident={incident}
+              onChanged={detail.retry}
+            />
+          )}
+          <IncidentWorkflow incident={incident} onChanged={detail.retry} />
+          <IncidentDiscussion
+            incident={incident}
+            professional={professional}
+            onChanged={detail.retry}
+          />
         </>
       )}
     </section>

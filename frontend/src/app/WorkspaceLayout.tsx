@@ -1,4 +1,4 @@
-import { ClipboardList, LogOut, UserRound } from 'lucide-react';
+import { Bell, ClipboardList, LogOut, ShieldCheck, UserRound } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router';
 import { authErrorMessage } from '../features/auth/messages';
@@ -31,6 +31,16 @@ export function WorkspaceLayout() {
             <ClipboardList size={17} aria-hidden="true" />
             Incidents
           </NavLink>
+          <NavLink to="/notifications">
+            <Bell size={17} aria-hidden="true" />
+            Notifications
+          </NavLink>
+          {user?.role === 'admin' && (
+            <NavLink to="/admin">
+              <ShieldCheck size={17} aria-hidden="true" />
+              Admin
+            </NavLink>
+          )}
           <NavLink to="/account">
             <UserRound size={17} aria-hidden="true" />
             Account
