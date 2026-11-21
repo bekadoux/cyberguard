@@ -1,0 +1,11 @@
+# Only used with the base compose.yaml in a unique smoke recovery project. No host
+# ports, external volumes, VM overlay, or networks shared with the source instances.
+services:
+  bootstrap-ai:
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    profiles: [tools]
+    secrets: [incidents_admin_password, ai_runtime_password]
+    networks: [incidents]
+
+secrets:
+  ai_runtime_password: {file: '${APP_PROVISION_DIR}/ai_runtime_password'}

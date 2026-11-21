@@ -107,20 +107,76 @@ hba_check() {
     fi
     grep -q 'no pg_hba.conf entry' "$test_dir/outsider-error" || fail 'Outsider failure did not exercise SQL HBA isolation.'
 }
-restore_check() {
-    local database service owner table count version
-    for database in identity incidents; do
-        if [[ $database == identity ]]; then service='identity-db'; else service='incident-db'; fi
-        owner=${database}_migrator
-        if [[ $database == identity ]]; then table=users; else table=incidents; fi
-        count=$(compose exec -T "$service" psql -X -U bootstrap_admin -d "cyberguard_$database" -Atc "SELECT count(*) FROM $table")
-        # Management already validated the target schema; the restore must match its source.
-        version=$(compose exec -T "$service" psql -X -U bootstrap_admin -d "cyberguard_$database" -Atc 'SELECT max(version_id) FROM goose_db_version WHERE is_applied')
-        compose exec -T "$service" pg_dump -U bootstrap_admin -d "cyberguard_$database" -Fc > "$test_dir/$database.dump"
-        compose exec -T "$service" createdb -U bootstrap_admin -O "$owner" disposable_restore
-        compose exec -T "$service" pg_restore -U bootstrap_admin --exit-on-error -d disposable_restore < "$test_dir/$database.dump"
-        [[ $(compose exec -T "$service" psql -X -U bootstrap_admin -d disposable_restore -Atc 'SELECT max(version_id) FROM goose_db_version WHERE is_applied') == "$version" ]]
-        [[ $(compose exec -T "$service" psql -X -U bootstrap_admin -d disposable_restore -Atc "SELECT count(*) FROM $table") == "$count" ]]
-        compose exec -T "$service" dropdb -U bootstrap_admin disposable_restore
-    done
+restore_compose() {
+    DOCKER_SECRETS_DIR=$APP_PROVISION_DIR docker compose --env-file /dev/null \
+        --project-directory "$APP_REPO_ROOT" --project-name "$project-restore" \
+        -f "$APP_REPO_ROOT/compose.yaml" -f "$APP_DEPLOY_DIR/tests/restore.compose.yaml" "$@"
 }
+restore_runtime_query() {
+    local client=$1 password=$2 service=$3 role=$4 database=$5 query=$6
+    # shellcheck disable=SC2016 # Positional parameters belong to the client shell.
+    restore_compose run --rm -T --no-deps --pull never --entrypoint sh "$client" -ec '
+        PGPASSWORD=$(cat "/run/secrets/$1")
+        export PGPASSWORD
+        exec psql -X -w -h "$2" -U "$3" -d "$4" -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -Atc "$5"
+    ' sh "$password" "$service" "$role" "cyberguard_$database" "$query"
+}
+restore_check() (
+    # Separate clusters and volumes; no published SQL ports or shared DB network.
+    [[ $project =~ ^cyberguard-app-vm-smoke-[a-f0-9]{12}$ ]] || fail 'Invalid restore fixture project.'
+    local label="label=com.docker.compose.project=$project-restore"
+    local resources
+    resources=$(docker volume ls -q --filter "$label" && docker ps -aq --filter "$label" &&
+        docker network ls -q --filter "$label")
+    [[ -z $resources ]] || fail 'Restore project already exists; refusing to reuse or clean it.'
+    trap 'restore_compose down --volumes >> "$test_dir/restore-cleanup.log" 2>&1 || exit 1' EXIT
+    trap 'exit 1' HUP INT TERM
+    restore_compose up -d --no-build --pull never --wait --wait-timeout 90 identity-db incident-db
+    # shellcheck source=deploy/app-vm/restore-roles.sh
+    source "$APP_DEPLOY_DIR/restore-roles.sh"
+    prepare_restore_roles restore_compose
+    if restore_compose exec -T incident-db psql -X -U bootstrap_admin -d postgres -v target=incidents -f - \
+        < "$APP_REPO_ROOT/db/restore/prepare-roles.sql" > "$test_dir/restore-role-refusal.log" 2>&1; then
+        fail 'Restore preparation reused existing incident roles.'
+    fi
+    grep -q 'requires a fresh recovery instance' "$test_dir/restore-role-refusal.log" || fail 'Expected fresh-instance guard.'
+    local database service table count metadata source_meta target_meta restored_count
+    for database in identity incidents; do
+        if [[ $database == identity ]]; then
+            service='identity-db'; table=users
+        else
+            service='incident-db'; table=incidents
+        fi
+        local -a admin=(exec -T "$service" psql -X -U bootstrap_admin -d "cyberguard_$database" -v ON_ERROR_STOP=1 -Atc)
+        count=$(compose "${admin[@]}" "SELECT count(*) FROM $table")
+        metadata="SELECT max(version_id) FROM goose_db_version WHERE is_applied;
+            SELECT pg_get_userbyid(datdba), ARRAY(SELECT a::text FROM unnest(datacl) a ORDER BY 1)
+                FROM pg_database WHERE datname=current_database();
+            SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public.$table'::regclass;"
+        source_meta=$(compose "${admin[@]}" "$metadata")
+        compose exec -T "$service" pg_dump -U bootstrap_admin -d "cyberguard_$database" -Fc > "$test_dir/$database.dump"
+        restore_compose exec -T "$service" pg_restore -U bootstrap_admin --exit-on-error \
+            --create -d postgres < "$test_dir/$database.dump"
+        target_meta=$(restore_compose "${admin[@]}" "$metadata")
+        [[ $source_meta == "$target_meta" ]] || fail "Restore metadata/owner/ACL mismatch: $database"
+
+        # The ordinary bootstrap sets the Go/migrator passwords and enables LOGIN.
+        # It does not supply application table grants. Do not run migrations or seed.
+        restore_compose run --rm -T --no-deps --pull never "bootstrap-$database"
+        restored_count=$(restore_runtime_query "bootstrap-$database" "${database}_runtime_password" \
+            "$service" "go_$database" "$database" "SELECT count(*) FROM $table")
+        [[ $count == "$restored_count" ]] || fail "Restored runtime row count mismatch: $database"
+    done
+    # No bootstrap-ai grants were applied on recovery. Test both allowed and
+    # forbidden access with real SCRAM credentials (not SET ROLE as an admin).
+    local -a ai=(bootstrap-ai ai_runtime_password incident-db python_incidents incidents)
+    local query='SELECT ai_worker_ready(), (SELECT count(id) FROM assessment_jobs), (SELECT count(job_id) FROM assessment_results)'
+    local expected actual
+    expected=$(sql "$query")
+    actual=$(restore_runtime_query "${ai[@]}" "$query")
+    [[ $actual == "$expected" ]] || fail 'Restored AI runtime readiness or row counts differ.'
+    if restore_runtime_query "${ai[@]}" 'SELECT claim_token FROM assessment_jobs LIMIT 0' > "$test_dir/restore-denied.log" 2>&1; then
+        fail 'Restored AI runtime could read a private job column.'
+    fi
+    grep -q '42501: permission denied' "$test_dir/restore-denied.log" || fail 'Expected restored SQL privilege denial.'
+)
