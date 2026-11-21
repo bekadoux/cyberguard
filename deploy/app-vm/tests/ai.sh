@@ -92,20 +92,19 @@ hba_check() {
     grep -q 'no pg_hba.conf entry' "$test_dir/outsider-error" || fail 'Outsider failure did not exercise SQL HBA isolation.'
 }
 restore_check() {
-    local database service owner table count
+    local database service owner table count version
     for database in identity incidents; do
         if [[ $database == identity ]]; then service='identity-db'; else service='incident-db'; fi
         owner=${database}_migrator
         if [[ $database == identity ]]; then table=users; else table=incidents; fi
         count=$(compose exec -T "$service" psql -X -U bootstrap_admin -d "cyberguard_$database" -Atc "SELECT count(*) FROM $table")
+        # Management already validated the target schema; the restore must match its source.
+        version=$(compose exec -T "$service" psql -X -U bootstrap_admin -d "cyberguard_$database" -Atc 'SELECT max(version_id) FROM goose_db_version WHERE is_applied')
         compose exec -T "$service" pg_dump -U bootstrap_admin -d "cyberguard_$database" -Fc > "$test_dir/$database.dump"
         compose exec -T "$service" createdb -U bootstrap_admin -O "$owner" disposable_restore
         compose exec -T "$service" pg_restore -U bootstrap_admin --exit-on-error -d disposable_restore < "$test_dir/$database.dump"
-        [[ $(compose exec -T "$service" psql -X -U bootstrap_admin -d disposable_restore -Atc 'SELECT max(version_id) FROM goose_db_version WHERE is_applied') == "$(expected_restore_version "$database")" ]]
+        [[ $(compose exec -T "$service" psql -X -U bootstrap_admin -d disposable_restore -Atc 'SELECT max(version_id) FROM goose_db_version WHERE is_applied') == "$version" ]]
         [[ $(compose exec -T "$service" psql -X -U bootstrap_admin -d disposable_restore -Atc "SELECT count(*) FROM $table") == "$count" ]]
         compose exec -T "$service" dropdb -U bootstrap_admin disposable_restore
     done
-}
-expected_restore_version() {
-    if [[ $1 == identity ]]; then printf 3; else printf 5; fi
 }

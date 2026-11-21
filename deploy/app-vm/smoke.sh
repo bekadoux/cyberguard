@@ -73,13 +73,22 @@ fi
 bash "$APP_DEPLOY_DIR/create-secrets.sh" --config "$config" > "$test_dir/setup.log"
 # A throwaway CA is generated ONLY inside this disposable test, never on runtime VMs.
 openssl req -x509 -newkey rsa:2048 -nodes -days 3 -subj /CN=Disposable-App-Smoke-CA \
+    -addext 'basicConstraints=critical,CA:TRUE' -addext 'subjectKeyIdentifier=hash' \
     -addext 'keyUsage=critical,keyCertSign,cRLSign' \
     -keyout "$test_dir/issuer/ca.key" -out "$APP_TLS_DIR/ca.crt" >/dev/null 2>&1
 issue_certificate() {
     local name=$1 sans=$2
     openssl req -newkey rsa:2048 -nodes -subj "/CN=$name" -keyout "$APP_TLS_DIR/$name.key" \
         -out "$test_dir/issuer/$name.csr" >/dev/null 2>&1
-    printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\n' "$sans" > "$test_dir/issuer/$name.ext"
+    # Do not depend on version-specific OpenSSL defaults for strict TLS validation.
+    cat > "$test_dir/issuer/$name.ext" <<EOF
+subjectAltName=$sans
+extendedKeyUsage=serverAuth
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid:always
+EOF
     openssl x509 -req -days 3 -in "$test_dir/issuer/$name.csr" \
         -CA "$APP_TLS_DIR/ca.crt" -CAkey "$test_dir/issuer/ca.key" -CAcreateserial \
         -extfile "$test_dir/issuer/$name.ext" -out "$APP_TLS_DIR/$name.crt" >/dev/null 2>&1

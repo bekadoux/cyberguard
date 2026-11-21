@@ -37,13 +37,22 @@ sh "$AI_REPO_ROOT/docker/create-secrets.sh" >/dev/null
 sh "$AI_REPO_ROOT/docker/ai/create-ai-secrets.sh" >/dev/null
 mkdir -m 0755 "$AI_TEST_DIR/certs" "$AI_MODEL_DIR" "$AI_TEST_DIR/control"
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=Disposable-AI-smoke-CA \
+    -addext 'basicConstraints=critical,CA:TRUE' -addext 'subjectKeyIdentifier=hash' \
     -addext 'keyUsage=critical,keyCertSign,cRLSign' \
     -keyout "$AI_TEST_DIR/certs/ca.key" -out "$AI_TEST_DIR/secrets/ca.crt" >/dev/null 2>&1
 issue_certificate() {
     local name=$1 sans=$2
     openssl req -newkey rsa:2048 -nodes -subj "/CN=$name" -keyout "$AI_TEST_DIR/certs/$name.key" \
         -out "$AI_TEST_DIR/certs/$name.csr" >/dev/null 2>&1
-    printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\n' "$sans" > "$AI_TEST_DIR/certs/$name.ext"
+    # Do not depend on version-specific OpenSSL defaults for strict TLS validation.
+    cat > "$AI_TEST_DIR/certs/$name.ext" <<EOF
+subjectAltName=$sans
+extendedKeyUsage=serverAuth
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid:always
+EOF
     openssl x509 -req -days 2 -in "$AI_TEST_DIR/certs/$name.csr" \
         -CA "$AI_TEST_DIR/secrets/ca.crt" -CAkey "$AI_TEST_DIR/certs/ca.key" -CAcreateserial \
         -extfile "$AI_TEST_DIR/certs/$name.ext" -out "$AI_TEST_DIR/certs/$name.crt" >/dev/null 2>&1
