@@ -11,7 +11,7 @@ their own incidents, when the optional AI service is enabled.
 
 The merged [frontend handoff](frontend-handoff-implementation.md) adds investigation
 actions, comments/history, account administration, notifications and human AI review.
-It requires incident migration `00006_ai_feedback.sql` plus rebuilt Go and frontend
+It requires incident migrations through `00007_ai_feedback_uuid.sql` plus rebuilt Go and frontend
 images; it does not add password recovery, model execution in the browser or assessment
 retry mutations. The merged AI migration queues an initial job on new incident inserts;
 processing requires the optional AI services. See

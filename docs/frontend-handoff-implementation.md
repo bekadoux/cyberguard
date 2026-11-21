@@ -14,7 +14,7 @@ recipient's environment.
 | Incident history | Incident detail → Incident history (staff) | Existing `/history` |
 | Notifications read/unread | Navigation → Notifications | Existing `/read`, new `/unread` |
 | Account administration and audit | Navigation → Admin (admin only) | Existing `/admin/users`, `/admin/audit` |
-| Human AI review | Incident detail → AI assessment → Human review | New `POST /incidents/{id}/ai-feedback` |
+| Human AI review | Incident detail → AI assessment → Human review | `POST /incidents/{id}/ai-feedback`, `GET /incidents/{id}/ai-feedback/{job_id}` |
 
 All browser calls use `request` with `credentials: include`; no passwords or
 session tokens are stored in localStorage. UI role/ownership gates are hints:
@@ -25,13 +25,21 @@ responses are sanitized and explicit errors shown without server diagnostics.
 
 Migration `db/migrations/incidents/00006_ai_feedback.sql` grants the Go runtime
 read access to only the assessment-result columns needed to validate a review,
-and adds one unique feedback event per assessment job/incident. The new Go
-endpoint verifies: the caller is an assigned analyst or admin; the incident is
+and adds a feedback index. `00007_ai_feedback_uuid.sql` enforces uniqueness by
+UUID value; older mixed-case job IDs remain readable without rewriting their
+audit events. New reviews store lowercase canonical UUIDs. The POST endpoint
+verifies: the caller is an assigned analyst or admin; the incident is
 not terminal; the job and result belong to the incident; the result is **not**
 a synthetic fixture; the decision and confirmed category are consistent; and
 reason requirements. Acceptance/correction updates the incident category and
 records an `ai_feedback_submitted` event in **one transaction**. Rejection
 records a reason and leaves the confirmed category unchanged.
+
+For a stored assessment, the GET endpoint returns `{"review":null}` until a
+review exists. A saved review contains `job_id`, `decision`, `category` (null
+for rejection), and `reason` (empty string when omitted). Any current analyst
+or admin can read it on a visible incident, including after closure. This lookup
+is by job ID and does not depend on the first 500 history records.
 
 AI output does **not** automatically change severity or status. There is no
 model retraining endpoint; feedback is currently persisted as an auditable human
@@ -45,7 +53,7 @@ review event, suitable for future controlled evaluation/export.
    and `npm run build`. Format changed files with the pinned Prettier if needed.
 4. With Go 1.27.4 run `go test ./internal/httpapi` from `backend/go/`, then the
    project-level Go checks and dedicated PostgreSQL integration suite.
-5. Apply `00006_ai_feedback.sql` through the project's normal migrations tool,
+5. Apply through `00007_ai_feedback_uuid.sql` with the project's normal migration tool,
    **after** all previously merged migrations, to a disposable database first.
 6. Validate reporter, assigned/unassigned analyst and admin flows against
    two disposable PostgreSQL instances. Verify AI feedback rejects duplicate

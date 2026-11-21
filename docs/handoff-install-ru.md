@@ -28,12 +28,14 @@ git status --short
 
 ## Перед запуском приложения
 
-В этой версии появляются две миграции:
+Перед запуском примени все миграции до указанных версий включительно:
 
 - `db/migrations/identity/00003_user_admin_audit.sql`
 - `db/migrations/incidents/00003_context_and_investigations.sql`
 - `db/migrations/incidents/00004_job_context_read.sql`
 - `db/migrations/incidents/00005_snapshot_worker_safety.sql`
+- `db/migrations/incidents/00006_ai_feedback.sql`
+- `db/migrations/incidents/00007_ai_feedback_uuid.sql`
 
 Их **нужно применить обоими соответствующими migrator-пользователями** в существующих локальных PostgreSQL. Docker migration image содержит копии SQL на этапе сборки — сначала его пересобери. Следуй `docs/docker-setup.md` / Makefile с имеющимися секретами; не создавай пароли заново и не удаляй database volumes. Прежде чем запускать миграции, проверь их с архитектором и сделай backup локальных данных.
 

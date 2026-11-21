@@ -6,6 +6,7 @@ package testutil
 import (
 	"context"
 	"crypto/rand"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -26,15 +27,21 @@ type IdentityFixture = DatabaseFixture
 
 func Identity(t *testing.T, migrationDirectory string) DatabaseFixture {
 	t.Helper()
-	return databaseFixture(t, migrationDirectory, "TEST_IDENTITY_DATABASE_URL", "TEST_IDENTITY_MIGRATION_DATABASE_URL", "go_identity", "auth_test_")
+	return databaseFixture(t, migrationDirectory, "TEST_IDENTITY_DATABASE_URL", "TEST_IDENTITY_MIGRATION_DATABASE_URL", "go_identity", "auth_test_", math.MaxInt64)
 }
 
 func Incidents(t *testing.T, migrationDirectory string) DatabaseFixture {
 	t.Helper()
-	return databaseFixture(t, migrationDirectory, "TEST_INCIDENT_DATABASE_URL", "TEST_INCIDENT_MIGRATION_DATABASE_URL", "go_incidents", "incident_test_")
+	return IncidentsAtVersion(t, migrationDirectory, math.MaxInt64)
 }
 
-func databaseFixture(t *testing.T, migrationDirectory, runtimeSetting, migrationSetting, role, prefix string) DatabaseFixture {
+// IncidentsAtVersion prepares an isolated old schema for migration upgrade tests.
+func IncidentsAtVersion(t *testing.T, migrationDirectory string, version int64) DatabaseFixture {
+	t.Helper()
+	return databaseFixture(t, migrationDirectory, "TEST_INCIDENT_DATABASE_URL", "TEST_INCIDENT_MIGRATION_DATABASE_URL", "go_incidents", "incident_test_", version)
+}
+
+func databaseFixture(t *testing.T, migrationDirectory, runtimeSetting, migrationSetting, role, prefix string, version int64) DatabaseFixture {
 	t.Helper()
 	runtimeURL := os.Getenv(runtimeSetting)
 	migrationURL := os.Getenv(migrationSetting)
@@ -81,7 +88,7 @@ func databaseFixture(t *testing.T, migrationDirectory, runtimeSetting, migration
 	if err != nil {
 		t.Fatal("could not load test migrations")
 	}
-	if _, err := provider.Up(ctx); err != nil {
+	if _, err := provider.UpTo(ctx, version); err != nil {
 		t.Fatal("could not apply test migrations")
 	}
 	return DatabaseFixture{Runtime: newPool(runtimeURL), Migrator: migrator}

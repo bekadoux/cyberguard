@@ -228,8 +228,10 @@
   live in a separate table to keep generated incident row shapes compatible.
 - Apply `db/migrations/identity/00003_user_admin_audit.sql`,
   incident migrations `00003_context_and_investigations.sql`,
-  `00004_job_context_read.sql`, `00005_snapshot_worker_safety.sql` and
-  `00006_ai_feedback.sql` before restarting the updated application/AI worker.
+  `00004_job_context_read.sql`, `00005_snapshot_worker_safety.sql`,
+  `00006_ai_feedback.sql` and `00007_ai_feedback_uuid.sql` before restarting
+  the updated application/AI worker. Migration 00007 refuses conflicting
+  feedback decisions for the same normalized job UUID; it never rewrites history.
   Historical jobs are not backfilled. Migration 00005 preserves snapshot-less jobs
   and grants a boolean `ai_worker_ready()` probe;
   pending legacy jobs block worker readiness until an explicit operator decision.

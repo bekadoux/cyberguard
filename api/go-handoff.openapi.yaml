@@ -352,6 +352,35 @@ paths:
         '403': {description: Assigned analyst or admin required}
         '404': {description: Incident or assessment unavailable}
         '409': {description: Duplicate review, terminal incident or synthetic fixture}
+  /incidents/{id}/ai-feedback/{job_id}:
+    get:
+      summary: Read the persisted human review for a stored assessment
+      description: Current analysts and admins may read reviews on visible, non-archived incidents regardless of assignment or terminal status.
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+        - {in: path, name: job_id, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Review of this job, or null if its result has not been reviewed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [review]
+                properties:
+                  review:
+                    type: [object, 'null']
+                    required: [job_id, decision, category, reason]
+                    properties:
+                      job_id: {type: string, format: uuid}
+                      decision: {type: string, enum: [accepted, corrected, rejected]}
+                      category:
+                        enum: [phishing, malware, account_compromise, data_exposure, lost_device, policy_violation, service_disruption, other, null]
+                      reason: {type: string, maxLength: 2000}
+        '400': {description: Unexpected query parameters}
+        '401': {description: Session required}
+        '403': {description: Professional role required}
+        '404': {description: Missing or archived incident, or no matching stored result}
   /notifications/{id}/unread:
     post:
       summary: Mark an own notification as unread

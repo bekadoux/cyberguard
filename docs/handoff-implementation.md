@@ -26,6 +26,8 @@ Base: `main` at `7b91f0b` (archived 10 November 2026). **Review and tests requir
 | POST | `/incidents/{id}/archive` | admin; reason required |
 | GET/POST | `/incidents/{id}/comments` | scoped; `public`/`internal` rules |
 | GET | `/incidents/{id}/history` | analyst/admin |
+| GET | `/incidents/{id}/ai-feedback/{job_id}` | analyst/admin, matching stored result on a visible incident |
+| POST | `/incidents/{id}/ai-feedback` | assigned analyst/admin, non-terminal incident, real stored assessment |
 | GET | `/notifications` | recipient; incident-linked items require current access to the non-archived incident |
 | POST | `/notifications/{id}/read`, `/notifications/{id}/unread` | same scope as listing; missing or inaccessible items return 404 |
 | GET/POST | `/admin/users` | admin |
@@ -40,7 +42,7 @@ All changes use existing `protectedSession` middleware, which validates current 
 
 1. **Create a new feature branch from the merged `main` before replacing any files.** Never overwrite the current main branch directly. A local stash may contain CRLF-only changes; keep it safely stored, do not reapply it to this patch.
 2. **Apply migrations before restarting services**: identity through `00003`, incidents
-   through `00005_snapshot_worker_safety.sql` (including `00004`'s snapshot-link grant).
+   through `00007_ai_feedback_uuid.sql` (including `00004`'s snapshot-link grant).
    Rebuild the migration image first; bootstrap/migration never runs in API/worker startup.
 3. **Do not edit applied migrations 00001/00002**. No automatic backfill is performed. Existing assessment jobs have `context_id IS NULL`; they continue to have stored results but cannot be retried using the new immutable-context endpoint until an explicitly reviewed backfill is designed.
    Migration 00005 leaves historical pending jobs untouched, excludes them from claims
@@ -63,6 +65,24 @@ All changes use existing `protectedSession` middleware, which validates current 
     Subsequent integration validation with Go 1.27.3 is recorded in
     [the deployment guide](azure-ai-deployment.md#main-integration-validation--10-november-2026).
     Local checks do not establish production acceptance or real model inference.
+
+## Feedback migration conflicts
+
+Migration 00007 enforces one human decision per assessment job UUID even if
+older clients submitted different letter cases. It preserves the original audit
+events. If multiple decisions already exist for one UUID, it refuses the upgrade
+before replacing the index. Keep writers paused and retain the backup. A
+migrator can identify conflicts without exposing reason text:
+
+```sql
+SELECT (details->>'job_id')::uuid AS job_id, count(*) AS reviews
+FROM incident_actions WHERE action = 'ai_feedback_submitted'
+GROUP BY (details->>'job_id')::uuid HAVING count(*) > 1;
+```
+
+Review the affected decisions and incident category with the audit owner before
+authorizing any reconciliation or retry. Missing or invalid UUIDs also block
+the upgrade. No event is selected, merged or deleted automatically.
 
 ## Migration and test sequence (on development database only)
 

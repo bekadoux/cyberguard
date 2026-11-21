@@ -8,9 +8,51 @@ import (
 	"time"
 
 	"github.com/bekadoux/cyberguard/backend/go/internal/incidents"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// Read by job rather than scanning the capped incident-history feed. The
+// stored result and visible incident must match even when no review exists.
+func (a *HandoffAPI) getAIFeedback(w http.ResponseWriter, r *http.Request) {
+	if !professional(a.user(r)) {
+		writeError(w, 403, "forbidden", "Professional role required.")
+		return
+	}
+	if r.URL.RawQuery != "" {
+		writeError(w, 400, "invalid_request", "Unexpected query.")
+		return
+	}
+	id, ok := incidentPath(w, r)
+	if !ok {
+		return
+	}
+	job, ok := uuidForPath(w, chi.URLParam(r, "job_id"))
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	var decision, category *string
+	var reason string
+	err := a.incidentDB.QueryRow(ctx, `
+        SELECT a.details->>'decision', a.details->>'confirmed_category', COALESCE(a.reason, '')
+        FROM assessment_results r JOIN incidents i ON i.id=r.incident_id
+        LEFT JOIN incident_actions a ON a.incident_id=i.id AND a.action='ai_feedback_submitted'
+            AND (a.details->>'job_id')::uuid=r.job_id
+        WHERE i.id=$1 AND i.archived_at IS NULL AND r.job_id=$2`, id, job).Scan(&decision, &category, &reason)
+	if err != nil {
+		handoffStorageError(w, err)
+		return
+	}
+	var review map[string]any
+	if decision != nil {
+		review = map[string]any{"job_id": job.String(), "decision": *decision,
+			"category": category, "reason": reason}
+	}
+	writeJSON(w, 200, map[string]any{"review": review})
+}
 
 // reviewAIFeedback commits the analyst's decision and confirmed category in
 // the same incident database transaction. Raw model output remains advisory.
@@ -97,11 +139,11 @@ func (a *HandoffAPI) reviewAIFeedback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	err = recordIncidentAction(ctx, tx, id, actor, "ai_feedback_submitted", body.Reason, map[string]any{
-		"job_id": body.JobID, "decision": body.Decision, "confirmed_category": body.Category,
+		"job_id": job.String(), "decision": body.Decision, "confirmed_category": body.Category,
 	})
 	if err != nil {
 		var pgerr *pgconn.PgError
-		if errors.As(err, &pgerr) && pgerr.Code == "23505" {
+		if errors.As(err, &pgerr) && pgerr.Code == "23505" && pgerr.ConstraintName == "incident_actions_one_ai_feedback_per_job" {
 			writeError(w, 409, "conflict", "Feedback for this assessment was already saved.")
 		} else {
 			handoffStorageError(w, err)
