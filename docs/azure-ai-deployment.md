@@ -133,11 +133,17 @@ Changing manifest revisions also requires reviewing the matching Compose `--run`
 
 These are **not implemented by the AI bootstrap**:
 
+The [application VM deployment workflow](azure-app-deployment.md) now supplies the
+application-side TLS listeners, database provisioning/migration orchestration and
+verified `/ai` proxy. Azure networking/DNS, private-CA signing and secure transfer of
+the AI-scoped secret subset remain explicit operator prerequisites.
+
 1. Manually place both VMs in the intended VNet and choose stable private addresses.
    Use private DNS names or private-IP certificate SANs. Go and DB names must resolve
    from inside the Python containers, not only from the host's `/etc/hosts`.
 2. Apply identity migrations through `00003_user_admin_audit.sql` and incident migrations
-   through `00005_snapshot_worker_safety.sql`, including `00004_job_context_read.sql`,
+   through `00006_ai_feedback.sql`, including `00004_job_context_read.sql` and
+   `00005_snapshot_worker_safety.sql`,
    using each instance's existing **migrator**. Then provision the restricted
    `python_incidents` role through `db/bootstrap/ai-worker.sql` using a scoped one-off
    administrator process. For existing installations, follow the
@@ -310,7 +316,7 @@ results remain readable; no job or result is deleted by this upgrade.
 4. On the application VM, build the updated migration image/binary, then explicitly run
    the established identity and incident migration tools with their respective scoped
    migrator credentials. Apply **all pending** migrations through identity 00003 and
-   incidents 00005; do not edit applied migrations. Existing `python_incidents` receives
+   incidents 00006; do not edit applied migrations. Existing `python_incidents` receives
    only the added `ai_worker_ready()` EXECUTE grant, without a password reset. If the
    role does not exist, provision it separately with the updated AI bootstrap afterward.
    Do not rerun credential provisioning merely to repair this grant.

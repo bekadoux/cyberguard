@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { chromium, firefox } from '@playwright/test';
-import { analyst, detail, employee, first } from './incidents.ts';
+import { analyst, detail, employee, first, identity } from './incidents.ts';
 import { completedAssessment } from './assessments.ts';
 
 // Synthetic fixtures only. Keep every axe rule enabled; no live secrets or data.
@@ -12,11 +12,7 @@ try {
     colorScheme: process.argv[4] === 'dark' ? 'dark' : 'light',
   });
   const page = await context.newPage();
-  await page.route('**/api/auth/me', (route) =>
-    route.fulfill({
-      json: { user: process.argv[5] === 'assessment' ? analyst : employee },
-    }),
-  );
+  await identity(page, process.argv[5] === 'assessment' ? analyst : employee);
   await page.route('**/api/incidents?*', (route) =>
     route.fulfill({
       json: {

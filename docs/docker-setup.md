@@ -8,6 +8,8 @@ assessment queue is implied by a healthy container.
 
 For the separate Ubuntu 26.04 AI VM, use [AI VM post-install deployment](azure-ai-deployment.md).
 Its standalone Compose/private TLS configuration is not this development override.
+For the separate application host, use [application VM deployment](azure-app-deployment.md).
+That workflow explicitly selects the base and deployment overlay, not this local setup.
 
 ## Prerequisites
 
@@ -147,7 +149,7 @@ the host port is just development publishing, not another host-installed server.
 | `/__gateway_health` | Caddy process health, independent of Go/database readiness |
 | `/internal` path segments, including `/api/internal/*` | Concealed 404, never forwarded |
 | `/ai`, `/ai/*` | Base: explicit 503; optional AI overlay: proxy to the AI API |
-| `/`, `/login`, `/account`, `/incidents`, `/incidents/*` | Built SPA shell for GET/HEAD, including direct navigation/reload |
+| `/`, `/login`, `/account`, `/incidents`, `/incidents/*`, `/notifications`, `/admin` | Built SPA shell for GET/HEAD, including direct navigation/reload |
 | Existing `/assets/*` fingerprinted files | Static assets with one-year immutable caching |
 | `/index.html`, `/theme.js`, `/favicon.svg` | Static files with `Cache-Control: no-store` |
 | Missing assets/source/config files, other paths | 404, never rewritten to the SPA |

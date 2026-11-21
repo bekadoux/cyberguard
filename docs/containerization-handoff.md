@@ -5,6 +5,9 @@ Use [local Docker setup](docker-setup.md) for runnable commands and validation e
 Frontend/Caddy packaging is now implemented on `feat/frontend`; see the setup guides
 for its separate image and optional packaged-browser acceptance. AI and Azure deployment
 remain pending. The original foundation acceptance evidence below is historical.
+Later [application VM](azure-app-deployment.md) and [AI VM](azure-ai-deployment.md)
+post-install candidates now cover that deployment follow-on. Their explicit prerequisites
+and unverified Azure acceptance boundaries supersede this historical deferral.
 
 ## 1. Objective and scope
 

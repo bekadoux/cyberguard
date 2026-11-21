@@ -1,0 +1,12 @@
+@maintenance {
+	not method GET HEAD OPTIONS
+	file {
+		root /run/maintenance
+		try_files enabled
+	}
+}
+handle @maintenance {
+	header Content-Type application/json
+	header Retry-After 60
+	respond `{"error":{"code":"maintenance","message":"Application writes are paused for maintenance."}}` 503
+}

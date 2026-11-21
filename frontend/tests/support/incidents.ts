@@ -36,5 +36,23 @@ export const detail = {
   assigned_analyst: null,
 };
 export async function identity(page: Page, user: User = employee) {
+  // Detail screens now load workflow collections as well as the original report.
+  // Keep synthetic identities off real services unless a test overrides these routes.
+  for (const [path, collection] of [
+    ['/incidents/*/comments', 'comments'],
+    ['/incidents/*/history', 'history'],
+    ['/admin/users', 'users'],
+    ['/admin/audit', 'audit'],
+    ['/notifications', 'notifications'],
+  ] as const) {
+    await page.route(`**/api${path}`, (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ json: { [collection]: [] } })
+        : route.fulfill({
+            status: 405,
+            json: { error: { code: 'unexpected_mutation' } },
+          }),
+    );
+  }
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: { user } }));
 }

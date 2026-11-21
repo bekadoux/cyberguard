@@ -15,9 +15,12 @@ test('loads the built SPA directly through Caddy without Vite', async ({ page })
     if (request.resourceType() === 'script')
       scripts.push(new URL(request.url()).pathname);
   });
-  await page.goto('/incidents/new');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await expect(page).toHaveURL('/login');
+  for (const path of ['/incidents/new', '/notifications', '/admin']) {
+    const response = await page.goto(path);
+    expect(response?.status()).toBe(200);
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+    await expect(page).toHaveURL('/login');
+  }
   expect(scripts.some((path) => /^\/assets\/.+\.js$/.test(path))).toBe(true);
   expect(scripts.some((path) => path.startsWith('/src/') || path.includes('@vite'))).toBe(
     false,

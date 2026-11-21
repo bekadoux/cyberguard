@@ -26,6 +26,69 @@ test('lands on personal incidents, preserves nulls and offers account navigation
   await expect(page.getByRole('heading', { name: 'You’re signed in.' })).toBeVisible();
 });
 
+test('loads notifications directly and persists read/unread actions across reloads', async ({
+  page,
+}) => {
+  const id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  let read = false;
+  await page.route('**/api/notifications', (route) =>
+    route.fulfill({
+      json: {
+        notifications: [
+          {
+            id,
+            incident_id: first.id,
+            event_type: 'incident_claimed',
+            message: 'Synthetic notification.',
+            created_at: first.created_at,
+            read_at: read ? first.created_at : null,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(`**/api/notifications/${id}/*`, (route) => {
+    expect(route.request().method()).toBe('POST');
+    read = new URL(route.request().url()).pathname.endsWith('/read');
+    return route.fulfill({ json: { updated: true } });
+  });
+  await page.goto('/notifications');
+  await expect(page.getByText('Synthetic notification.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mark read', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Mark unread' })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Mark unread' }).click();
+  await expect(
+    page.getByRole('button', { name: 'Mark read', exact: true }),
+  ).toBeVisible();
+  expect(read).toBe(false);
+});
+
+test('gates administration by role and keeps the expanded mobile navigation reachable', async ({
+  page,
+}) => {
+  const reads = new Set<string>();
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith('/api/admin/')) reads.add(path);
+  });
+  await page.goto('/admin');
+  await expect(page.getByRole('alert')).toHaveText('Administrator access required.');
+  expect(reads.size).toBe(0);
+  await expect(page.getByRole('link', { name: 'Admin', exact: true })).toHaveCount(0);
+  await identity(page, { ...analyst, role: 'admin' });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/admin');
+  await expect(page.getByRole('heading', { name: 'Users & audit' })).toBeVisible();
+  await expect
+    .poll(() => [...reads].sort())
+    .toEqual(['/api/admin/audit', '/api/admin/users']);
+  await expect(page.getByRole('link', { name: 'Admin', exact: true })).toBeInViewport();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320);
+});
+
 test('uses opaque cursors and restarts traversal when filters change', async ({
   page,
 }) => {
@@ -301,17 +364,27 @@ for (const role of ['analyst', 'admin'] as const) {
       }),
     );
     await page.goto(`/incidents/${first.id}`);
-    await expect(page.getByText('High', { exact: true })).toBeVisible();
+    await expect(
+      page.locator('.incident-metadata').getByText('High', { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByText('Analyst account unavailable', { exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByText('Full reporter-facing outcome.', { exact: true }),
+      page
+        .locator('.incident-report-content')
+        .getByText('Full reporter-facing outcome.', {
+          exact: true,
+        }),
     ).toBeVisible();
     await page.goto(`/incidents/${second.id}`);
     await expect(page.getByRole('heading', { name: first.title })).toBeVisible();
-    await expect(page.getByText('Severity', { exact: true })).toBeVisible();
-    await expect(page.getByText('Critical', { exact: true })).toBeVisible();
+    await expect(
+      page.locator('.incident-metadata').getByText('Severity', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.locator('.incident-metadata').getByText('Critical', { exact: true }),
+    ).toBeVisible();
   });
 }
 
