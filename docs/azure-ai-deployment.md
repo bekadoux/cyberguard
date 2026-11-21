@@ -142,16 +142,16 @@ the AI-scoped secret subset remain explicit operator prerequisites.
    Use private DNS names or private-IP certificate SANs. Go and DB names must resolve
    from inside the Python containers, not only from the host's `/etc/hosts`.
 2. Apply identity migrations through `00003_user_admin_audit.sql` and incident migrations
-   through `00006_ai_feedback.sql`, including `00004_job_context_read.sql` and
-   `00005_snapshot_worker_safety.sql`,
+   through `00007_ai_feedback_uuid.sql`, including the snapshot safety and feedback grants,
    using each instance's existing **migrator**. Then provision the restricted
    `python_incidents` role through `db/bootstrap/ai-worker.sql` using a scoped one-off
    administrator process. For existing installations, follow the
    [upgrade procedure](#upgrading-an-existing-deployment) first. Confirm grants with the team.
    Neither API nor worker runs bootstrap/migrations/seed. No identity access is granted.
 3. Mount the same independently generated `AI_INTERNAL_TOKEN_FILE` into Go and Python.
-   Provide a private HTTPS Go listener supporting `/readyz`, `/auth/me`, incident reads
-   and `/internal/ai/jobs/{job_id}/context`. The current public Caddy deliberately denies
+   Provide a private HTTPS Go listener supporting `/readyz`, `/auth/me`, incident reads,
+   `/internal/ai/auth-check` and `/internal/ai/jobs/{job_id}/context`. The last two GET
+   routes require the same bearer token. The current public Caddy deliberately denies
    internal paths: do not remove that denial or route worker context through it.
 4. Enable PostgreSQL server TLS on the incident instance, publish/bind it only as
    required on the application private interface, and restrict `pg_hba.conf` to the
@@ -238,8 +238,9 @@ sudo bash deploy/ai-vm/manage.sh --config /etc/cyberguard/ai/config.env logs
 `up` verifies local permissions/certificates/models, starts models/API/TLS gateway
 without rebuilding/pulling, waits for model health (up to ten minutes), probes storage
 and remote Go over TLS, checks the local TLS gateway, then starts the worker. The API
-certificate must have at least 24 hours remaining. `check` repeats safe probes without
-claiming jobs; existing running workers continue independently.
+certificate must have at least 24 hours remaining. `check` executes the safe probes
+inside the persistent worker, so a stopped worker fails the deployment check. The
+probes themselves do not claim jobs.
 
 The configured worker independently probes Go/models and `ai_worker_ready()` **before
 every claim**, including after Docker/VM restart; Compose ordering alone is not a reboot
@@ -248,6 +249,13 @@ blocks readiness without consuming jobs. SQL claims independently exclude snapsh
 jobs, even if a worker bypasses dependency probes. Readiness is not an atomic guarantee
 against a model failing mid-job. Terminal failures remain terminal. No requeue/backfill/
 reset is automated. A real-model failure never produces a completed fake assessment.
+
+Roll out the Go auth-check route and private gateway allowlist before the worker.
+Preflight and every claim require a 204 from this authenticated GET, even with optional
+worker probes disabled. A 401/403 on the subsequent context read leaves the claim under
+its existing lease; the worker backs off and checks its credential again. After fixing
+a token mismatch, recreate services holding stale credentials. Expired claims remain
+subject to normal attempt limits.
 
 If checks fail, distinguish the stages:
 
@@ -316,7 +324,9 @@ results remain readable; no job or result is deleted by this upgrade.
 4. On the application VM, build the updated migration image/binary, then explicitly run
    the established identity and incident migration tools with their respective scoped
    migrator credentials. Apply **all pending** migrations through identity 00003 and
-   incidents 00006; do not edit applied migrations. Existing `python_incidents` receives
+   incidents 00007; do not edit applied migrations. For conflicting historical reviews
+   see [feedback migration conflicts](handoff-implementation.md#feedback-migration-conflicts).
+   Existing `python_incidents` receives
    only the added `ai_worker_ready()` EXECUTE grant, without a password reset. If the
    role does not exist, provision it separately with the updated AI bootstrap afterward.
    Do not rerun credential provisioning merely to repair this grant.

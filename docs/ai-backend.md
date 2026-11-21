@@ -8,12 +8,12 @@
 - `backend/python/cyberguard_ai/worker.py`: single-claim polling process; no Redis or message broker; claims, renewable lease, fencing by random claim token, bounded attempts for expired claims, terminal failures. Running a second worker is safe but not recommended on CPU.
 - `backend/python/cyberguard_ai/models.py`: Kev decision adapter (`choice`, `score`, `noul`); Qwen GGUF LLM via llama.cpp OpenAI-compatible API; safe fallback is **failure**, never fabricated output. `AI_MODE=fake` explicitly enables a non-AI integration fixture.
 - `db/migrations/incidents/00002_ai_assessments.sql`: new `assessment_jobs`, `assessment_results`, revision tracking and fenced security-definer SQL functions. Insert trigger enqueues `initial_assessment` in **the same transaction** as the existing Go `CreateIncident` INSERT, so the current Go sqlc-generated code can keep its API contract. Do not also enqueue directly in Go without revisiting this trigger.
-- `backend/go/internal/httpapi/ai_context.go`: Go's internal-only `GET /internal/ai/jobs/{job_id}/context`, with service-secret authentication; after the 00003 handoff migration checks persisted job-to-snapshot pairing and archived state. Caddy hides any `/internal` segments, including `/api/internal`.
+- `backend/go/internal/httpapi/ai_context.go`: private Go routes `GET /internal/ai/auth-check` and `GET /internal/ai/jobs/{job_id}/context` require the same `Authorization: Bearer <AI_INTERNAL_TOKEN>` header. The probe returns 204 with no body or database/session access, 401 for a rejected credential, or 404 when the service token is not configured. The context read checks persisted job-to-snapshot pairing and archived state. Public Caddy hides `/internal` segments, including `/api/internal`.
 - `compose.ai.yaml`: optional AI services and proxy. Original Compose files and their existing smoke-test expectations remain unchanged when overlay is not used.
 
 **Handoff follow-up:** After applying `00003_context_and_investigations.sql`, each new incident has an immutable `incident_contexts` snapshot linked to its job, and the internal Go endpoint reads this persisted snapshot (rather than comparing against mutable incident fields). Historical jobs are not backfilled. See [`handoff-implementation.md`](handoff-implementation.md).
 
-Apply incident migrations through `00005_snapshot_worker_safety.sql` and identity
+Apply incident migrations through `00007_ai_feedback_uuid.sql` and identity
 through `00003_user_admin_audit.sql` before restarting the updated services. Migration
 00004 supplies Go's snapshot-link read grant. Migration 00005 preserves snapshot-less
 jobs (including expired claims), and adds the restricted boolean `ai_worker_ready()`
@@ -87,6 +87,24 @@ docker compose -f compose.yaml -f compose.dev.yaml -f compose.ai.yaml \
   --profile tools run --rm bootstrap-ai
 ```
 
+AI bootstrap accepts a fresh role or an existing restricted `LOGIN NOINHERIT`
+role, including a recovery role with only the readiness grant. Before applying
+its password and grants it rejects elevated attributes, memberships in either
+direction, role settings, object ownership, unexpected direct grants and grant
+options. Approved grants may already be present. On refusal the transaction
+rolls back: a database administrator must inspect the role rather than resetting
+credentials or automatically stripping privileges.
+
+To exercise these checks on a **disposable, migrated** incident instance, set
+libpq's connection settings for its bootstrap administrator and run:
+
+```sh
+PGDATABASE=cyberguard_incidents TEST_DISPOSABLE_AI_BOOTSTRAP=1 \
+  AI_BOOTSTRAP_SQL=db/bootstrap/ai-worker.sql sh db/tests/ai-bootstrap.sh
+```
+
+The test provisions and removes a generated role, not the configured AI login.
+
 Run API + worker in **explicit fixture mode**, without downloading any model weights:
 
 ```bash
@@ -126,6 +144,13 @@ The overlay enables non-mutating Go/model and snapshot-queue readiness probes be
 each worker claim, including after restarts. Missing safety migration or pending legacy
 jobs keep the queue untouched. This cannot prevent a dependency failing during inference.
 Failed jobs remain terminal; no automatic retry/backfill/retirement is introduced.
+
+The worker always checks the service token before claiming, including in fake mode and
+with `AI_CHECK_DEPENDENCIES=false`. If Go returns 401/403 for context after the check,
+the worker stops renewing that claim, leaves it running and backs off. It requires a
+successful authenticated probe before claiming again. The existing lease expiry and
+attempt limit govern recovery; an attempt already spent is not reset. After correcting
+a secret file, recreate the affected services so they load the matching tokens.
 
 ## Authorization, secrets and database boundaries
 

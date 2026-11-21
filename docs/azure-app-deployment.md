@@ -175,9 +175,11 @@ sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env bootst
 
 `db-up` enables the persistent public-write pause. Bootstrap is repeatable but **reapplies
 managed role passwords**, including AI bootstrap: never routine startup or a grant-repair
-shortcut. Migration uses separate scoped migrators, checks both current and image target
-versions against the checkout, and exposes no automatic downgrade. Currently identity
-must reach 00003 and incidents 00006. API and worker never migrate themselves.
+shortcut. Before either migrator writes, the manager compares the SQL files for **both**
+databases in the selected image to the checkout and pins that image ID for the run.
+It accepts Go only if absent or exited, then checks current and image target versions
+after migrating. There is no automatic downgrade. Currently identity
+must reach 00003 and incidents 00007. API and worker never migrate themselves.
 Status uses separate file-backed migrator connections with server-side
 `default_transaction_read_only=on`. This is deliberate: Goose can lazily create its
 version table even in status mode. Startup/check must reject an unmigrated database
@@ -223,14 +225,19 @@ Go `/readyz` remains connectivity-only; the management migration check is separa
 Checks never create incidents or claim/requeue jobs. Existing workers and Go's normal
 maintenance tasks continue independently. Staff, including staff reporters, may read
 AI; employees cannot. The private gateway permits only GET readiness/current-user,
-single-incident detail and authenticated job context, never login/admin/workflow writes.
+single-incident detail, authenticated job context and `GET /internal/ai/auth-check`.
+The last route checks the same worker bearer credential without touching storage or
+sessions (204 on success, 401 on rejection). Update Go and the private allowlist before
+starting an upgraded worker. The public gateway denies both internal routes.
 
 ## 6. Maintenance, upgrades and protected backups
 
 For an existing installation follow the [AI upgrade contract](azure-ai-deployment.md#upgrading-an-existing-deployment).
 Do not run the fresh credential/bootstrap sequence over retained data.
 
-1. Record revisions, tags/configuration and migration versions. Run `maintenance-on`:
+1. Record revisions, tags/configuration and migration versions. Retain the configured
+   state directory: the manager verifies the gateway's actual maintenance bind mount
+   and marker before reporting a pause. Run `maintenance-on`:
    public unsafe methods receive JSON 503/Retry-After; reads/private worker context remain.
    Already-authorized in-flight writes are not canceled: wait for them to finish.
 2. Drain jobs using the compatible old Go/worker pair where possible, **before** snapshot
@@ -254,14 +261,15 @@ Do not run the fresh credential/bootstrap sequence over retained data.
    Create/protect the operator-selected backup parent first; it is not installed by
    bootstrap. These local socket commands expose no passwords in arguments. Dumps
    contain sessions/password hashes and incident text. They include object owners/ACLs,
-   not cluster roles/passwords. Test `pg_restore` only against fresh disposable instances,
-   bootstrapping matching roles first. Two live dumps are not a cross-database atomic
-   backup; stopping all writers matters. A local dump/volume is not off-host protection.
+   not cluster roles/passwords. Use the [fresh-instance restore procedure](#restore-both-archives-on-fresh-instances)
+   to rehearse recovery. Two live dumps are not a cross-database atomic backup;
+   stopping all writers matters. A local dump/volume is not off-host protection.
 5. Review the new checkout and build its images explicitly, then run `migrate`.
    Go must be stopped and maintenance enabled. Successful migration/version checks
    remove the startup guard, but leave public writes paused. Failure leaves it in place.
-   The frontend handoff requires incident migration `00006_ai_feedback.sql` and rebuilt
-   Go/migration and frontend images; it is not a frontend-only static asset upgrade.
+   The frontend handoff requires all incident migrations through `00007_ai_feedback_uuid.sql`
+   and rebuilt Go/migration and frontend images. If 00007 reports duplicate normalized
+   job UUIDs, keep writes paused for [audit review](handoff-implementation.md#feedback-migration-conflicts).
 6. Migration 00005 grants an existing AI role its added readiness permission without
    resetting its password. Pending legacy jobs without snapshots block worker readiness;
    no automatic backfill, retirement, retry, reset or mass-failure is supplied. Keep
@@ -279,6 +287,55 @@ protected-backup restoration decision, with writers/workers paused, not automati
 credentials and maintenance markers. No normal command prunes Docker, removes volumes,
 upgrades PostgreSQL majors or updates releases. Scheduled backups, cloud storage,
 production account provisioning and distributed admin abuse controls are not supplied.
+
+### Restore both archives on fresh instances
+
+On an **isolated recovery host** use two empty PostgreSQL 17 instances, a distinct
+recovery config/project with new volumes, and the matching checkout, images, protected
+credentials and TLS material. Use trusted archives from the same quiesced backup.
+Keep Go, workers and public traffic off the recovery databases throughout. Confirm
+the Docker context, project and volume destinations before running these commands.
+Never point them at the source installation. In a root Bash shell on that host:
+
+```bash
+set -euo pipefail
+umask 077
+recovery_config=/etc/cyberguard/app/recovery.env
+backup_dir=/secure/operator-selected-backups/REPLACE_WITH_BACKUP
+source deploy/app-vm/common.sh
+load_config "$recovery_config"
+bash deploy/app-vm/manage.sh --config "$recovery_config" db-up
+source deploy/app-vm/restore-roles.sh
+prepare_restore_roles compose
+
+compose exec -T identity-db pg_restore -U bootstrap_admin --exit-on-error --create \
+    -d postgres < "$backup_dir/identity.dump"
+compose exec -T incident-db pg_restore -U bootstrap_admin --exit-on-error --create \
+    -d postgres < "$backup_dir/incidents.dump"
+
+bash deploy/app-vm/manage.sh --config "$recovery_config" bootstrap
+bash deploy/app-vm/manage.sh --config "$recovery_config" migration-status
+```
+
+Role preparation refuses existing application databases or roles. It creates only
+the names needed by the archives: non-login Go/migrator placeholders on their
+respective instances and a restricted `python_incidents` login using the retained
+AI password on the incident instance. It grants no object privileges. Do **not**
+run normal bootstrap, migrations, seed or `bootstrap-ai` before restore: the archives
+must create the databases, and the normal AI grants require functions/tables inside
+them. `--create -d postgres` restores each original database name, owner and database
+ACL as well as its schema, rows and object ACLs. Do not skip ACLs or owners, or clean
+an existing database. On a partial failure stop and investigate; retry on new empty
+instances. Normal bootstrap **after** restore activates Go/migrator logins with the
+retained passwords. For an AI-provisioned backup, the archive already grants the AI
+role its access; reapplying grants would mask a recovery error.
+
+Compare both migration versions, representative row counts, owners and grants with
+the backup record. Authenticate using the actual Go credentials to read `users` and
+`incidents` on their respective instances. Using the AI credential, read the
+allowed job/result columns and call `ai_worker_ready()`; `claim_token` must remain
+unreadable. A false readiness bit requires the same legacy-job review as on the
+source. Verify deployment TLS/HBA, sessions, Go and AI separately before cutover.
 
 ## Resource limits and acceptance
 
