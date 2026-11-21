@@ -57,7 +57,7 @@
   with immutable job-linked snapshots after the new incident migrations. Historical
   jobs are not backfilled. Confirm these choices, schema, grants and service contracts
   with the Go engineer, AI specialist and architect before accepting the handoff.
-- The Go module is `backend/go` (Go 1.27.3). Run Make targets from the repository
+- The Go module is `backend/go` (Go 1.27.4). Run Make targets from the repository
   root; run direct Go commands from `backend/go`, not the root.
 - Make targets use GNU Make. Database bootstrap requires `psql` 15+ for `\getenv`;
   see `docs/database-setup.md` for PostgreSQL provisioning.
@@ -183,4 +183,4 @@
   Never silently retire/requeue/backfill them. See the AI deployment upgrade guide.
 - Staff retain professional severity/AI visibility on their own reports; employees
   remain denied AI access. Preserve current-account/incident authorization on each read.
-- Review newly added Go tests and run with the pinned Go 1.27.3 toolchain.
+- Review newly added Go tests and run with the pinned Go 1.27.4 toolchain.

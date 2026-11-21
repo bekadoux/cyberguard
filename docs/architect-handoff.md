@@ -27,7 +27,7 @@ their guides supersede that historical deferral, not the SQL/process ownership b
 
 ## Build contract
 
-- Go **1.27.3**; pin the toolchain/build image explicitly, not `latest`.
+- Go **1.27.4**; pin the toolchain/build image explicitly, not `latest`.
 - Module: `backend/go`; build `./cmd/api`, `./cmd/migrate`, `./cmd/seed` as separate binaries.
 - `make go-build` builds all three; `make go-check` runs local quality checks.
 - Copy/mount `db/migrations/identity` and pass the actual directory to `migrate -dir PATH`.

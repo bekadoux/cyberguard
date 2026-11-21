@@ -103,7 +103,7 @@ existing host-run Make targets and environment examples.
 
 ### Go
 
-- Use a multi-stage build with the repository's pinned Go **1.27.3** toolchain.
+- Use a multi-stage build with the repository's pinned Go **1.27.4** toolchain.
 - Build `./cmd/api`, `./cmd/migrate` and `./cmd/seed` from `backend/go`.
 - Reuse the image with different commands for the API and one-off tools. Include
   `db/migrations/identity` and `db/migrations/incidents` at documented runtime paths.

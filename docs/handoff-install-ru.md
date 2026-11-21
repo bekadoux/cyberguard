@@ -45,7 +45,7 @@ git status --short
 
 ## Проверки
 
-- `make go-sqlc` — с Go 1.27.3 и сетевым доступом регенерировать sqlc-модели для новых таблиц, затем проверить diff. Генерируемые файлы вручную не редактировать.
+- `make go-sqlc` — с Go 1.27.4 и сетевым доступом регенерировать sqlc-модели для новых таблиц, затем проверить diff. Генерируемые файлы вручную не редактировать.
 - `make go-check`, `make go-build`, `make go-test-integration` — последнее только на **двух отдельных одноразовых тестовых БД**.
 - `PYTHONPATH=backend/python python3 -m pytest -q backend/python/tests` — Python-тесты.
 - `python3 scripts/demo-incident-smoke.py` — предварительный сухой прогон тестового инцидента, `--apply` только в dev и при передаче пароля через защищённый файл.

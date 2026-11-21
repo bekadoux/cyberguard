@@ -69,7 +69,7 @@ All changes use existing `protectedSession` middleware, which validates current 
 - Check the changed paths with `git status --short`, `git diff --stat`, and inspect SQL migration permissions.
 - Rebuild migration image, run both identity/incident migrations with existing credentials; do not reset database volumes or regenerate secrets.
 - Rebuild and start Go API with the existing Docker Compose overlays, preserving Python/AI settings.
-- Run `make go-check` and `make go-build` with Go 1.27.3; run `make go-test-integration` against **two disposable test PostgreSQL instances** using the four TEST_* URLs (never production or current development DB).
+- Run `make go-check` and `make go-build` with Go 1.27.4; run `make go-test-integration` against **two disposable test PostgreSQL instances** using the four TEST_* URLs (never production or current development DB).
 - Test race scenarios: simultaneous claims, account blocked between auth/read, stale sessions, forbidden mutations, original context immutability, rollback on enqueue failure, visibility for employee vs analyst/admin authors, commenter assignment permissions, identity auditing, and timing of 7-day auto-close.
 - For an explicit local demo fixture, run `python3 scripts/demo-incident-smoke.py` for dry-run, then `python3 scripts/demo-incident-smoke.py --apply --password-file /secure/local/employee-password-file`. Do not run this against production.
 - Re-run the Python AI suite and the end-to-end scenario

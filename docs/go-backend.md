@@ -16,8 +16,10 @@ The [local Docker guide](docker-setup.md) provides a containerized alternative t
 host-run commands below. Caddy exposes the same Go routes through `/api` on local
 port 8088; direct Go access on 8080 remains available for development.
 
-- Use Go **1.27.3** for local development and the architect's build image/CI. The
-  `go` directive in `backend/go/go.mod` sets the minimum version; it does not prevent
+- Use Go **1.27.4** for local development and the architect's build image/CI. This
+  patch fixes `GO-2026-6859` in the HTTP server; rebuild deployed Go images rather
+  than only updating the host toolchain. The `go` directive in
+  `backend/go/go.mod` sets the minimum version; it does not prevent
   a newer installed toolchain from being used.
 - Run commands below from the repository root. GNU Make is optional; each target
   displays the underlying Go command.

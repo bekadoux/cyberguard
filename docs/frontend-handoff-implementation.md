@@ -43,7 +43,7 @@ review event, suitable for future controlled evaluation/export.
 2. Run `npm ci` in `frontend/` with Node 24.22.2 and npm 12.2.2.
 3. Run `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm test`,
    and `npm run build`. Format changed files with the pinned Prettier if needed.
-4. With Go 1.27.3 run `go test ./internal/httpapi` from `backend/go/`, then the
+4. With Go 1.27.4 run `go test ./internal/httpapi` from `backend/go/`, then the
    project-level Go checks and dedicated PostgreSQL integration suite.
 5. Apply `00006_ai_feedback.sql` through the project's normal migrations tool,
    **after** all previously merged migrations, to a disposable database first.
