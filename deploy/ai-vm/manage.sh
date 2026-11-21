@@ -51,10 +51,12 @@ case "$3" in
         if [[ $3 == up ]]; then
             compose up -d --no-build --pull never --wait --wait-timeout 600 \
                 ai-kev ai-llm ai-api ai-gateway
+            compose run --rm --no-deps --pull never ai-worker python -m cyberguard_ai.preflight
+        else
+            compose exec -T ai-worker python -m cyberguard_ai.preflight
         fi
-        compose run --rm --no-deps --pull never ai-worker python -m cyberguard_ai.preflight
         gateway_check
-        if [[ $3 == up ]]; then compose up -d --no-build --pull never ai-worker; fi
+        if [[ $3 == up ]]; then compose up -d --no-build --pull never --wait ai-worker; fi
         printf '%s\n' 'Application ready: TLS, storage and dependency probes passed; real inference is a separate acceptance check.'
         ;;
     status) compose ps ;;

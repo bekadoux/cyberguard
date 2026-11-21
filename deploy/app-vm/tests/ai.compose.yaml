@@ -1,7 +1,7 @@
 # A separate AI fixture project; never merged into the application's Compose project.
 # One network namespace emulates a remote host's single source IP without host NAT.
 x-python: &python
-  image: cyberguard-ai:azure
+  image: ${APP_TEST_AI_IMAGE:?fixture image required}
   user: '10002:10002'
   group_add: ['${APP_SECRET_GID}']
   read_only: true

@@ -16,10 +16,12 @@ printf 'AI_MODEL_DIR=%s\n' "$temporary/models" > "$config"
 cat > "$temporary/bin/docker" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$TEST_DOCKER_LOG"
+if [[ " $* " == *' exec -T ai-worker python -m cyberguard_ai.preflight '* && ${TEST_WORKER_RUNNING:-yes} != yes ]]; then exit 1; fi
 SH
 cat > "$temporary/bin/curl" <<'SH'
 #!/usr/bin/env bash
 printf 'download\n' >> "$TEST_CURL_LOG"
+if [[ ${!#} == https://ai.internal:8443/readyz ]]; then exit 0; fi
 while [[ $# -gt 0 ]]; do
     if [[ $1 == -o ]]; then
         if [[ ${TEST_BAD_DOWNLOAD:-no} == yes ]]; then printf xyz > "$2"; else printf abc > "$2"; fi
@@ -84,4 +86,15 @@ expect_failure env PATH="$mock_path" bash "$test_dir/manage.sh" --config "$confi
 [[ $before == "$(sha256sum "$temporary/secrets/"*)" ]]
 [[ $(wc -l < "$TEST_DOCKER_LOG") == 1 ]]
 if grep -Fq 'SYNTHETIC_SECRET_DO_NOT_LOG' "$temporary/error"; then fail 'Secret leaked in diagnostics.'; fi
+# With model/dependency checks successful, a stopped persistent worker must fail check.
+chmod 0640 "$temporary/secrets/ai_internal_token"
+rm "$temporary/models/fixture/model.v1"
+mkdir "$temporary/models/fixture/model.v1"
+printf abc > "$temporary/models/fixture/model.v1/model.bin"
+printf '#!/bin/sh\nexit 0\n' > "$temporary/bin/openssl"
+chmod 0755 "$temporary/bin/openssl"
+expect_failure env PATH="$mock_path" TEST_WORKER_RUNNING=no bash "$test_dir/manage.sh" --config "$config" check
+grep -Fq 'exec -T ai-worker python -m cyberguard_ai.preflight' "$TEST_DOCKER_LOG"
+PATH=$mock_path bash "$test_dir/manage.sh" --config "$config" check >/dev/null
+if grep -Eq ' (run|up) ' "$TEST_DOCKER_LOG"; then fail 'Check started a worker.'; fi
 printf '%s\n' 'Deployment configuration isolation, literal parsing, model checksums, idempotency, permissions and overwrite protection passed.'

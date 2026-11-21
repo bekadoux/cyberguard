@@ -13,6 +13,7 @@ octet=$((40 + 16#$(openssl rand -hex 1) % 100))
 test_ai=${APP_TEST_AI:-1}
 [[ $test_ai == 0 || $test_ai == 1 ]] || fail 'APP_TEST_AI must be 0 or 1.'
 export APP_TEST_DIR=$test_dir APP_TEST_TRANSIT=$project-transit
+export APP_TEST_AI_IMAGE=cyberguard-smoke-ai:$project
 transit_created=no
 mkdir -m 0700 "$test_dir/state" "$test_dir/secrets" "$test_dir/secrets/tls" "$test_dir/issuer"
 cat > "$config" <<EOF
@@ -28,8 +29,8 @@ APP_HTTP_PORT=${APP_TEST_HTTP_PORT:-18089}
 APP_HTTPS_PORT=${APP_TEST_HTTPS_PORT:-18446}
 APP_PRIVATE_PORT=${APP_TEST_PRIVATE_PORT:-18447}
 APP_DB_PORT=${APP_TEST_DB_PORT:-15435}
-APP_GO_IMAGE=cyberguard-go:local
-APP_WEB_IMAGE=cyberguard-web:local
+APP_GO_IMAGE=cyberguard-smoke-go:$project
+APP_WEB_IMAGE=cyberguard-smoke-web:$project
 APP_ALLOW_DEMO_SEED=yes
 APP_EDGE_SUBNET=172.27.$octet.0/28
 APP_IDENTITY_SUBNET=172.27.$octet.16/28
@@ -47,7 +48,7 @@ manage() { bash "$APP_DEPLOY_DIR/manage.sh" --config "$config" "$@"; }
 # shellcheck source=deploy/app-vm/tests/ai.sh
 source "$APP_DEPLOY_DIR/tests/ai.sh"
 cleanup() {
-    local result=$?
+    local result=$? image
     trap - EXIT
     if [[ $result != 0 ]]; then compose logs --no-color > "$test_dir/runtime.log" 2>&1 || true; fi
     if [[ $test_ai == 1 ]]; then
@@ -56,12 +57,18 @@ cleanup() {
     fi
     compose down --volumes --remove-orphans > "$test_dir/cleanup.log" 2>&1 || result=1
     if [[ $transit_created == yes ]]; then docker network rm "$APP_TEST_TRANSIT" >> "$test_dir/cleanup.log" 2>&1 || result=1; fi
+    for image in "$APP_GO_IMAGE" "$APP_WEB_IMAGE" "$APP_TEST_AI_IMAGE"; do
+        if docker image inspect "$image" >/dev/null 2>&1; then docker image rm "$image" >> "$test_dir/cleanup.log" 2>&1 || result=1; fi
+    done
     if [[ $result == 0 ]]; then rm -rf -- "$test_dir"; else printf 'Protected failure diagnostics retained: %s\n' "$test_dir" >&2; fi
     exit "$result"
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
+# Production build also pulls the pinned DB/Caddy prerequisites for --pull never.
+manage build > "$test_dir/build.log" 2>&1
 if [[ $test_ai == 1 ]]; then
+    docker build -f "$APP_REPO_ROOT/backend/python/Dockerfile" -t "$APP_TEST_AI_IMAGE" "$APP_REPO_ROOT" >> "$test_dir/build.log" 2>&1
     # Routed publishing preserves the emulated AI source /32 for real HBA checks.
     # Neither application service DNS nor an application DB network is shared with AI.
     docker network create --subnet "172.29.$octet.0/28" --gateway "$APP_BIND_IP" \
@@ -180,6 +187,13 @@ if [[ $test_ai == 1 ]]; then
         ai_check "$incident"
     } >> "$test_dir/ai-check.log" 2>&1
 fi
+# Same project, different state directory: reject before writing an unmounted marker.
+mkdir -m 0700 "$test_dir/other-state"
+sed "s|^APP_STATE_DIR=.*|APP_STATE_DIR=$test_dir/other-state|" "$config" > "$test_dir/wrong-state.env"
+if bash "$APP_DEPLOY_DIR/manage.sh" --config "$test_dir/wrong-state.env" maintenance-on >> "$test_dir/expected-errors.log" 2>&1; then
+    fail 'Maintenance-on reported success against the wrong gateway bind mount.'
+fi
+[[ ! -e $test_dir/other-state/maintenance/public/enabled ]]
 manage maintenance-on >> "$test_dir/setup.log" 2>&1
 request 503 -b "$test_dir/employee_a.cookies" -H 'Content-Type: application/json' \
     --data-binary "@$test_dir/payload" "$base/api/incidents"

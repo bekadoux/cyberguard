@@ -242,8 +242,7 @@ ai-vm-test-bootstrap:
 	  ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c \
 	  bash /repo/deploy/ai-vm/tests/bootstrap.sh
 
-ai-vm-smoke: docker-build-go
-	docker build -f backend/python/Dockerfile -t cyberguard-ai:azure .
+ai-vm-smoke:
 	bash deploy/ai-vm/smoke.sh
 
 app-vm-config app-vm-build app-vm-create-secrets app-vm-db-up app-vm-bootstrap app-vm-migrate app-vm-migration-status app-vm-bootstrap-ai app-vm-seed-demo app-vm-up app-vm-check app-vm-check-ai app-vm-status app-vm-logs app-vm-stop app-vm-maintenance-on app-vm-maintenance-off app-vm-quiesce:
@@ -257,8 +256,7 @@ app-vm-test-bootstrap:
 	  ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c \
 	  bash /repo/deploy/app-vm/tests/bootstrap.sh
 
-app-vm-smoke: docker-build
-	@if [ "$${APP_TEST_AI:-1}" = 1 ]; then docker build -f backend/python/Dockerfile -t cyberguard-ai:azure .; fi
+app-vm-smoke:
 	bash deploy/app-vm/smoke.sh
 
 frontend-install:

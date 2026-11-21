@@ -8,12 +8,12 @@ AI_TEST_DIR=$(mktemp -d "$AI_REPO_ROOT/.local/ai-vm-smoke.XXXXXX")
 chmod 0700 "$AI_TEST_DIR"
 project=cyberguard-ai-vm-smoke-$(openssl rand -hex 6)
 export AI_TEST_DIR AI_PROJECT_NAME=$project
-export AI_IMAGE=cyberguard-ai:azure AI_KEV_IMAGE=cyberguard-ai:azure
+export AI_IMAGE=cyberguard-smoke-ai:$project AI_KEV_IMAGE=cyberguard-smoke-ai:$project
 export AI_SECRETS_DIR=$AI_TEST_DIR/secrets DOCKER_SECRETS_DIR=$AI_TEST_DIR/secrets
 export AI_SECRET_GID DOCKER_SECRET_GID
 AI_SECRET_GID=$(id -g); DOCKER_SECRET_GID=$AI_SECRET_GID
 export AI_MODEL_DIR=$AI_TEST_DIR/models AI_BIND_IP=127.0.0.1 AI_PORT=${AI_TEST_PORT:-18443}
-export AI_GO_URL=https://app-tls:8443 DOCKER_GO_IMAGE=cyberguard-go:local
+export AI_GO_URL=https://app-tls:8443 DOCKER_GO_IMAGE=cyberguard-smoke-go:$project
 unset COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME COMPOSE_ENV_FILES
 dc() {
     docker compose --env-file /dev/null --project-directory "$AI_REPO_ROOT" \
@@ -21,10 +21,13 @@ dc() {
         -f "$AI_DEPLOY_DIR/compose.yaml" -f "$AI_DEPLOY_DIR/tests/smoke.compose.yaml" "$@"
 }
 cleanup() {
-    local result=$?
+    local result=$? image
     trap - EXIT
     if [[ $result != 0 ]]; then dc logs --no-color > "$AI_TEST_DIR/runtime.log" 2>&1 || true; fi
     dc down --volumes --remove-orphans > "$AI_TEST_DIR/cleanup.log" 2>&1 || result=1
+    for image in "$DOCKER_GO_IMAGE" "$AI_IMAGE"; do
+        if docker image inspect "$image" >/dev/null 2>&1; then docker image rm "$image" >> "$AI_TEST_DIR/cleanup.log" 2>&1 || result=1; fi
+    done
     if [[ $result == 0 ]]; then
         rm -rf -- "$AI_TEST_DIR"
     else
@@ -33,6 +36,9 @@ cleanup() {
     exit "$result"
 }
 trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+docker build -f "$AI_REPO_ROOT/backend/go/Dockerfile" -t "$DOCKER_GO_IMAGE" "$AI_REPO_ROOT" > "$AI_TEST_DIR/build.log" 2>&1
+docker build -f "$AI_REPO_ROOT/backend/python/Dockerfile" -t "$AI_IMAGE" "$AI_REPO_ROOT" >> "$AI_TEST_DIR/build.log" 2>&1
 sh "$AI_REPO_ROOT/docker/create-secrets.sh" >/dev/null
 sh "$AI_REPO_ROOT/docker/ai/create-ai-secrets.sh" >/dev/null
 mkdir -m 0755 "$AI_TEST_DIR/certs" "$AI_MODEL_DIR" "$AI_TEST_DIR/control"
@@ -147,6 +153,10 @@ printf '%s\n' "AI_PROJECT_NAME=$project" "AI_MODEL_DIR=$AI_MODEL_DIR" \
     "AI_GO_URL=$AI_GO_URL" "AI_PORT=$AI_PORT" "AI_IMAGE=$AI_IMAGE" \
     "AI_KEV_IMAGE=$AI_KEV_IMAGE" > "$AI_TEST_DIR/config.env"
 bash "$staged/manage.sh" --config "$AI_TEST_DIR/config.env" check
+dc stop ai-worker >> "$AI_TEST_DIR/start.log" 2>&1
+if bash "$staged/manage.sh" --config "$AI_TEST_DIR/config.env" check >> "$AI_TEST_DIR/expected-errors.log" 2>&1; then
+    fail 'Readiness check passed with the persistent worker stopped.'
+fi
 curl --fail --silent --show-error --noproxy '*' --cacert "$AI_SECRETS_DIR/ca.crt" \
     --resolve "ai.internal:$AI_PORT:127.0.0.1" "https://ai.internal:$AI_PORT/readyz" >/dev/null
 if curl --fail --silent --noproxy '*' --cacert "$AI_SECRETS_DIR/ca.crt" \
