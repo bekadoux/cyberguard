@@ -1,6 +1,7 @@
 import { ApiError, request } from '../../shared/api/client';
 import {
   isUUID,
+  invalidResponse,
   parseDetail,
   parsePage,
   type IncidentDetail,
@@ -21,7 +22,10 @@ export const incidentsApi = {
   },
   async get(id: string, signal?: AbortSignal): Promise<IncidentDetail> {
     if (!isUUID(id)) throw new ApiError(404, 'not_found');
-    return parseDetail(await request(`/incidents/${encodeURIComponent(id)}`, { signal }));
+    const incident = parseDetail(
+      await request(`/incidents/${encodeURIComponent(id)}`, { signal }),
+    );
+    return incident.id.toLowerCase() === id.toLowerCase() ? incident : invalidResponse();
   },
   async list(
     filters: IncidentFilters,

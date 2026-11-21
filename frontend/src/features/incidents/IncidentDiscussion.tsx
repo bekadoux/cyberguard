@@ -7,10 +7,12 @@ import type { IncidentDetail } from './model';
 export function IncidentDiscussion({
   incident,
   professional,
+  revision,
   onChanged,
 }: {
   incident: IncidentDetail;
   professional: boolean;
+  revision: number;
   onChanged: () => void;
 }) {
   const { user, runProtected, pending } = useAuth();
@@ -33,17 +35,23 @@ export function IncidentDiscussion({
     ).then(
       ([items, events]) => {
         if (!controller.signal.aborted) {
-          setComments(items);
+          setComments(
+            professional ? items : items.filter((item) => item.visibility === 'public'),
+          );
           setHistory(events);
           setError('');
         }
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) setError(actionError(error));
+        if (!controller.signal.aborted) {
+          setComments([]);
+          setHistory([]);
+          setError(actionError(error));
+        }
       },
     );
     return () => controller.abort();
-  }, [incident.id, professional, runProtected, refresh]);
+  }, [incident.id, professional, runProtected, refresh, revision]);
   const canPublic =
     !professional ||
     user?.role === 'admin' ||
@@ -60,7 +68,6 @@ export function IncidentDiscussion({
         workflowApi.addComment(incident.id, text.trim(), visibility),
       );
       setText('');
-      setRefresh((v) => v + 1);
       onChanged();
     } catch (error) {
       setError(actionError(error));
@@ -130,6 +137,7 @@ export function IncidentDiscussion({
             maxLength={5000}
             rows={3}
             value={text}
+            disabled={busy}
             onChange={(e) => setText(e.target.value)}
           />
         </label>
@@ -138,11 +146,16 @@ export function IncidentDiscussion({
             Only the assigned analyst or admin can post public comments on this incident.
           </p>
         )}
-        {incident.status === 'awaiting_reporter' && !professional && (
-          <p className="muted">
-            Your public reply will automatically resume investigation.
-          </p>
-        )}
+        {incident.reporter_id === user?.id &&
+          (incident.status === 'awaiting_reporter' || incident.status === 'resolved') && (
+            <p className="muted">
+              {visibility === 'internal'
+                ? 'Your internal note will not change the incident status.'
+                : incident.status === 'resolved'
+                  ? 'Your public reply will reopen the investigation.'
+                  : 'Your public reply will resume the investigation.'}
+            </p>
+          )}
         <button
           type="submit"
           className="button button-primary"

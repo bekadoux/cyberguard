@@ -26,6 +26,12 @@ const dateTime = (date: string) =>
 export function IncidentDetailPage() {
   const { id = '' } = useParams();
   const { user } = useAuth();
+  // A different record or authorization scope must never inherit a draft or response.
+  return <ScopedDetail key={`${id}/${user?.id}/${user?.role}`} id={id} />;
+}
+
+function ScopedDetail({ id }: { id: string }) {
+  const { user } = useAuth();
   const location = useLocation();
   const detail = useIncidentDetail(id);
   const incident = detail.incident;
@@ -62,6 +68,14 @@ export function IncidentDetailPage() {
         </div>
       ) : (
         <>
+          {detail.error && (
+            <div className="notice notice-error" role="alert">
+              {incidentErrorMessage(detail.error)} Showing the last loaded incident.{' '}
+              <button className="button button-secondary" onClick={detail.retry}>
+                Try again
+              </button>
+            </div>
+          )}
           {isRecord(location.state) && location.state.created === true && (
             <p className="notice submission-success" role="status">
               Incident submitted. Your report has been saved.
@@ -185,10 +199,11 @@ export function IncidentDetailPage() {
               onChanged={detail.retry}
             />
           )}
-          <IncidentWorkflow incident={incident} onChanged={detail.retry} />
+          <IncidentWorkflow incident={incident} onChanged={detail.changed} />
           <IncidentDiscussion
             incident={incident}
             professional={professional}
+            revision={detail.revision}
             onChanged={detail.retry}
           />
         </>

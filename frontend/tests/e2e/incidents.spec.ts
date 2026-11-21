@@ -404,6 +404,139 @@ test('uses the same concealed not-found state for invalid and inaccessible IDs',
   }
 });
 
+test('searches and pages active analysts without discarding incident drafts', async ({
+  page,
+}) => {
+  await identity(page, { ...employee, role: 'admin' });
+  const queries: Record<string, string>[] = [];
+  const firstAnalyst = { ...analyst, username: 'sam_1', is_blocked: false };
+  const laterAnalyst = { ...firstAnalyst, id: second.id, username: 'sam_2' };
+  await page.route('**/api/admin/users?*', (r) => {
+    const params = Object.fromEntries(new URL(r.request().url()).searchParams);
+    queries.push(params);
+    return r.fulfill({
+      json:
+        params.q !== 'sam'
+          ? { users: [], next_cursor: null }
+          : params.cursor
+            ? { users: [laterAnalyst], next_cursor: null }
+            : { users: [firstAnalyst], next_cursor: 'sam_1' },
+    });
+  });
+  let assigned = false;
+  await page.route(`**/api/incidents/${first.id}`, (r) =>
+    r.fulfill({
+      json: {
+        incident: {
+          ...detail,
+          assigned_analyst: assigned ? laterAnalyst : null,
+          assigned_analyst_id: assigned ? laterAnalyst.id : null,
+        },
+      },
+    }),
+  );
+  await page.route('**/api/incidents/*/assign', (r) => {
+    expect(r.request().postDataJSON()).toEqual({ analyst_id: laterAnalyst.id });
+    assigned = true;
+    return r.fulfill({ json: { updated: true } });
+  });
+  await page.goto(`/incidents/${first.id}`);
+  await expect(page.getByText('No matching active analysts.')).toBeVisible();
+  await page.getByLabel('Resolution note').fill('Unsubmitted note');
+  await page.getByLabel('Archive reason').fill('Unsubmitted reason');
+  await page.getByLabel('Username prefix').fill('sam');
+  await page.getByRole('button', { name: 'Search analysts' }).click();
+  await page.getByRole('button', { name: 'Next analysts' }).click();
+  await page.getByLabel('Active analyst').selectOption(laterAnalyst.id);
+  await page.getByRole('button', { name: 'Save assignment' }).click();
+  await expect(page.locator('.incident-metadata')).toContainText('sam_2');
+  expect(queries.slice(-2)).toEqual([
+    { eligible: 'analyst', limit: '50', q: 'sam' },
+    { eligible: 'analyst', limit: '50', q: 'sam', cursor: 'sam_1' },
+  ]);
+  await expect(page.getByLabel('Resolution note')).toHaveValue('Unsubmitted note');
+  await expect(page.getByLabel('Archive reason')).toHaveValue('Unsubmitted reason');
+  await page.getByLabel('Username prefix').fill('alex');
+  await page.getByRole('button', { name: 'Search analysts' }).click();
+  await expect(page.getByText('No matching active analysts.')).toBeVisible();
+  expect(queries.at(-1)).toEqual({ eligible: 'analyst', limit: '50', q: 'alex' });
+});
+
+test('discards staff drafts and internal activity on a shared-cookie role change', async ({
+  page,
+}) => {
+  let user = { ...employee, role: 'admin' as 'admin' | 'employee' };
+  await page.route('**/api/auth/me', (r) => r.fulfill({ json: { user } }));
+  await page.route(`**/api/incidents/${first.id}`, (r) =>
+    r.fulfill({
+      json: {
+        incident: {
+          ...detail,
+          status: user.role === 'employee' ? 'awaiting_reporter' : 'resolved',
+        },
+      },
+    }),
+  );
+  await page.route('**/api/incidents/*/comments', (r) =>
+    r.fulfill({
+      json: {
+        comments: [
+          {
+            id: second.id,
+            author_id: analyst.id,
+            text: 'Internal staff note',
+            visibility: 'internal',
+            created_at: first.created_at,
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto(`/incidents/${first.id}`);
+  await expect(page.getByText('Internal staff note')).toBeVisible();
+  await expect(
+    page.getByText('Your public reply will reopen the investigation.'),
+  ).toBeVisible();
+  await page.getByLabel('Visibility').selectOption('internal');
+  await expect(
+    page.getByText('Your internal note will not change the incident status.'),
+  ).toBeVisible();
+  await page.getByLabel('Your message').fill('Private draft');
+  user = { ...user, role: 'employee' };
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByLabel('Visibility')).toHaveCount(0);
+  await expect(page.getByLabel('Your message')).toHaveValue('');
+  await expect(
+    page.getByText('Your public reply will resume the investigation.'),
+  ).toBeVisible();
+  await expect(page.getByText('Internal staff note')).toHaveCount(0);
+  await expect(page.getByTestId('assessment-panel')).toHaveCount(0);
+});
+
+test('removes the previously loaded incident and its drafts when revalidation denies access', async ({
+  page,
+}) => {
+  let allowed = true;
+  await page.route(`**/api/incidents/${first.id}`, (r) =>
+    allowed
+      ? r.fulfill({ json: { incident: detail } })
+      : r.fulfill({ status: 404, json: { error: { code: 'not_found' } } }),
+  );
+  await page.route('**/api/incidents/*/comments', (r) => {
+    if (r.request().method() === 'POST') {
+      allowed = false;
+      return r.fulfill({ status: 201, json: { saved: true } });
+    }
+    return r.fulfill({ json: { comments: [] } });
+  });
+  await page.goto(`/incidents/${first.id}`);
+  await page.getByLabel('Your message').fill('Follow-up');
+  await page.getByRole('button', { name: 'Post comment' }).click();
+  await expect(page.getByRole('heading', { name: 'Incident not found' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: first.title })).toHaveCount(0);
+  await expect(page.getByLabel('Your message')).toHaveCount(0);
+});
+
 test('does not partially return a report on dependency failure and supports retry', async ({
   page,
 }) => {

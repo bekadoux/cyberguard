@@ -33,6 +33,36 @@ describe('investigation API contracts', () => {
       }),
     ).rejects.toMatchObject({ code: 'invalid_response' });
   });
+  it.each([
+    {
+      job_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      decision: 'accepted',
+      category: 'phishing',
+      reason: '',
+    },
+    { job_id: id, decision: 'corrected', category: 'bad', reason: 'Correction' },
+    { job_id: id, decision: 'rejected', category: 'phishing', reason: 'Reason' },
+    { job_id: id, decision: 'accepted', category: null, reason: '' },
+  ])('rejects mismatched jobs and malformed review decisions', async (review) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ review })));
+    await expect(workflowApi.review(id, id)).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
+  });
+  it('does not offer blocked or ineligible accounts returned by a malformed picker page', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        Response.json({
+          users: [{ id, username: 'blocked', role: 'analyst', is_blocked: true }],
+          next_cursor: null,
+        }),
+      ),
+    );
+    await expect(adminApi.eligibleAnalysts('', null)).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
+  });
   it('rejects malformed notifications rather than displaying arbitrary server values', async () => {
     vi.stubGlobal(
       'fetch',

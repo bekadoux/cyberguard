@@ -1,5 +1,6 @@
 import { ApiError, request } from '../../shared/api/client';
 import {
+  categoryLabels,
   invalidResponse,
   isRecord,
   isUUID,
@@ -30,6 +31,37 @@ export type IncidentFields = {
   resolution_note?: string | null;
 };
 export type FeedbackDecision = 'accepted' | 'corrected' | 'rejected';
+export type JobReview = {
+  job_id: string;
+  decision: FeedbackDecision;
+  category: IncidentCategory | null;
+  reason: string;
+};
+
+function parseReview(value: unknown, jobId: string): JobReview | null {
+  if (!isRecord(value)) return invalidResponse();
+  const review = value.review;
+  if (review === null) return null;
+  if (
+    !isRecord(review) ||
+    review.job_id !== jobId ||
+    typeof review.reason !== 'string' ||
+    (review.decision !== 'accepted' &&
+      review.decision !== 'corrected' &&
+      review.decision !== 'rejected') ||
+    (review.decision === 'rejected'
+      ? review.category !== null
+      : typeof review.category !== 'string' ||
+        !Object.hasOwn(categoryLabels, review.category))
+  )
+    return invalidResponse();
+  return {
+    job_id: jobId,
+    decision: review.decision,
+    category: review.category as IncidentCategory | null,
+    reason: review.reason,
+  };
+}
 
 function endpoint(id: string, suffix: string): string {
   if (!isUUID(id)) throw new ApiError(404, 'not_found');
@@ -91,7 +123,7 @@ export const workflowApi = {
   assign: (id: string, analyst_id: string) =>
     request(endpoint(id, 'assign'), { method: 'POST', body: { analyst_id } }),
   fields: (id: string, body: IncidentFields) =>
-    request(endpoint(id, 'fields'), { method: 'PATCH', body }),
+    request(endpoint(id, 'fields'), { method: 'PATCH', expectedStatus: 200, body }),
   transition: (id: string, status: IncidentStatus, reason = '') =>
     request(endpoint(id, 'transition'), { method: 'POST', body: { status, reason } }),
   archive: (id: string, reason: string) =>
@@ -116,15 +148,17 @@ export const workflowApi = {
       500,
       parseEvent,
     ),
-  feedback: (
-    id: string,
-    body: {
-      job_id: string;
-      decision: FeedbackDecision;
-      category: IncidentCategory | null;
-      reason: string;
-    },
-  ) =>
+  review: async (id: string, jobId: string, signal?: AbortSignal) => {
+    if (!isUUID(jobId)) throw new ApiError(404, 'not_found');
+    return parseReview(
+      await request(endpoint(id, `ai-feedback/${jobId}`), {
+        signal,
+        expectedStatus: 200,
+      }),
+      jobId,
+    );
+  },
+  feedback: (id: string, body: JobReview) =>
     request(endpoint(id, 'ai-feedback'), { method: 'POST', expectedStatus: 201, body }),
 };
 
@@ -222,6 +256,25 @@ function parseIdentityEvent(v: unknown): IdentityEvent {
   };
 }
 export const adminApi = {
+  eligibleAnalysts: async (
+    prefix: string,
+    cursor: string | null,
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams({ eligible: 'analyst', q: prefix, limit: '50' });
+    if (cursor) params.set('cursor', cursor);
+    const page = await request(`/admin/users?${params}`, { signal });
+    if (
+      !isRecord(page) ||
+      (page.next_cursor !== null &&
+        (typeof page.next_cursor !== 'string' || !page.next_cursor))
+    )
+      return invalidResponse();
+    const users = parseCollection(page, 'users', 50, parseUser);
+    if (users.some((user) => user.role !== 'analyst' || user.is_blocked))
+      return invalidResponse();
+    return { users, next_cursor: page.next_cursor };
+  },
   users: async (signal?: AbortSignal): Promise<ManagedUser[]> =>
     parseCollection(await request('/admin/users', { signal }), 'users', 500, parseUser),
   audit: async (signal?: AbortSignal): Promise<IdentityEvent[]> =>

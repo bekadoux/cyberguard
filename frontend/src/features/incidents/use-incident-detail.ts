@@ -1,43 +1,56 @@
 import { useEffect, useState } from 'react';
+import { ApiError } from '../../shared/api/client';
 import { useAuth } from '../auth/use-auth';
 import { incidentsApi } from './api';
 import { isAborted } from './messages';
 import type { IncidentDetail } from './model';
+import type { IncidentFields } from './workflow-api';
 
 type DetailState = {
-  source: string;
   incident: IncidentDetail | null;
-  error: unknown;
-  loading: boolean;
+  error: Error | null;
 };
-const initial: DetailState = { source: '', incident: null, error: null, loading: true };
+const initial: DetailState = { incident: null, error: null };
 
 export function useIncidentDetail(id: string) {
   const { runProtected, pending } = useAuth();
   const [state, setState] = useState<DetailState>(initial);
   const [reload, setReload] = useState(0);
-  const source = `${id}/${reload}`;
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
-      setState({ ...initial, source });
       if (pending) return;
       try {
         const incident = await runProtected(() =>
           incidentsApi.get(id, controller.signal),
         );
-        if (!controller.signal.aborted)
-          setState({ source, incident, error: null, loading: false });
+        if (!controller.signal.aborted) setState({ incident, error: null });
       } catch (error) {
         if (!controller.signal.aborted && !isAborted(error))
-          setState({ source, incident: null, error, loading: false });
+          setState((previous) => ({
+            incident:
+              error instanceof ApiError && (error.status === 0 || error.status >= 500)
+                ? previous.incident
+                : null,
+            error: error instanceof Error ? error : new Error('Incident read failed'),
+          }));
       }
     }
     void load();
     return () => controller.abort();
-  }, [id, source, pending, runProtected]);
+  }, [id, reload, pending, runProtected]);
   return {
-    ...(state.source === source ? state : initial),
+    ...state,
+    loading: pending || (!state.incident && !state.error),
+    revision: reload,
     retry: () => setReload((value) => value + 1),
+    changed: (saved?: IncidentFields) => {
+      if (saved)
+        setState((previous) => ({
+          ...previous,
+          incident: previous.incident && { ...previous.incident, ...saved },
+        }));
+      setReload((value) => value + 1);
+    },
   };
 }
