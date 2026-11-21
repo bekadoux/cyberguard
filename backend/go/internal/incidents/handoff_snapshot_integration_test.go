@@ -4,11 +4,13 @@ package incidents
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	db "github.com/bekadoux/cyberguard/backend/go/internal/db/incidents"
 	"github.com/bekadoux/cyberguard/backend/go/internal/testutil"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestAtomicJobAndImmutableContextIntegration(t *testing.T) {
@@ -44,9 +46,11 @@ func TestAtomicJobAndImmutableContextIntegration(t *testing.T) {
 	if _, err = fixture.Runtime.Exec(ctx, `UPDATE incident_contexts SET title='tamper' WHERE id=$1`, snapshotID); err == nil {
 		t.Fatal("runtime could mutate immutable snapshot")
 	}
-	if _, err = fixture.Runtime.Exec(ctx, `INSERT INTO assessment_jobs(incident_id,incident_revision,kind)
-      VALUES($1,1,'initial_assessment')`, item.ID); err == nil {
-		t.Fatal("duplicate initial job accepted")
+	var pgerr *pgconn.PgError
+	_, err = fixture.Migrator.Exec(ctx, `INSERT INTO assessment_jobs(incident_id,incident_revision,kind)
+      VALUES($1,1,'initial_assessment')`, item.ID)
+	if !errors.As(err, &pgerr) || pgerr.Code != "23505" || pgerr.ConstraintName != "assessment_jobs_one_initial_per_incident" {
+		t.Fatalf("expected duplicate initial job index violation, got %v", err)
 	}
 	if _, err = fixture.Runtime.Exec(ctx, `UPDATE incidents SET title='tamper' WHERE id=$1`, item.ID); err == nil {
 		t.Fatal("original title can be changed by runtime")
