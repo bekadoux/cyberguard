@@ -6,6 +6,10 @@ resources or databases. The AI VM uses standalone Compose; see
 Set up the [application VM](azure-app-deployment.md) before connecting runtime
 services.
 
+For a fresh two-VM installation from a workstation, see the
+[SSH installer](remote-setup.md). This runbook remains the manual and upgrade
+reference.
+
 ## 1. Prepare the host independently
 
 Copy a reviewed checkout onto the VM (SCP/archive, or Git if already installed). Keep

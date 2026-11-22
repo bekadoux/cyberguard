@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# Exercise workstation orchestration without contacting VMs, and host receipt/transfer guards.
+set -euo pipefail
+umask 077
+root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
+scratch=$(mktemp -d)
+trap 'rm -rf -- "$scratch"' EXIT
+for tool in git openssl script; do command -v "$tool" >/dev/null; done
+repo="$scratch/repo"
+mkdir -p "$repo/deploy/remote" "$scratch/bin" "$scratch/tls"
+cp "$root/deploy/remote-setup.sh" "$repo/deploy/"
+cp "$root/deploy/remote/host.sh" "$repo/deploy/remote/"
+git -C "$repo" init --quiet
+git -C "$repo" add deploy
+git -C "$repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
+    -c core.hooksPath=/dev/null commit --quiet --no-gpg-sign -m 'test: prepare fixture release'
+revision=$(git -C "$repo" rev-parse HEAD)
+printf 'must-not-upload\n' > "$repo/untracked"
+printf 'private test key\n' > "$scratch/app ssh key"
+printf 'another private test key\n' > "$scratch/ai ssh key"
+
+tls="$scratch/tls"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3 -subj '/CN=Test CA' \
+    -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+    -addext 'subjectKeyIdentifier=hash' -keyout "$tls/ca.key" -out "$tls/ca.crt" 2>/dev/null
+issue() {
+    local name=$1 cn=$2 sans=$3
+    openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=$cn" \
+        -keyout "$tls/$name.key" -out "$scratch/csr" 2>/dev/null
+    printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' \
+        'extendedKeyUsage=serverAuth' 'subjectKeyIdentifier=hash' 'authorityKeyIdentifier=keyid:always' \
+        "subjectAltName=$sans" > "$scratch/server.ext"
+    openssl x509 -req -in "$scratch/csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" \
+        -CAserial "$scratch/serial" -CAcreateserial -days 3 -extfile "$scratch/server.ext" \
+        -out "$tls/$name.crt" 2>/dev/null
+}
+issue identity identity-db DNS:identity-db
+issue incident incident-db DNS:incident-db,DNS:incidents.internal
+issue go app.internal DNS:app.internal
+issue api ai.internal DNS:ai.internal
+issue public cg.example.org DNS:cg.example.org
+
+cat > "$scratch/settings" <<EOF
+APP_SSH=app-test
+APP_KEY=app ssh key
+AI_SSH=ai-test
+AI_KEY=ai ssh key
+REVISION=$revision
+APP_PUBLIC_NAME=cg.example.org
+APP_PRIVATE_IP=10.0.0.4
+AI_PRIVATE_IP=10.0.0.5
+TLS_DIR=tls
+PUBLIC_TLS=provided
+NETWORK_APPROVED=yes
+EOF
+
+cat > "$scratch/bin/ssh" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+args="$*"
+[[ $args == *StrictHostKeyChecking=yes* && $args == *ForwardAgent=no* ]]
+while [[ $1 != -- ]]; do shift; done
+shift
+case "$1" in app-test) role=app ;; ai-test) role=ai ;; *) exit 42 ;; esac
+shift
+[[ $args == *"/$role "* ]]
+if [[ $args == *' -O exit '* ]]; then
+    echo "$role close" >> "$FIXTURE/trace"
+    exit
+fi
+if [[ $args == *' -M -N -f '* ]]; then
+    [[ $args == *IdentitiesOnly=yes*" -i $FIXTURE/$role ssh key "* ]]
+    if [[ $args == *BatchMode=yes* ]]; then echo "$role batch"; else echo "$role tty"; fi >> "$FIXTURE/trace"
+    exit
+fi
+[[ $args == *ControlMaster=no* && $args == *ProxyCommand=false* ]]
+case "$*" in
+    *'/etc/machine-id'*)
+        if [[ $role == app || ${SAME_MACHINE:-0} == 1 ]]; then
+            printf '%032d\n' 1
+        else
+            printf '%032d\n' 2
+        fi ;;
+    *"'-s'"*"'inspect'"*) cat >/dev/null; echo "$role inspect" >> "$FIXTURE/trace" ;;
+    *"'-s'"*) cat >/dev/null; echo "$role os-dns" >> "$FIXTURE/trace" ;;
+    *'tar --no-same-owner -xpf -'*)
+        tar -tf - > "$FIXTURE/archive-$role"
+        grep -qx 'deploy/remote/host.sh' "$FIXTURE/archive-$role"
+        if grep -Eq 'untracked|ca\.key|ssh key' "$FIXTURE/archive-$role"; then exit 9; fi
+        echo "$role upload" >> "$FIXTURE/trace" ;;
+    *"'receive'"*)
+        file=${1%\' }; file=${file##*\'}
+        if [[ $file =~ ^[a-f0-9]{64}$ ]]; then
+            digest=$file
+            rest=${1%"'$digest' "}; rest=${rest%\' }; file=${rest##*\'}
+        else
+            digest=''
+        fi
+        payload=$(cat)
+        [[ -n $payload ]]
+        case "$file" in
+            ca.key|*migrat*|*admin*|*password*) exit 9 ;;
+            ai_runtime_url|ai_internal_token)
+                [[ $role == ai && $payload == 'fixture AI credential' ]] ;;
+            *) [[ $digest =~ ^[a-f0-9]{64}$ ]] ;;
+        esac
+        echo "$role receive $file" >> "$FIXTURE/trace" ;;
+    *"'export-ai'"*)
+        [[ $role == app && ( $* == *"'ai_runtime_url'"* || $* == *"'ai_internal_token'"* ) ]]
+        echo 'fixture AI credential'
+        echo "$role export-ai" >> "$FIXTURE/trace" ;;
+    *"'configure'"*)
+        cat > "$FIXTURE/config-$role"
+        echo "$role configure" >> "$FIXTURE/trace" ;;
+    *"'initialize'"*|*"'prepare'"*|*"'up'"*|*"'check'"*|*"'check-ai'"*|*"'installed'"*|*"'require-installed'"*|*"'require-state'"*|*"'status'"*|*"'stop'"*)
+        action=${1%\' }; action=${action##*\'}
+        echo "$role $action" >> "$FIXTURE/trace"
+        if [[ ${AI_START_FAILS:-0} == 1 && $role == ai && $action == up ]]; then exit 1; fi ;;
+    *) echo 'Unexpected SSH command' >&2; exit 4 ;;
+esac
+MOCK
+
+cat > "$scratch/bin/curl" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $* == *'--cacert '* && $* == *https://cg.example.org/api/readyz* ]]
+echo 'public verify' >> "$FIXTURE/trace"
+MOCK
+cat > "$scratch/bin/getent" <<'MOCK'
+#!/usr/bin/env bash
+[[ $* == 'ahostsv4 cg.example.org' ]]
+MOCK
+chmod +x "$scratch/bin/"*
+export FIXTURE="$scratch" PATH="$scratch/bin:$PATH"
+run() { bash "$repo/deploy/remote-setup.sh" --config "$scratch/settings" "$@"; }
+reject() { if "$@"; then echo "Unexpected success: $*" >&2; exit 1; fi; }
+
+export SAME_MACHINE=1
+reject run preflight > "$scratch/out" 2>&1
+unset SAME_MACHINE
+grep -q 'two different VMs' "$scratch/out"
+
+: > "$scratch/trace"
+run preflight </dev/null
+grep -qx 'app batch' "$scratch/trace"
+grep -qx 'ai batch' "$scratch/trace"
+grep -qx 'app inspect' "$scratch/trace"
+grep -qx 'ai inspect' "$scratch/trace"
+if grep -Eq 'upload|initialize|configure|prepare|receive| up$' "$scratch/trace"; then
+    echo 'Preflight tried to change a host.' >&2
+    exit 1
+fi
+
+: > "$scratch/trace"
+export AI_START_FAILS=1
+reject run install > "$scratch/out" 2>&1
+unset AI_START_FAILS
+grep -q 'Checking the AI VM' "$scratch/out"
+grep -q 'failed during: start the AI VM' "$scratch/out"
+if grep -q ' installed$' "$scratch/trace"; then echo 'Cutover was attempted after AI failed.' >&2; exit 1; fi
+
+: > "$scratch/trace"
+printf '' | script -q -e -c "bash '$repo/deploy/remote-setup.sh' --config '$scratch/settings' install" /dev/null > "$scratch/out"
+grep -qx 'app tty' "$scratch/trace"
+grep -qx 'ai tty' "$scratch/trace"
+grep -qx 'APP_AI_TLS_NAME=ai.internal' "$scratch/config-app"
+grep -qx 'AI_GO_URL=https://app.internal:8443' "$scratch/config-ai"
+grep -qx 'APP_ALLOW_DEMO_SEED=no' "$scratch/config-app"
+grep -qx 'ai receive ai_runtime_url' "$scratch/trace"
+grep -qx 'ai receive ai_internal_token' "$scratch/trace"
+grep -qx 'app receive public.key' "$scratch/trace"
+grep -qx 'ai receive api.key' "$scratch/trace"
+[[ $(grep -E ' installed$' "$scratch/trace") == $'ai installed\napp installed' ]]
+grep -q 'https://cg.example.org/login' "$scratch/out"
+if grep -q 'fixture AI credential' "$scratch/out" "$scratch/trace"; then echo 'A credential was printed.' >&2; exit 1; fi
+
+: > "$scratch/trace"
+run stop
+[[ $(grep -E ' stop$' "$scratch/trace") == $'ai stop\napp stop' ]]
+run resume
+run status
+run check
+if grep -Eq 'upload|initialize|configure|prepare|receive| installed$' "$scratch/trace"; then
+    echo 'An ordinary lifecycle command tried to provision or open writes.' >&2
+    exit 1
+fi
+
+# Exercise the actual host helper logic in private temporary state, not /etc or Docker.
+(
+    source "$root/deploy/remote/host.sh"
+    repo=$root
+    role=app
+    operator=$(id -un)
+    gid=$(id -g)
+    state="$scratch/state"
+    etc="$scratch/etc"
+    config="$etc/config.env"
+    mkdir -p "$state" "$etc"
+    sed "s/^APP_SECRET_GID=.*/APP_SECRET_GID=$gid/" \
+        "$repo/deploy/app-vm/config.env.example" > "$config"
+    mark bootstrapped
+    sha() { local digest; digest=$(sha256sum < "$1"); printf '%s' "${digest%% *}"; }
+    configure_vm "$(sha "$scratch/config-app")" < "$scratch/config-app"
+    prepare_guard="$scratch/db-intact"
+    touch -- "$prepare_guard"
+    manager() { printf '%s\n' "$1" >> "$scratch/host-actions"; }
+    make_app_credentials() { mkdir -p "$etc/secrets/credentials"; }
+    check_database_volumes() { [[ -f $prepare_guard ]] || fail 'Missing managed volumes.'; }
+    prepare
+    prepare
+    [[ $(cat "$scratch/host-actions") == $'build\ndb-up\nbootstrap\nmigrate\nbootstrap-ai' ]]
+    rm -- "$prepare_guard"
+    if (require_prepared); then echo 'Missing volumes were not detected.' >&2; exit 1; fi
+    touch -- "$prepare_guard"
+    mkdir -p "$etc/secrets/tls"
+    if (receive_file ca.crt "$(sha "$tls/ca.crt")" < "$tls/identity.crt"); then
+        echo 'Truncated or different upload was accepted.' >&2
+        exit 1
+    fi
+    [[ ! -e $etc/secrets/tls/ca.crt ]]
+    receive_file ca.crt "$(sha "$tls/ca.crt")" < "$tls/ca.crt"
+    receive_file ca.crt "$(sha "$tls/ca.crt")" < "$tls/ca.crt"
+    if (receive_file ca.crt "$(sha "$tls/identity.crt")" < "$tls/identity.crt"); then
+        echo 'Existing CA was overwritten.' >&2
+        exit 1
+    fi
+    if (receive_file ca.key "$(sha "$tls/ca.key")" < "$tls/ca.key"); then echo 'CA key was accepted.' >&2; exit 1; fi
+    if (export_ai identity_migration_url); then echo 'Unscoped credential export.' >&2; exit 1; fi
+    printf 'APP_PUBLIC_NAME=changed.example.org\n' >> "$config"
+    if (require_configured); then echo 'Manual configuration drift was accepted.' >&2; exit 1; fi
+
+    role=ai
+    etc="$scratch/ai-etc"
+    config="$etc/config.env"
+    state="$scratch/ai-state"
+    mkdir -p "$etc/secrets" "$state"
+    sed "s/^AI_SECRET_GID=.*/AI_SECRET_GID=$gid/" \
+        "$repo/deploy/ai-vm/config.env.example" > "$config"
+    mark bootstrapped
+    configure_vm "$(sha "$scratch/config-ai")" < "$scratch/config-ai"
+    if (receive_file ai_internal_token <<< invalid); then echo 'Malformed token accepted.' >&2; exit 1; fi
+    receive_file ai_internal_token < <(printf '%064d\n' 0)
+    receive_file ai_runtime_url < <(printf 'postgres://python_incidents:%064d@incidents.internal:5432/cyberguard_incidents?sslmode=verify-full&sslrootcert=/run/certs/ca.crt\n' 0)
+    if (receive_file go.key "$(sha "$tls/go.key")" < "$tls/go.key"); then echo 'App key reached AI.' >&2; exit 1; fi
+)
+
+echo 'Remote setup: SSH orchestration, scoped transfer, cutover and resume checks passed.'

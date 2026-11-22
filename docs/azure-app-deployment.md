@@ -5,6 +5,10 @@ create Azure resources. See [deployment architecture](deployment.md) for service
 boundaries and the [AI VM runbook](azure-ai-deployment.md) for the optional second
 host. Do not use the local HTTP override on this VM.
 
+For a fresh two-VM installation from a workstation, see the
+[SSH installer](remote-setup.md). This runbook remains the manual and upgrade
+reference.
+
 The manager explicitly selects root `compose.yaml` plus `deploy/app-vm/compose.yaml`;
 provided-certificate mode adds only `provided.compose.yaml`. It never selects
 `compose.dev.yaml`, the single-host AI overlay, root `.env`, or inherited Compose

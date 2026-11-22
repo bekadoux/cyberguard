@@ -27,6 +27,7 @@ APP_VM_CONFIG ?= /etc/cyberguard/app/config.env
 .PHONY: app-vm-config app-vm-build app-vm-create-secrets app-vm-db-up app-vm-bootstrap app-vm-migrate app-vm-migration-status app-vm-bootstrap-ai app-vm-seed-demo
 .PHONY: app-vm-up app-vm-check app-vm-check-ai app-vm-status app-vm-logs app-vm-stop app-vm-maintenance-on app-vm-maintenance-off app-vm-quiesce
 .PHONY: app-vm-test app-vm-test-bootstrap app-vm-smoke
+.PHONY: remote-setup-test
 
 help:
 	@printf '%s\n' \
@@ -105,7 +106,8 @@ help:
 	  'app-vm-status/logs/stop Inspect/stop services, retaining all persistent state' \
 	  'app-vm-test        Run deployment configuration/credential safety checks' \
 	  'app-vm-test-bootstrap Test preparation in disposable Ubuntu with mocks' \
-	  'app-vm-smoke       Run disposable application deployment/TLS checks'
+	  'app-vm-smoke       Run disposable application deployment/TLS checks' \
+	  'remote-setup-test  Test the SSH installer and scoped deployment lifecycle'
 
 go-run:
 	cd $(GO_DIR) && $(GO) run ./cmd/api
@@ -220,6 +222,9 @@ docker-test-web:
 
 docker-test-local-setup:
 	bash docker/test-local-setup.sh
+
+remote-setup-test:
+	bash deploy/remote/test.sh
 
 docker-caddy-check:
 	@image="$$($(COMPOSE) config --format json | jq -er '.services.web.image')" && \

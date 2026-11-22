@@ -73,7 +73,17 @@ the core application setup. Models require additional disk space and memory.
 
 ## Deploy on a server
 
-For an internet-accessible installation, follow the guides in order:
+For a fresh deployment on the two Azure VMs, start from your workstation:
+
+```bash
+bash deploy/remote-setup.sh
+```
+
+The [remote installer guide](docs/remote-setup.md) covers SSH keys, DNS,
+network rules, TLS files, and start/stop commands. The installer does not
+create Azure resources or take over an existing manual deployment.
+
+For manual deployment or upgrades, follow the guides in order:
 
 1. **[Application server](docs/azure-app-deployment.md)** — deploy the application
    with HTTPS and persistent databases.

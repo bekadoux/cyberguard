@@ -46,6 +46,11 @@ certificate issuance for private endpoints, and secure transfer of AI-scoped
 secrets are operator responsibilities; the VM bootstrap does not set them up.
 Local overrides are not production settings.
 
+The [workstation installer](remote-setup.md) automates fresh setup of both VMs
+over SSH without changing these boundaries. It feeds the existing VM managers
+and does not provision Azure resources, issue private certificates, or apply
+upgrades to existing deployments.
+
 See the [local](docker-setup.md), [application VM](azure-app-deployment.md), and
 [AI VM](azure-ai-deployment.md) runbooks. Disposable deployment tests use real
 services and TLS but do not establish Azure or real-model acceptance.
