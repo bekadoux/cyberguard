@@ -8,6 +8,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AccountOwnership struct {
+	Singleton       bool
+	UserID          pgtype.UUID
+	RequiredRole    string
+	RequiredBlocked bool
+}
+
 type IdentityAudit struct {
 	ID        pgtype.UUID
 	ActorID   pgtype.UUID

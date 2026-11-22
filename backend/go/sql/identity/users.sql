@@ -15,6 +15,12 @@ VALUES ($1, $2, 'employee')
 ON CONFLICT (username) DO NOTHING
 RETURNING id, username;
 
+-- name: CreateInitialOwner :one
+INSERT INTO users (username, password_hash, role)
+VALUES ($1, $2, 'admin')
+ON CONFLICT (username) DO NOTHING
+RETURNING *;
+
 -- name: GetUserByID :one
 SELECT * FROM users WHERE id = $1;
 

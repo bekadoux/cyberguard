@@ -40,6 +40,34 @@ func (q *Queries) CreateDemoUser(ctx context.Context, arg CreateDemoUserParams) 
 	return i, err
 }
 
+const createInitialOwner = `-- name: CreateInitialOwner :one
+INSERT INTO users (username, password_hash, role)
+VALUES ($1, $2, 'admin')
+ON CONFLICT (username) DO NOTHING
+RETURNING id, username, password_hash, role, is_blocked, auth_version, created_at, updated_at
+`
+
+type CreateInitialOwnerParams struct {
+	Username     string
+	PasswordHash string
+}
+
+func (q *Queries) CreateInitialOwner(ctx context.Context, arg CreateInitialOwnerParams) (User, error) {
+	row := q.db.QueryRow(ctx, createInitialOwner, arg.Username, arg.PasswordHash)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+		&i.IsBlocked,
+		&i.AuthVersion,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (username, password_hash, role)
 VALUES ($1, $2, $3)

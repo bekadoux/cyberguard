@@ -22,14 +22,15 @@ import (
 )
 
 type Authentication struct {
-	service       *auth.Service
-	sessions      *scs.SessionManager
-	limiter       *auth.LoginLimiter
-	signupLimiter *auth.LoginLimiter
-	registrar     auth.EmployeeRegistrar
-	csrf          *http.CrossOriginProtection
-	settings      config.AuthConfig
-	timeout       time.Duration
+	service                  *auth.Service
+	sessions                 *scs.SessionManager
+	limiter                  *auth.LoginLimiter
+	signupLimiter            *auth.LoginLimiter
+	ownerConfirmationLimiter *auth.LoginLimiter
+	registrar                auth.EmployeeRegistrar
+	csrf                     *http.CrossOriginProtection
+	settings                 config.AuthConfig
+	timeout                  time.Duration
 }
 
 type userDTO struct {
@@ -104,6 +105,7 @@ func NewAuthentication(users auth.Users, store scs.Store, settings config.AuthCo
 		service: service, sessions: sessions, csrf: csrf, settings: settings, timeout: timeout,
 		limiter:       auth.NewLoginLimiter(5, time.Minute, 10000),
 		signupLimiter: auth.NewLoginLimiter(5, time.Minute, 10000), registrar: registrar,
+		ownerConfirmationLimiter: auth.NewLoginLimiter(5, time.Minute, 10000),
 	}, nil
 }
 

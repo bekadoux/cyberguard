@@ -279,7 +279,8 @@ paths:
                 reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
       responses:
         '200': {description: Role updated and auth_version incremented}
-        '409': {description: Cannot change own role}
+        '403': {description: Admin role required or owner_protected}
+        '409': {description: Cannot change own role or remove the last active admin}
   /admin/users/{id}/block:
     post:
       summary: Admin blocks/unblocks another user and revokes old sessions
@@ -297,7 +298,8 @@ paths:
                 reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
       responses:
         '200': {description: Block flag updated and auth_version incremented}
-        '409': {description: Cannot block/unblock self}
+        '403': {description: Admin role required or owner_protected}
+        '409': {description: Cannot block/unblock self or remove the last active admin}
   /admin/users/{id}/password:
     post:
       summary: Admin resets password with Argon2id and revokes old sessions
@@ -312,15 +314,67 @@ paths:
               additionalProperties: false
               properties:
                 password: {$ref: '#/components/schemas/NewPassword'}
+                current_password: {type: string, format: password, maxLength: 128, description: Required when the owner changes their own password. Other admins may not reset the owner's password.}
                 reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
       responses:
         '200': {description: Password reset; no hash or password returned}
+        '403': {description: 'Admin role required, owner_protected, or invalid_confirmation'}
+        '429': {description: confirmation_rate_limited; Retry-After is supplied}
   /admin/audit:
     get:
       summary: Admin reads user administration audit (incident history is separate)
       responses:
         '200': {description: Last 500 identity events; no credential content}
         '403': {description: Admin role required}
+  /admin/ownership:
+    get:
+      summary: Read the current owner ID
+      responses:
+        '200':
+          description: Owner UUID, or null until the operator initializes ownership.
+          content:
+            application/json:
+              schema: &ownership_response
+                type: object
+                required: [owner_id]
+                additionalProperties: false
+                properties:
+                  owner_id: {type: [string, 'null'], format: uuid}
+        '400': {description: Unexpected query parameters}
+        '401': {description: Session required}
+        '403': {description: Admin role required}
+        '503': {description: Identity storage unavailable}
+  /admin/ownership/transfer:
+    post:
+      summary: Current owner transfers ownership to another active admin
+      description: >-
+        Requires the current owner's own password. Ownership and its audit entry
+        commit together. Both accounts keep their existing admin role. The new owner
+        gains the protection immediately; the old owner loses it immediately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [user_id, password]
+              properties:
+                user_id: {type: string, format: uuid}
+                password: {type: string, format: password, minLength: 1, maxLength: 128, description: Current owner's password; at most 128 UTF-8 bytes.}
+      responses:
+        '200':
+          description: New owner ID; no cookie or credential content.
+          content:
+            application/json:
+              schema: *ownership_response
+        '400': {description: Invalid input or self-transfer}
+        '401': {description: Session required or account authorization changed during confirmation}
+        '403': {description: 'Admin role required, owner_required, invalid_confirmation, or rejected browser origin'}
+        '409': {description: 'owner_target_ineligible; target is missing, blocked, or not an admin'}
+        '415': {description: Content-Type must be application/json}
+        '429': {description: confirmation_rate_limited; Retry-After is supplied}
+        '503': {description: Identity storage or password verification temporarily unavailable}
   /incidents/{id}/ai-feedback:
     post:
       summary: Record human review of a real AI assessment and optionally confirm category

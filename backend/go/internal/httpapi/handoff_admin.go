@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bekadoux/cyberguard/backend/go/internal/accountowner"
 	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
 	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
 	"github.com/go-chi/chi/v5"
@@ -55,6 +56,9 @@ func (a *HandoffAPI) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx)
+	if !a.lockCurrentAdmin(w, r, ctx, tx) {
+		return
+	}
 	created, err := identity.New(tx).RegisterEmployee(ctx, identity.RegisterEmployeeParams{Username: username, PasswordHash: hash})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 409, "conflict", "Username unavailable.")
@@ -190,7 +194,7 @@ func (a *HandoffAPI) changeRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", "Invalid role.")
 		return
 	}
-	a.changeUser(w, r, target, "role", body.Role, false, "", body.Reason)
+	a.changeUser(w, r, target, "role", body.Role, false, "", body.Reason, false)
 }
 func (a *HandoffAPI) setBlocked(w http.ResponseWriter, r *http.Request) {
 	if !a.adminOnly(w, r) {
@@ -211,7 +215,7 @@ func (a *HandoffAPI) setBlocked(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", "Provide blocked boolean.")
 		return
 	}
-	a.changeUser(w, r, target, "blocked", "", *body.Blocked, "", body.Reason)
+	a.changeUser(w, r, target, "blocked", "", *body.Blocked, "", body.Reason, false)
 }
 func (a *HandoffAPI) resetPassword(w http.ResponseWriter, r *http.Request) {
 	if !a.adminOnly(w, r) {
@@ -222,18 +226,27 @@ func (a *HandoffAPI) resetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Password string `json:"password"`
-		Reason   string `json:"reason"`
+		Password        string `json:"password"`
+		Reason          string `json:"reason"`
+		CurrentPassword string `json:"current_password"`
 	}
 	if !decodeHandoffJSON(w, r, &body) {
 		return
+	}
+	actor, _ := actorUUID(a.user(r))
+	confirmed := false
+	if target == actor && body.CurrentPassword != "" {
+		if !a.confirmAdminPassword(w, r, body.CurrentPassword) {
+			return
+		}
+		confirmed = true
 	}
 	hash, err := a.auth.service.HashNewPassword(r.Context(), body.Password)
 	if err != nil {
 		a.newPasswordError(w, err)
 		return
 	}
-	a.changeUser(w, r, target, "password", "", false, hash, body.Reason)
+	a.changeUser(w, r, target, "password", "", false, hash, body.Reason, confirmed)
 }
 
 func (a *HandoffAPI) newPasswordError(w http.ResponseWriter, err error) {
@@ -244,7 +257,7 @@ func (a *HandoffAPI) newPasswordError(w http.ResponseWriter, err error) {
 	a.auth.authError(w, err)
 }
 
-func (a *HandoffAPI) changeUser(w http.ResponseWriter, r *http.Request, target pgtype.UUID, action, newRole string, blocked bool, hash, reason string) {
+func (a *HandoffAPI) changeUser(w http.ResponseWriter, r *http.Request, target pgtype.UUID, action, newRole string, blocked bool, hash, reason string, confirmed bool) {
 	if !validHandoffText(reason, 1000, false) {
 		writeError(w, 400, "invalid_request", "Invalid reason.")
 		return
@@ -262,11 +275,23 @@ func (a *HandoffAPI) changeUser(w http.ResponseWriter, r *http.Request, target p
 		return
 	}
 	defer tx.Rollback(ctx)
-	// Serialize administration changes so two admins cannot simultaneously
-	// demote/block each other and leave the application without an admin.
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(12473, 9001)`); err != nil {
+	if !a.lockCurrentAdmin(w, r, ctx, tx) {
+		return
+	}
+	owner, err := accountowner.Current(ctx, tx)
+	if err != nil {
 		handoffStorageError(w, err)
 		return
+	}
+	if owner.Valid && target == owner {
+		if target != actor {
+			writeError(w, 403, "owner_protected", "Other administrators cannot change the owner's role, blocked state or password.")
+			return
+		}
+		if action == "password" && !confirmed {
+			writeError(w, 403, "invalid_confirmation", "The owner must confirm their current password before changing it.")
+			return
+		}
 	}
 	var oldRole string
 	var oldBlocked bool

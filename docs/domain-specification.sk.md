@@ -203,6 +203,20 @@ Obmedzenia:
   V stavoch `closed` a `false_positive` nemožno meniť potvrdené polia ani
   pridať nové AI hodnotenie; opätovné otvorenie sa riadi životným cyklom.
 
+### Registrácia účtov a vlastníctvo aplikácie
+
+- Ak je samoregistrácia povolená, nový účet je ihneď aktívny a má rolu `employee`.
+  Používateľ si rolu nevyberá. Používateľské meno musí byť po normalizácii
+  jedinečné; pri konflikte sa oznámi len to, že meno nie je dostupné.
+- Roly `analyst` a `admin` priraďuje administrátor existujúcim účtom. Účet možno
+  po registrácii zablokovať.
+- Vlastníkom aplikácie je jeden aktívny administrátor. Ostatní administrátori mu
+  nemôžu zmeniť rolu, zablokovať účet ani obnoviť heslo. Vlastníctvo môže preniesť
+  len aktuálny vlastník na iného aktívneho administrátora po potvrdení vlastného
+  hesla. Bývalému vlastníkovi zostane rola `admin` bez ochrany vlastníka.
+- Prvého vlastníka nastaví prevádzkovateľ mimo registrácie. Pri deme sa účastníci
+  môžu zaregistrovať sami a administrátor im následne pridelí potrebné roly.
+
 ## Playbooky pre LLM bríf
 
 Každá kategória okrem `other` má vlastný playbook. Worker dopĺňa najviac štyri

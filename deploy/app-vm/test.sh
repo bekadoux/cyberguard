@@ -4,8 +4,7 @@ set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 for script in "$root/deploy/app-vm/"*.sh; do bash -n "$script"; done
 shellcheck -x -P "$root" "$root/deploy/app-vm/"*.sh "$root/deploy/app-vm/postgres/"*.sh "$root/deploy/app-vm/tests/"*.sh
-mkdir -p "$root/.local"
-temporary=$(mktemp -d "$root/.local/app-vm-test.XXXXXX")
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/cyberguard-app-vm-test.XXXXXX")
 trap 'rm -rf -- "$temporary"' EXIT
 mkdir -m 0700 "$temporary/secrets" "$temporary/state"
 config=$temporary/config.env
@@ -13,7 +12,7 @@ printf 'APP_SECRETS_DIR=%s\nAPP_STATE_DIR=%s\nAPP_SECRET_GID=%s\n' "$temporary/s
 load() { bash -c 'source "$1/deploy/app-vm/common.sh"; load_config "$2"' bash "$root" "$1"; }
 reject() { if "$@" > "$temporary/error" 2>&1; then echo 'Expected rejection' >&2; exit 1; fi; }
 APP_BIND_IP=0.0.0.0 load "$config"
-for value in 'APP_BIND_IP=0.0.0.0' 'APP_AI_IP=8.8.8.8' 'APP_PUBLIC_NAME=app;bad' 'APP_HTTP_PORT=0' 'APP_STATE_DIR=/var/../etc' 'UNKNOWN=yes' 'APP_SECRET_GID=bad' 'APP_EDGE_SUBNET=172.28.40.1/28'; do
+for value in 'APP_BIND_IP=0.0.0.0' 'APP_AI_IP=8.8.8.8' 'APP_PUBLIC_NAME=app;bad' 'APP_HTTP_PORT=0' 'APP_STATE_DIR=/var/../etc' 'UNKNOWN=yes' 'APP_SECRET_GID=bad' 'APP_EDGE_SUBNET=172.28.40.1/28' 'SIGNUP_ENABLED=yes'; do
     cat "$config" > "$temporary/bad.env"
     printf '%s\n' "$value" >> "$temporary/bad.env"
     reject load "$temporary/bad.env"
@@ -68,6 +67,8 @@ case "$*" in
         files=("$APP_TEST_MIGRATIONS/$database/"*.sql)
         version=${files[-1]##*/}; version=$((10#${version%%_*}))
         printf '{"msg":"migration versions","database":"%s","current":%d,"target":%d}\n' "$database" "$version" "$version" ;;
+    *' migrate-identity /app/seed '*' -create-owner')
+        cat > "$APP_TEST_STDIN" ;;
 esac
 SH
 chmod 0755 "$temporary/bin/docker"
@@ -138,5 +139,16 @@ APP_TEST_GO_STATE=exited manage migrate >/dev/null
 [[ ! -e $APP_TEST_WEB_MOUNT/upgrade-blocked && -f $APP_TEST_WEB_MOUNT/enabled ]]
 [[ $(tail -4 "$APP_TEST_IMAGES" | sort -u) == "$APP_TEST_IMAGE_ID" ]]
 [[ $(awk '/ (migrate|status)-(identity|incidents)$/ {print $NF}' "$APP_TEST_COMMANDS") == $'migrate-identity\nmigrate-incidents\nstatus-identity\nstatus-incidents' ]]
+export APP_TEST_STDIN=$temporary/owner-stdin
+APP_TEST_GO_STATE=running reject manage init-owner first_admin
+grep -Fq 'state: running' "$temporary/error"
+reject manage init-owner 'not a username'
+reject manage init-owner first_admin --unknown
+printf '%s\n' 'synthetic-owner-password' | APP_TEST_GO_STATE=exited manage init-owner first_admin --create >/dev/null
+grep -Fq 'migrate-identity /app/seed -owner first_admin -create-owner' "$APP_TEST_COMMANDS"
+grep -Fxq 'synthetic-owner-password' "$APP_TEST_STDIN"
+if grep -Fq 'synthetic-owner-password' "$APP_TEST_COMMANDS"; then echo 'Password entered command arguments' >&2; exit 1; fi
+APP_TEST_GO_STATE=exited manage init-owner existing_admin >/dev/null
+grep -Fq 'migrate-identity /app/seed -owner existing_admin' "$APP_TEST_COMMANDS"
 [[ $before == "$(find "$temporary/secrets/credentials" -type f -exec sha256sum {} + | sort)" ]]
 printf '%s\n' 'Application VM literal config, path safety and non-overwriting TLS credential generation passed.'

@@ -216,7 +216,7 @@
   for workflow rights.
 - Do not edit sqlc-generated files to accommodate `resolved_at`: resolution times
   live in a separate table to keep generated incident row shapes compatible.
-- Apply `db/migrations/identity/00003_user_admin_audit.sql`,
+- Apply identity migrations through `db/migrations/identity/00004_account_ownership.sql`,
   incident migrations `00003_context_and_investigations.sql`,
   `00004_job_context_read.sql`, `00005_snapshot_worker_safety.sql`,
   `00006_ai_feedback.sql` and `00007_ai_feedback_uuid.sql` before restarting
