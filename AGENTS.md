@@ -194,8 +194,14 @@
   `api/go-authentication.openapi.yaml`, and the `internal/httpapi` and
   `internal/sessionstore` regression tests.
 
-## PR instructions
+## Commit and PR instructions
 
+- Always use Conventional Commit subjects for new commits: `<type>(<scope>): <summary>`.
+  Use a lowercase type such as `feat`, `fix`, `docs`, `test`, `build`, or `chore`.
+  Prefer a short, lowercase component scope; omit it for cross-cutting changes.
+  Keep the summary concise and imperative, with no trailing period. Examples:
+  `feat(docker): add interactive full-stack local setup` and
+  `docs: refresh architecture and runbooks`.
 - No required PR-title format.
 - Follow the test selection policy above; preparing a PR or commit does not by itself
   require all aggregate, browser or deployment suites.
