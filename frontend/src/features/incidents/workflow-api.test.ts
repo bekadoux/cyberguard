@@ -106,4 +106,46 @@ describe('investigation API contracts', () => {
       { id, username: 'alice', role: 'analyst', is_blocked: false },
     ]);
   });
+  it('creates an account without sending a role', async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({}, { status: 201 }));
+    vi.stubGlobal('fetch', fetcher);
+    await adminApi.create('new-user', 'test-only-password');
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/admin/users',
+      expect.objectContaining({
+        method: 'POST',
+        body: '{"username":"new-user","password":"test-only-password"}',
+      }),
+    );
+  });
+  it('parses the optional owner and rejects invalid identifiers', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ owner_id: id }))
+      .mockResolvedValueOnce(Response.json({ owner_id: null }))
+      .mockResolvedValueOnce(Response.json({ owner_id: 'invalid' }));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(adminApi.ownerId()).resolves.toBe(id);
+    await expect(adminApi.ownerId()).resolves.toBeNull();
+    await expect(adminApi.ownerId()).rejects.toMatchObject({ code: 'invalid_response' });
+    expect(fetcher).toHaveBeenCalledWith('/api/admin/ownership', expect.anything());
+  });
+  it('sends the current password only when supplied', async () => {
+    const fetcher = vi.fn().mockImplementation(() => Promise.resolve(Response.json({})));
+    vi.stubGlobal('fetch', fetcher);
+    await adminApi.password(id, 'test-only-password', '');
+    await adminApi.password(id, 'test-only-password', '', ' current password ');
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      `/api/admin/users/${id}/password`,
+      expect.objectContaining({ body: '{"password":"test-only-password","reason":""}' }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      `/api/admin/users/${id}/password`,
+      expect.objectContaining({
+        body: '{"password":"test-only-password","reason":"","current_password":" current password "}',
+      }),
+    );
+  });
 });

@@ -62,7 +62,10 @@ case "$*" in
         cd "$APP_TEST_MIGRATIONS" || exit 1
         export LC_ALL=C
         sha256sum identity/*.sql incidents/*.sql ;;
-    *' status-identity'|*' status-incidents')
+    *' --interactive=false status-identity'|*' --interactive=false status-incidents')
+        if [[ -n ${APP_TEST_STDIN:-} ]] && IFS= read -r unexpected; then
+            echo 'Migration status inherited the owner password stream.' >&2; exit 1
+        fi
         database=${!#}; database=${database#status-}
         files=("$APP_TEST_MIGRATIONS/$database/"*.sql)
         version=${files[-1]##*/}; version=$((10#${version%%_*}))
@@ -145,6 +148,8 @@ grep -Fq 'state: running' "$temporary/error"
 reject manage init-owner 'not a username'
 reject manage init-owner first_admin --unknown
 printf '%s\n' 'synthetic-owner-password' | APP_TEST_GO_STATE=exited manage init-owner first_admin --create >/dev/null
+grep -Fq -- '--interactive=false status-identity' "$APP_TEST_COMMANDS"
+grep -Fq -- '--interactive=false status-incidents' "$APP_TEST_COMMANDS"
 grep -Fq 'migrate-identity /app/seed -owner first_admin -create-owner' "$APP_TEST_COMMANDS"
 grep -Fxq 'synthetic-owner-password' "$APP_TEST_STDIN"
 if grep -Fq 'synthetic-owner-password' "$APP_TEST_COMMANDS"; then echo 'Password entered command arguments' >&2; exit 1; fi

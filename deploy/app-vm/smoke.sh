@@ -121,6 +121,9 @@ done
     manage migrate
     manage migrate
     manage bootstrap-ai
+    # Run the real Compose status/seed containers with redirected stdin. Reuse
+    # the demo admin name so the ordinary login checks also verify the password.
+    manage init-owner admin --create < "$APP_PROVISION_DIR/dev_admin_password"
     manage seed-demo
     manage up
     manage maintenance-off
@@ -153,6 +156,10 @@ for username in employee_a employee_b analyst admin; do
     grep -qi '; Secure' "$test_dir/headers"
     grep -qi '; HttpOnly' "$test_dir/headers"
 done
+request 200 -b "$test_dir/admin.cookies" "$base/api/auth/me"
+owner_id=$(jq -er '.user.id' "$test_dir/body")
+request 200 -b "$test_dir/admin.cookies" "$base/api/admin/ownership"
+jq -e --arg id "$owner_id" '.owner_id == $id' "$test_dir/body" >/dev/null || fail 'The provisioned admin is not the owner.'
 jq -n '{username:"not-a-fixture-user",password:"invalid-fixture-password"}' > "$test_dir/login-payload"
 request 401 -H 'Content-Type: application/json' --data-binary "@$test_dir/login-payload" "$base/api/auth/login"
 request 429 -H 'Content-Type: application/json' -H 'X-Forwarded-For: 203.0.113.9' \

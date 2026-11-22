@@ -57,6 +57,9 @@ export async function identity(page: Page, user: User = employee) {
   await page.route('**/api/admin/users?eligible=analyst&*', (route) =>
     route.fulfill({ json: { users: [], next_cursor: null } }),
   );
+  await page.route('**/api/admin/ownership', (route) =>
+    route.fulfill({ json: { owner_id: null } }),
+  );
   await page.route('**/api/incidents/*/ai-feedback/*', (route) =>
     route.fulfill({ json: { review: null } }),
   );

@@ -12,10 +12,17 @@ const account: ManagedUser = {
   role: 'employee',
   is_blocked: false,
 };
+const currentAdmin: ManagedUser = {
+  id: 'admin-id',
+  username: 'admin',
+  role: 'admin',
+  is_blocked: false,
+};
 
-async function setup() {
-  const users = vi.spyOn(adminApi, 'users').mockResolvedValue([account]);
+async function setup(ownerId: string | null = null, accounts = [account]) {
+  const users = vi.spyOn(adminApi, 'users').mockResolvedValue(accounts);
   vi.spyOn(adminApi, 'audit').mockResolvedValue([]);
+  vi.spyOn(adminApi, 'ownerId').mockResolvedValue(ownerId);
   const store = new SessionStore({
     me: vi.fn().mockResolvedValue({ id: 'admin-id', username: 'admin', role: 'admin' }),
     login: vi.fn(),
@@ -65,6 +72,8 @@ it('validates username and password before creating, and sends the original 12 b
   const username = screen.getByLabelText('Username');
   const input = screen.getByLabelText('Initial password');
   const submit = screen.getByRole('button', { name: 'Create account' });
+  expect(screen.queryByRole('combobox', { name: /^Role$/ })).toBeNull();
+  expect(screen.getByText(/to assign another role, use Manage users/i)).toBeVisible();
   await user.type(username, 'bad!');
   expect(username).toBeInvalid();
   await user.clear(username);
@@ -79,7 +88,7 @@ it('validates username and password before creating, and sends the original 12 b
   const value = ' 😀😀é ';
   fireEvent.change(input, { target: { value } });
   await user.click(submit);
-  expect(create).toHaveBeenCalledWith('new-user', value, 'employee');
+  expect(create).toHaveBeenCalledWith('new-user', value);
   expect(input).toHaveValue('');
 });
 
@@ -89,6 +98,7 @@ it('masks the reset password, discards canceled input, and submits only a valid 
   const open = screen.getByRole('button', { name: 'Reset password for case-owner' });
   const field = () => screen.getByLabelText('New password for case-owner');
   await user.click(open);
+  expect(screen.queryByLabelText(/Current password for/)).toBeNull();
   expect(field()).toHaveAttribute('type', 'password');
   expect(field()).toHaveAccessibleDescription(/12–128 UTF-8 bytes/);
   await user.type(field(), 'temporary input');
@@ -108,7 +118,53 @@ it('masks the reset password, discards canceled input, and submits only a valid 
   const value = '😀'.repeat(32);
   fireEvent.change(field(), { target: { value } });
   await user.click(submit);
-  expect(reset).toHaveBeenCalledWith(account.id, value, 'Requested');
+  expect(reset).toHaveBeenCalledWith(account.id, value, 'Requested', undefined);
   expect(screen.queryByLabelText('New password for case-owner')).not.toBeInTheDocument();
   expect(await screen.findByRole('status')).toHaveTextContent('Password reset.');
+});
+
+it('requires and forwards the owner’s current password only for their own reset', async () => {
+  const { user } = await setup(currentAdmin.id, [account, currentAdmin]);
+  const reset = vi.spyOn(adminApi, 'password').mockResolvedValue(undefined);
+  const open = screen.getByRole('button', { name: 'Reset password for admin' });
+  await user.click(open);
+  const current = () => screen.getByLabelText('Current password for admin');
+  expect(current()).toHaveAttribute('type', 'password');
+  expect(current()).toHaveAttribute('autocomplete', 'current-password');
+  await user.type(current(), 'unused test password');
+  await user.click(screen.getByRole('button', { name: 'Cancel' }));
+  await user.click(open);
+  expect(current()).toHaveValue('');
+  await user.type(
+    screen.getByLabelText('New password for admin'),
+    'replacement test password',
+  );
+  const submit = screen.getByRole('button', { name: 'Confirm password reset' });
+  await user.click(submit);
+  expect(current()).toBeInvalid();
+  expect(reset).not.toHaveBeenCalled();
+  const previous = ' owner test password ';
+  await user.type(current(), previous);
+  await user.click(submit);
+  expect(reset).toHaveBeenCalledWith(
+    currentAdmin.id,
+    'replacement test password',
+    '',
+    previous,
+  );
+  expect(screen.queryByLabelText('Current password for admin')).toBeNull();
+});
+
+it('disables changes to another owner without hiding normal account controls', async () => {
+  const owner = { ...currentAdmin, id: 'other-owner', username: 'protected-admin' };
+  await setup(owner.id, [account, owner]);
+  expect(
+    screen.getByRole('combobox', { name: 'Role for protected-admin' }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Reset password for protected-admin' }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Reset password for case-owner' }),
+  ).toBeEnabled();
 });

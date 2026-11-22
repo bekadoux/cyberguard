@@ -140,7 +140,7 @@ migration_check() {
     local database result target
     for database in identity incidents; do
         target=$(expected_version "$database")
-        result=$(tool "status-$database")
+        result=$(tool --interactive=false "status-$database" </dev/null)
         if ! jq -es --arg database "$database" --argjson expected "$target" \
             'map(select(.msg == "migration versions")) | last | .database == $database and .current == $expected and .target == $expected' <<< "$result" >/dev/null; then
             fail "Migration versions do not match this checkout/image: $database"
@@ -182,7 +182,7 @@ case "$action" in
         printf '%s\n' 'Local Go stopped; startup blocked until successful migrate. Stop ALL remote/local AI workers separately before migrating.' ;;
     stop) compose stop ;;
     *)
-        local_check
+        local_check </dev/null
         case "$action" in
             db-up)
                 pause_writes
@@ -213,9 +213,13 @@ case "$action" in
                 migration_check
                 tool seed-demo ;;
             init-owner)
-                require_stopped
-                verify_migration_image
-                migration_check
+                # Only seed may read the supplied password, never a Compose
+                # child (including the read-only migration status containers).
+                {
+                    require_stopped
+                    verify_migration_image
+                    migration_check
+                } </dev/null
                 if [[ ${5:-} == --create ]]; then
                     tool migrate-identity /app/seed -owner "$4" -create-owner
                 else

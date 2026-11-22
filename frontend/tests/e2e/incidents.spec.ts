@@ -82,11 +82,58 @@ test('gates administration by role and keeps the expanded mobile navigation reac
   await expect(page.getByRole('heading', { name: 'Users & audit' })).toBeVisible();
   await expect
     .poll(() => [...reads].sort())
-    .toEqual(['/api/admin/audit', '/api/admin/users']);
+    .toEqual(['/api/admin/audit', '/api/admin/ownership', '/api/admin/users']);
   await expect(page.getByRole('link', { name: 'Admin', exact: true })).toBeInViewport();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(320);
+});
+
+test('creates employees and confirms the owner’s own password change', async ({
+  page,
+}) => {
+  const admin = { ...analyst, role: 'admin' as const };
+  await identity(page, admin);
+  await page.route('**/api/admin/ownership', (route) =>
+    route.fulfill({ json: { owner_id: admin.id } }),
+  );
+  await page.route('**/api/admin/users', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ json: { users: [{ ...admin, is_blocked: false }] } });
+    }
+    expect(route.request().postDataJSON()).toEqual({
+      username: 'new-employee',
+      password: 'synthetic new account password',
+    });
+    return route.fulfill({ status: 201, json: {} });
+  });
+  await page.route(`**/api/admin/users/${admin.id}/password`, (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      password: 'synthetic replacement password',
+      current_password: ' synthetic current password ',
+      reason: '',
+    });
+    return route.fulfill({ json: { updated: true } });
+  });
+  await page.goto('/admin');
+  await expect(page.getByRole('combobox', { name: 'Role', exact: true })).toHaveCount(0);
+  await page.getByLabel('Username').fill('new-employee');
+  await page.getByLabel('Initial password').fill('synthetic new account password');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('status')).toHaveText('User created.');
+
+  await page
+    .getByRole('button', { name: `Reset password for ${admin.username}` })
+    .click();
+  const current = page.getByLabel(`Current password for ${admin.username}`);
+  await expect(current).toHaveAttribute('type', 'password');
+  await current.fill(' synthetic current password ');
+  await page
+    .getByLabel(`New password for ${admin.username}`)
+    .fill('synthetic replacement password');
+  await page.getByRole('button', { name: 'Confirm password reset' }).click();
+  await expect(page.getByRole('status')).toHaveText('Password reset.');
+  await expect(current).toHaveCount(0);
 });
 
 test('uses opaque cursors and restarts traversal when filters change', async ({

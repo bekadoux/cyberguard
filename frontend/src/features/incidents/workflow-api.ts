@@ -284,11 +284,17 @@ export const adminApi = {
       500,
       parseIdentityEvent,
     ),
-  create: (username: string, password: string, role: ManagedUser['role']) =>
+  ownerId: async (signal?: AbortSignal): Promise<string | null> => {
+    const value = await request('/admin/ownership', { signal });
+    if (!isRecord(value) || (value.owner_id !== null && !isUUID(value.owner_id)))
+      return invalidResponse();
+    return value.owner_id;
+  },
+  create: (username: string, password: string) =>
     request('/admin/users', {
       method: 'POST',
       expectedStatus: 201,
-      body: { username, password, role },
+      body: { username, password },
     }),
   role: (id: string, role: ManagedUser['role'], reason: string) =>
     request(`/admin/users/${encodeURIComponent(id)}/role`, {
@@ -300,9 +306,12 @@ export const adminApi = {
       method: 'POST',
       body: { blocked, reason },
     }),
-  password: (id: string, password: string, reason: string) =>
+  password: (id: string, password: string, reason: string, currentPassword?: string) =>
     request(`/admin/users/${encodeURIComponent(id)}/password`, {
       method: 'POST',
-      body: { password, reason },
+      body:
+        currentPassword === undefined
+          ? { password, reason }
+          : { password, reason, current_password: currentPassword },
     }),
 };
