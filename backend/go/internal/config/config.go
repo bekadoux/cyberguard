@@ -20,6 +20,7 @@ type Config struct {
 	IncidentDatabaseURL string
 	DatabaseTimeout     time.Duration
 	ShutdownTimeout     time.Duration
+	DemoIncidents       bool
 	Auth                AuthConfig
 }
 
@@ -68,6 +69,12 @@ func load(lookup func(string) (string, bool)) (Config, error) {
 	cfg.Auth, err = loadAuth(lookup)
 	if err != nil {
 		return Config{}, err
+	}
+	if value, ok := lookup("DEMO_INCIDENTS_ENABLED"); ok {
+		if value != "true" && value != "false" {
+			return Config{}, errors.New("DEMO_INCIDENTS_ENABLED must be true or false")
+		}
+		cfg.DemoIncidents = value == "true"
 	}
 	return cfg, nil
 }

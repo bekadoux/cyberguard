@@ -256,6 +256,23 @@ function parseIdentityEvent(v: unknown): IdentityEvent {
   };
 }
 export const adminApi = {
+  demoIncidentStatus: async (signal?: AbortSignal) => {
+    const value = await request('/admin/demo-incidents', { signal });
+    if (
+      !isRecord(value) ||
+      typeof value.enabled !== 'boolean' ||
+      typeof value.seeded !== 'boolean' ||
+      (!value.enabled && value.seeded)
+    )
+      return invalidResponse();
+    return value.enabled ? (value.seeded ? 'seeded' : 'ready') : 'disabled';
+  },
+  addDemoIncidents: async () => {
+    const value = await request('/admin/demo-incidents', { method: 'POST', body: {} });
+    if (!isRecord(value) || (value.created !== 0 && value.created !== 10))
+      return invalidResponse();
+    return value.created;
+  },
   eligibleAnalysts: async (
     prefix: string,
     cursor: string | null,

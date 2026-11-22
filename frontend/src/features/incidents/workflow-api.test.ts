@@ -130,6 +130,34 @@ describe('investigation API contracts', () => {
     await expect(adminApi.ownerId()).rejects.toMatchObject({ code: 'invalid_response' });
     expect(fetcher).toHaveBeenCalledWith('/api/admin/ownership', expect.anything());
   });
+  it('reads demo status and submits an empty seed request', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ enabled: false, seeded: false }))
+      .mockResolvedValueOnce(Response.json({ enabled: true, seeded: false }))
+      .mockResolvedValueOnce(Response.json({ enabled: true, seeded: true }))
+      .mockResolvedValueOnce(Response.json({ enabled: false, seeded: true }))
+      .mockResolvedValueOnce(Response.json({ created: 10 }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json({ created: 0 }))
+      .mockResolvedValueOnce(Response.json({ created: 42 }));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(adminApi.demoIncidentStatus()).resolves.toBe('disabled');
+    await expect(adminApi.demoIncidentStatus()).resolves.toBe('ready');
+    await expect(adminApi.demoIncidentStatus()).resolves.toBe('seeded');
+    await expect(adminApi.demoIncidentStatus()).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
+    await expect(adminApi.addDemoIncidents()).resolves.toBe(10);
+    await expect(adminApi.addDemoIncidents()).resolves.toBe(0);
+    await expect(adminApi.addDemoIncidents()).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
+    expect(fetcher).toHaveBeenNthCalledWith(
+      5,
+      '/api/admin/demo-incidents',
+      expect.objectContaining({ method: 'POST', body: '{}' }),
+    );
+  });
   it('sends the current password only when supplied', async () => {
     const fetcher = vi.fn().mockImplementation(() => Promise.resolve(Response.json({})));
     vi.stubGlobal('fetch', fetcher);

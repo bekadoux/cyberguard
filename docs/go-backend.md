@@ -10,7 +10,7 @@ with handlers in `internal/httpapi`, auth and session logic in `internal/auth` a
 | [Foundation](../api/go-foundation.openapi.yaml) | Process liveness and connectivity readiness |
 | [Authentication](../api/go-authentication.openapi.yaml) | Employee signup, login, current user, and logout |
 | [Incident intake](../api/go-incidents.openapi.yaml) | Create, scoped list, and detail |
-| [Incident workflows and administration](../api/go-handoff.openapi.yaml) | Incident actions, notifications, accounts, ownership, and AI feedback |
+| [Incident workflows and administration](../api/go-handoff.openapi.yaml) | Incident actions, notifications, accounts, ownership, demo incidents, and AI feedback |
 
 Direct Go routes are unprefixed; Caddy exposes them under `/api`. The private AI
 worker routes are not public. JSON uses UUIDs, `snake_case` fields, UTC/RFC 3339
@@ -65,6 +65,18 @@ raw URLs, or credentials. HTTP DTOs do not serialize persistence models.
   its audit entry commit together. The previous owner stays an ordinary admin.
   `GET /admin/ownership` returns the owner UUID (or `null` before initialization)
   to admins. There is no application-level override or owner recovery endpoint.
+
+## Demo incident batch
+
+`DEMO_INCIDENTS_ENABLED` defaults to `false`. `GET /admin/demo-incidents`
+reports availability to admins. When enabled, `POST /admin/demo-incidents`
+accepts only `{}` and creates one batch per incident database. The server
+selects embedded synthetic scenarios and verifies the three provisioned demo
+reporters by account ID and current role/status. It rechecks and holds admin
+authority through the incident commit without writing to the identity database.
+The batch and per-incident `demo_seeded` events identify the admin; ordinary
+incident ownership and snapshot/job creation still apply. See the
+[demo runbook](docker-setup.md#add-demo-incidents).
 
 ## Workflow and service boundaries
 

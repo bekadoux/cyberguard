@@ -1,4 +1,4 @@
-// Package demoseed creates explicit development fixtures, never production users.
+// Package demoseed provides fixtures for explicit synthetic deployments.
 package demoseed
 
 import (
@@ -84,6 +84,9 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, accounts []Account) (Result, 
 				Username: account.Username, PasswordHash: hash, Role: account.Role,
 			})
 			if err == nil {
+				if err := queries.MarkDemoAccount(ctx, user.ID); err != nil {
+					return Result{}, errors.New("could not record demo account provenance; check identity migrations")
+				}
 				result.Created++
 				continue
 			}

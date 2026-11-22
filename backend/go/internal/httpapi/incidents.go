@@ -59,8 +59,8 @@ func (a *IncidentAPI) Mount(router chi.Router) {
 
 // EnableHandoff attaches incident workflows without changing the original
 // constructor used by the existing unit and integration test fixtures.
-func (a *IncidentAPI) EnableHandoff(incidents, identity *pgxpool.Pool) {
-	a.handoff = &HandoffAPI{incidentDB: incidents, identityDB: identity, auth: a.auth}
+func (a *IncidentAPI) EnableHandoff(incidents, identity *pgxpool.Pool, demoIncidents bool) {
+	a.handoff = &HandoffAPI{incidentDB: incidents, identityDB: identity, auth: a.auth, demoIncidents: demoIncidents}
 }
 
 // Refresh before running business logic, never after it commits a write on the

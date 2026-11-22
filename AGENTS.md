@@ -222,11 +222,12 @@
   for workflow rights.
 - Do not edit sqlc-generated files to accommodate `resolved_at`: resolution times
   live in a separate table to keep generated incident row shapes compatible.
-- Apply identity migrations through `db/migrations/identity/00004_account_ownership.sql`,
+- Apply identity migrations through `db/migrations/identity/00005_demo_accounts.sql`,
   incident migrations `00003_context_and_investigations.sql`,
   `00004_job_context_read.sql`, `00005_snapshot_worker_safety.sql`,
-  `00006_ai_feedback.sql` and `00007_ai_feedback_uuid.sql` before restarting
-  the updated application/AI worker. Migration 00007 refuses conflicting
+  `00006_ai_feedback.sql`, `00007_ai_feedback_uuid.sql` and
+  `00008_demo_incident_batch.sql` before restarting the updated application/AI
+  worker. Migration 00007 refuses conflicting
   feedback decisions for the same normalized job UUID; it never rewrites history.
   Historical jobs are not backfilled. Migration 00005 preserves snapshot-less jobs
   and grants a boolean `ai_worker_ready()` probe;

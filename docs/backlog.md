@@ -14,8 +14,6 @@ Deferred ideas are not release commitments.
   on the staff incident view. Signals must never automatically change severity.
   The domain rubric is in [English](domain-specification.md#indicators-yesno-questions)
   and [Slovak](domain-specification.sk.md#indikátory-otázky-ánonie).
-- [ ] Add an explicit, repeatable CLI seed for a small curated set of ordinary demo
-  incidents. Keep it scoped to intended demo data; do not add an admin CSV importer.
 
 ## Validation and release work
 

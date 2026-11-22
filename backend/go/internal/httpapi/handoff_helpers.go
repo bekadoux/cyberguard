@@ -22,9 +22,10 @@ import (
 // belong to distinct PostgreSQL instances; never pretend their writes form
 // one cross-database transaction.
 type HandoffAPI struct {
-	incidentDB *pgxpool.Pool
-	identityDB *pgxpool.Pool
-	auth       *Authentication
+	incidentDB    *pgxpool.Pool
+	identityDB    *pgxpool.Pool
+	auth          *Authentication
+	demoIncidents bool
 }
 
 func (a *HandoffAPI) mountIncidentRoutes(r chi.Router) {
@@ -57,6 +58,8 @@ func (a *HandoffAPI) mountAuxiliaryRoutes(router chi.Router) {
 		r.Get("/audit", a.listAudit)
 		r.Get("/ownership", a.getOwnership)
 		r.Post("/ownership/transfer", a.transferOwnership)
+		r.Get("/demo-incidents", a.demoIncidentStatus)
+		r.Post("/demo-incidents", a.addDemoIncidents)
 	})
 }
 

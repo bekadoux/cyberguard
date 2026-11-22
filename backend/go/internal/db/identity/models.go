@@ -15,6 +15,10 @@ type AccountOwnership struct {
 	RequiredBlocked bool
 }
 
+type DemoAccount struct {
+	UserID pgtype.UUID
+}
+
 type IdentityAudit struct {
 	ID        pgtype.UUID
 	ActorID   pgtype.UUID

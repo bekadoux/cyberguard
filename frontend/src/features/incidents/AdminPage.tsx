@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useAuth } from '../auth/use-auth';
+import { DemoIncidentsPanel } from './DemoIncidentsPanel';
 import { actionError, localTime } from './workflow-ui';
 import { adminApi, type ManagedUser, type IdentityEvent } from './workflow-api';
 import './workflow.css';
@@ -186,6 +187,7 @@ export function AdminPage() {
           {success}
         </p>
       )}
+      <DemoIncidentsPanel key={user.id} />
       <section className="panel detail-panel workflow-card">
         <h2>Create user</h2>
         <p>New accounts are employees. To assign another role, use Manage users below.</p>

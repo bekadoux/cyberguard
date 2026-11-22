@@ -44,6 +44,8 @@ database volumes together.
 The core app starts before model preparation finishes, so you can sign in and
 submit synthetic reports while waiting. Those reports queue assessments for
 the worker; the full stack is ready once the worker passes its checks.
+See [Add demo incidents](#add-demo-incidents) to generate a batch instead of
+entering reports one at a time.
 
 | Command | Effect |
 | --- | --- |
@@ -114,6 +116,27 @@ Set database port overrides before creating secrets, because generated host URL
 files capture them. Container URLs use service names and port 5432. Compose can
 interpolate the root `.env`; it does not inject it wholesale. Never pass the
 privileged `db/.env` to runtime services.
+
+### Add demo incidents
+
+Use this only on a dedicated synthetic demo stack. After applying both migration
+chains and provisioning the four demo accounts with the updated seed command,
+set `DEMO_INCIDENTS_ENABLED=true` before starting Go. For the core setup, put it
+in the root `.env` or run `DEMO_INCIDENTS_ENABLED=true make docker-up`. For the
+one-command stack, pass it on each `up` or `resume`, for example
+`DEMO_INCIDENTS_ENABLED=true bash docker/local-setup.sh resume`.
+
+Sign in as an admin and choose **Admin → Add 10 demo incidents**. This creates
+one batch of ten `[Demo]` reports across `employee_a`, `employee_b`, and
+`analyst`, with no assigned analyst, category, or severity. The normal
+assessment jobs queue even if AI is off. Repeating the action does not insert
+duplicates. The bundled scenarios need no CSV upload.
+
+All three reporters must be active, have their original roles, and have been
+created by the demo provisioner after identity migration `00005`. Matching names
+from an earlier install or ordinary registration are not adopted on repeat.
+Use a fresh demo stack if the existing accounts predate that migration; don't
+reset retained databases to enable this button.
 
 ### Demo with self-registration
 

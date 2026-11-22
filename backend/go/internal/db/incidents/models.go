@@ -34,6 +34,12 @@ type AssessmentResult struct {
 	CreatedAt  pgtype.Timestamptz
 }
 
+type DemoIncidentBatch struct {
+	Singleton bool
+	CreatedBy pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+}
+
 type Incident struct {
 	ID                pgtype.UUID
 	ReporterID        pgtype.UUID

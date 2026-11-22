@@ -93,6 +93,7 @@ services:
       DATABASE_TIMEOUT: 3s
       SHUTDOWN_TIMEOUT: 10s
       SIGNUP_ENABLED: '${SIGNUP_ENABLED:-false}'
+      DEMO_INCIDENTS_ENABLED: '${DEMO_INCIDENTS_ENABLED:-false}'
     secrets: [identity_runtime_url, incidents_runtime_url]
     networks: [edge, identity, incidents]
     depends_on:

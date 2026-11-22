@@ -22,12 +22,15 @@ from Go. Deployment uses verified TLS; see [deployment architecture](deployment.
   [`db/migrations/`](../db/migrations) owns the two Goose migration chains.
   Apply new numbered migrations rather than editing shared/applied migrations.
   Add explicit grants for new tables. Python does not run its own migrations.
-- Current heads are identity `00004` and incidents `00007`. The incident insert
+- Current heads are identity `00005` and incidents `00008`. The incident insert
   trigger writes the snapshot, initial job, and submitted event in the incident
   transaction. One initial job per incident is enforced in PostgreSQL.
 - Human AI review is an incident action, unique by normalized job UUID. Accepting or
   correcting a category and recording the decision commit together. `resolved_at`
   lives in `incident_resolutions`, not in the incident row.
+- Demo account provenance is recorded only for accounts created by the one-off
+  provisioner after identity `00005`. Incident `00008` records the one demo batch
+  and the admin who created it. Neither migration adopts accounts or creates reports.
 - Edit handwritten queries in `backend/go/sql/{identity,incidents}/`, regenerate
   with `make go-sqlc`, and commit the result. `make go-sqlc-check` verifies generation;
   never edit the generated `backend/go/internal/db/` packages by hand.
@@ -49,8 +52,9 @@ make db-status-identity db-status-incidents
 
 Bootstrap requires independent passwords and may reapply role passwords on rerun;
 never use it for normal startup. `make db-seed-demo` is a separate local/demo step
-that creates four accounts and preserves existing credentials on repeat. It does
-not seed incidents. Migration is explicit, with a bounded lock and an up/status
+that creates four accounts and preserves existing credentials and provenance on
+repeat. It does not seed incidents; see [Add demo incidents](docker-setup.md#add-demo-incidents).
+Migration is explicit, with a bounded lock and an up/status
 interface; the API and worker never run it.
 
 Start Go in a clean runtime-only environment. Neither Go nor Make automatically reads

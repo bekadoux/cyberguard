@@ -39,7 +39,7 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.HTTPAddr != "127.0.0.1:8080" || cfg.DatabaseTimeout != 3*time.Second || cfg.ShutdownTimeout != 10*time.Second {
+	if cfg.HTTPAddr != "127.0.0.1:8080" || cfg.DatabaseTimeout != 3*time.Second || cfg.ShutdownTimeout != 10*time.Second || cfg.DemoIncidents {
 		t.Fatal("unexpected configuration defaults")
 	}
 	if cfg.IdentityDatabaseURL != env["IDENTITY_DATABASE_URL"] || cfg.IncidentDatabaseURL != env["INCIDENT_DATABASE_URL"] {
@@ -53,11 +53,12 @@ func TestOverrides(t *testing.T) {
 	env["HTTP_ADDR"] = "[::1]:9000"
 	env["DATABASE_TIMEOUT"] = "500ms"
 	env["SHUTDOWN_TIMEOUT"] = "15s"
+	env["DEMO_INCIDENTS_ENABLED"] = "true"
 	cfg, err := load(lookup(env))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.HTTPAddr != "[::1]:9000" || cfg.DatabaseTimeout != 500*time.Millisecond || cfg.ShutdownTimeout != 15*time.Second {
+	if cfg.HTTPAddr != "[::1]:9000" || cfg.DatabaseTimeout != 500*time.Millisecond || cfg.ShutdownTimeout != 15*time.Second || !cfg.DemoIncidents {
 		t.Fatal("configuration overrides were not applied")
 	}
 }
@@ -76,6 +77,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 	t.Setenv("TRUSTED_PROXY_CIDRS", "")
 	t.Setenv("SESSION_LIFETIME", "8h")
 	t.Setenv("SESSION_IDLE_TIMEOUT", "30m")
+	t.Setenv("DEMO_INCIDENTS_ENABLED", "false")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -93,6 +95,7 @@ func TestInvalidConfiguration(t *testing.T) {
 		value string
 	}{
 		{"empty identity URL", "IDENTITY_DATABASE_URL", ""},
+		{"invalid demo setting", "DEMO_INCIDENTS_ENABLED", "yes"},
 		{"empty incident URL", "INCIDENT_DATABASE_URL", " "},
 		{"invalid URL", "IDENTITY_DATABASE_URL", "postgres://user:sensitive%zz@localhost/db"},
 		{"wrong scheme", "INCIDENT_DATABASE_URL", "https://user:sensitive@localhost/db"},

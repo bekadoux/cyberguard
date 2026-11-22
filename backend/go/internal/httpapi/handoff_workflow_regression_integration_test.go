@@ -38,7 +38,7 @@ func TestHandoffWorkflowRegressions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api.EnableHandoff(reports.Runtime, ids.Runtime)
+	api.EnableHandoff(reports.Runtime, ids.Runtime, false)
 	api.Mount(router)
 	login := func(account demoseed.Account) *http.Cookie {
 		t.Helper()

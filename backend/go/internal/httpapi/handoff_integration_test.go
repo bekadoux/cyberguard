@@ -45,7 +45,7 @@ func TestHandoffWorkflowDatabasePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api.EnableHandoff(reports.Runtime, identities.Runtime)
+	api.EnableHandoff(reports.Runtime, identities.Runtime, false)
 	api.Mount(router)
 	login := func(account demoseed.Account) *http.Cookie {
 		t.Helper()

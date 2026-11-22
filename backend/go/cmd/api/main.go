@@ -51,7 +51,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	incidentAPI.EnableHandoff(pools.Incidents, pools.Identity)
+	incidentAPI.EnableHandoff(pools.Incidents, pools.Identity, cfg.DemoIncidents)
 	incidentAPI.Mount(router)
 	aiToken, err := secretconfig.Value(os.LookupEnv, "AI_INTERNAL_TOKEN")
 	if err != nil {

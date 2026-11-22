@@ -60,6 +60,11 @@ export async function identity(page: Page, user: User = employee) {
   await page.route('**/api/admin/ownership', (route) =>
     route.fulfill({ json: { owner_id: null } }),
   );
+  await page.route('**/api/admin/demo-incidents', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ json: { enabled: false, seeded: false } })
+      : route.fulfill({ status: 405, json: { error: { code: 'unexpected_mutation' } } }),
+  );
   await page.route('**/api/incidents/*/ai-feedback/*', (route) =>
     route.fulfill({ json: { review: null } }),
   );

@@ -12,7 +12,7 @@ printf 'APP_SECRETS_DIR=%s\nAPP_STATE_DIR=%s\nAPP_SECRET_GID=%s\n' "$temporary/s
 load() { bash -c 'source "$1/deploy/app-vm/common.sh"; load_config "$2"' bash "$root" "$1"; }
 reject() { if "$@" > "$temporary/error" 2>&1; then echo 'Expected rejection' >&2; exit 1; fi; }
 APP_BIND_IP=0.0.0.0 load "$config"
-for value in 'APP_BIND_IP=0.0.0.0' 'APP_AI_IP=8.8.8.8' 'APP_PUBLIC_NAME=app;bad' 'APP_HTTP_PORT=0' 'APP_STATE_DIR=/var/../etc' 'UNKNOWN=yes' 'APP_SECRET_GID=bad' 'APP_EDGE_SUBNET=172.28.40.1/28' 'SIGNUP_ENABLED=yes'; do
+for value in 'APP_BIND_IP=0.0.0.0' 'APP_AI_IP=8.8.8.8' 'APP_PUBLIC_NAME=app;bad' 'APP_HTTP_PORT=0' 'APP_STATE_DIR=/var/../etc' 'UNKNOWN=yes' 'APP_SECRET_GID=bad' 'APP_EDGE_SUBNET=172.28.40.1/28' 'SIGNUP_ENABLED=yes' 'DEMO_INCIDENTS_ENABLED=yes'; do
     cat "$config" > "$temporary/bad.env"
     printf '%s\n' "$value" >> "$temporary/bad.env"
     reject load "$temporary/bad.env"

@@ -82,11 +82,46 @@ test('gates administration by role and keeps the expanded mobile navigation reac
   await expect(page.getByRole('heading', { name: 'Users & audit' })).toBeVisible();
   await expect
     .poll(() => [...reads].sort())
-    .toEqual(['/api/admin/audit', '/api/admin/ownership', '/api/admin/users']);
+    .toEqual([
+      '/api/admin/audit',
+      '/api/admin/demo-incidents',
+      '/api/admin/ownership',
+      '/api/admin/users',
+    ]);
+  await expect(page.getByRole('heading', { name: 'Demo data' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Admin', exact: true })).toBeInViewport();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(320);
+});
+
+test('adds one confirmed demo batch and shows it as seeded after reload', async ({
+  page,
+}) => {
+  await identity(page, { ...analyst, role: 'admin' });
+  let posts = 0;
+  await page.route('**/api/admin/demo-incidents', (route) => {
+    if (route.request().method() === 'GET')
+      return route.fulfill({ json: { enabled: true, seeded: posts > 0 } });
+    expect(route.request().method()).toBe('POST');
+    expect(route.request().postDataJSON()).toEqual({});
+    ++posts;
+    return route.fulfill({ status: 201, json: { created: 10 } });
+  });
+  await page.goto('/admin');
+  const add = page.getByRole('button', { name: 'Add 10 demo incidents' });
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('queue 10 AI assessments');
+    await dialog.accept();
+  });
+  await add.click();
+  await expect(page.getByRole('status')).toHaveText(
+    '10 demo incidents added and queued for AI assessment.',
+  );
+  await page.reload();
+  await expect(page.getByText(/already been added to this database/)).toBeVisible();
+  await expect(add).toHaveCount(0);
+  expect(posts).toBe(1);
 });
 
 test('creates employees and confirms the owner’s own password change', async ({

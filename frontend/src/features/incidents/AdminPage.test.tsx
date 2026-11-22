@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
+import { ApiError } from '../../shared/api/client';
 import { AuthContext } from '../auth/auth-context';
 import { SessionStore } from '../auth/session-store';
 import { AdminPage } from './AdminPage';
@@ -19,10 +20,15 @@ const currentAdmin: ManagedUser = {
   is_blocked: false,
 };
 
-async function setup(ownerId: string | null = null, accounts = [account]) {
+async function setup(
+  ownerId: string | null = null,
+  accounts = [account],
+  demo: 'ready' | 'seeded' | 'disabled' = 'disabled',
+) {
   const users = vi.spyOn(adminApi, 'users').mockResolvedValue(accounts);
   vi.spyOn(adminApi, 'audit').mockResolvedValue([]);
   vi.spyOn(adminApi, 'ownerId').mockResolvedValue(ownerId);
+  vi.spyOn(adminApi, 'demoIncidentStatus').mockResolvedValue(demo);
   const store = new SessionStore({
     me: vi.fn().mockResolvedValue({ id: 'admin-id', username: 'admin', role: 'admin' }),
     login: vi.fn(),
@@ -37,6 +43,31 @@ async function setup(ownerId: string | null = null, accounts = [account]) {
   const select = await screen.findByRole('combobox', { name: 'Role for case-owner' });
   return { users, select, user: userEvent.setup() };
 }
+
+it('keeps the demo control hidden when disabled', async () => {
+  await setup();
+  expect(screen.queryByRole('heading', { name: 'Demo data' })).toBeNull();
+});
+
+it('does not submit on cancel and explains why ineligible accounts prevent seeding', async () => {
+  const { user } = await setup(null, [account], 'ready');
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  const add = vi
+    .spyOn(adminApi, 'addDemoIncidents')
+    .mockRejectedValueOnce(new ApiError(409, 'demo_accounts_unavailable'))
+    .mockResolvedValueOnce(0);
+  const button = screen.getByRole('button', { name: 'Add 10 demo incidents' });
+  await user.click(button);
+  expect(add).not.toHaveBeenCalled();
+  confirm.mockReturnValue(true);
+  await user.click(button);
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Provision or restore the active demo accounts employee_a, employee_b, and analyst first.',
+  );
+  await user.click(button);
+  expect(await screen.findByText(/already been added to this database/)).toBeVisible();
+  expect(button).not.toBeInTheDocument();
+});
 
 it('keeps the confirmed role on cancel and failure, and shows the saved role on success', async () => {
   const { users, select, user } = await setup();
