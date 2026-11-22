@@ -9,6 +9,12 @@ VALUES ($1, $2, $3)
 ON CONFLICT (username) DO NOTHING
 RETURNING *;
 
+-- name: RegisterEmployee :one
+INSERT INTO users (username, password_hash, role)
+VALUES ($1, $2, 'employee')
+ON CONFLICT (username) DO NOTHING
+RETURNING id, username;
+
 -- name: GetUserByID :one
 SELECT * FROM users WHERE id = $1;
 

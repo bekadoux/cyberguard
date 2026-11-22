@@ -58,7 +58,7 @@ paths:
           required: true
           schema: {type: string, format: uuid}
       responses:
-        '200': {description: Assigned to caller, status becomes triage}
+        '200': {description: 'Assigned to caller, status becomes triage'}
         '401': {description: Session required}
         '403': {description: Professional role required}
         '404': {description: Incident not found}
@@ -194,7 +194,7 @@ paths:
                 text: {type: string, minLength: 1, maxLength: 5000}
                 visibility: {type: string, enum: [public, internal]}
       responses:
-        '201': {description: Comment created, history and notifications updated}
+        '201': {description: 'Comment created, history and notifications updated'}
         '403': {description: Visibility/assignment forbidden}
   /incidents/{id}/history:
     get:
@@ -209,7 +209,7 @@ paths:
       summary: List own recent incident notifications
       description: Incident-linked notifications and their read/unread actions require current access to the non-archived incident.
       responses:
-        '200': {description: Own notifications only, max 100 records}
+        '200': {description: 'Own notifications only, max 100 records'}
   /notifications/{id}/read:
     post:
       summary: Mark own notification read
@@ -241,24 +241,26 @@ paths:
                 properties:
                   users: {type: array, items: {$ref: '#/components/schemas/User'}}
                   next_cursor: {type: [string, 'null']}
-        '400': {description: Invalid filter, cursor or page size}
+        '400': {description: 'Invalid filter, cursor or page size'}
         '403': {description: Admin role required}
     post:
-      summary: Admin creates an account
+      summary: Admin creates an employee account
+      description: Use the separate role change operation to promote an existing account.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [username, password, role]
+              required: [username, password]
               additionalProperties: false
               properties:
-                username: {type: string, minLength: 3, maxLength: 64}
+                username: {type: string, minLength: 3, maxLength: 128, description: Maximum 128 UTF-8 bytes before normalization; normalized username is 3–64 ASCII characters.}
                 password: {$ref: '#/components/schemas/NewPassword'}
-                role: {type: string, enum: [employee, analyst, admin]}
+                role: {type: [string, 'null'], enum: [employee, null], description: Optional legacy field. The role is always employee.}
       responses:
         '201': {description: Account created; password never returned}
+        '400': {description: Invalid credentials or requested non-employee role}
         '409': {description: Username already exists}
   /admin/users/{id}/role:
     post:
@@ -351,7 +353,7 @@ paths:
         '400': {description: Invalid decision or category}
         '403': {description: Assigned analyst or admin required}
         '404': {description: Incident or assessment unavailable}
-        '409': {description: Duplicate review, terminal incident or synthetic fixture}
+        '409': {description: 'Duplicate review, terminal incident or synthetic fixture'}
   /incidents/{id}/ai-feedback/{job_id}:
     get:
       summary: Read the persisted human review for a stored assessment
@@ -380,7 +382,7 @@ paths:
         '400': {description: Unexpected query parameters}
         '401': {description: Session required}
         '403': {description: Professional role required}
-        '404': {description: Missing or archived incident, or no matching stored result}
+        '404': {description: 'Missing or archived incident, or no matching stored result'}
   /notifications/{id}/unread:
     post:
       summary: Mark an own notification as unread

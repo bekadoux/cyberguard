@@ -12,7 +12,7 @@ func TestAuthDefaultsAreSecure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Environment != "production" || !cfg.CookieSecure || len(cfg.TrustedOrigins) != 0 || cfg.Lifetime != 8*time.Hour || cfg.IdleTimeout != 30*time.Minute {
+	if cfg.Environment != "production" || !cfg.CookieSecure || cfg.SignupEnabled || len(cfg.TrustedOrigins) != 0 || cfg.Lifetime != 8*time.Hour || cfg.IdleTimeout != 30*time.Minute {
 		t.Fatal("unexpected authentication defaults")
 	}
 }
@@ -21,13 +21,14 @@ func TestDevelopmentAuthConfiguration(t *testing.T) {
 	t.Parallel()
 	cfg, err := loadAuth(lookup(map[string]string{
 		"APP_ENV": "development", "SESSION_COOKIE_SECURE": "false",
+		"SIGNUP_ENABLED":   "true",
 		"TRUSTED_ORIGINS":  "http://127.0.0.1:5173, http://localhost:5173,http://127.0.0.1:5173",
 		"SESSION_LIFETIME": "4h", "SESSION_IDLE_TIMEOUT": "15m",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.CookieSecure || len(cfg.TrustedOrigins) != 2 || cfg.Lifetime != 4*time.Hour || cfg.IdleTimeout != 15*time.Minute {
+	if cfg.CookieSecure || !cfg.SignupEnabled || len(cfg.TrustedOrigins) != 2 || cfg.Lifetime != 4*time.Hour || cfg.IdleTimeout != 15*time.Minute {
 		t.Fatal("development overrides were not loaded")
 	}
 }
@@ -36,6 +37,7 @@ func TestInvalidAuthConfiguration(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct{ key, value string }{
 		{"APP_ENV", ""}, {"APP_ENV", "test"}, {"SESSION_COOKIE_SECURE", "false"},
+		{"SIGNUP_ENABLED", ""}, {"SIGNUP_ENABLED", "yes"},
 		{"SESSION_COOKIE_SECURE", "0"}, {"SESSION_LIFETIME", "0s"}, {"SESSION_LIFETIME", "48h"},
 		{"SESSION_IDLE_TIMEOUT", ""}, {"SESSION_IDLE_TIMEOUT", "9h"},
 		{"TRUSTED_ORIGINS", "*"}, {"TRUSTED_ORIGINS", "https://*.example.com"},

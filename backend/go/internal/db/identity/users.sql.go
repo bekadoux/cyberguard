@@ -108,6 +108,30 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 	return i, err
 }
 
+const registerEmployee = `-- name: RegisterEmployee :one
+INSERT INTO users (username, password_hash, role)
+VALUES ($1, $2, 'employee')
+ON CONFLICT (username) DO NOTHING
+RETURNING id, username
+`
+
+type RegisterEmployeeParams struct {
+	Username     string
+	PasswordHash string
+}
+
+type RegisterEmployeeRow struct {
+	ID       pgtype.UUID
+	Username string
+}
+
+func (q *Queries) RegisterEmployee(ctx context.Context, arg RegisterEmployeeParams) (RegisterEmployeeRow, error) {
+	row := q.db.QueryRow(ctx, registerEmployee, arg.Username, arg.PasswordHash)
+	var i RegisterEmployeeRow
+	err := row.Scan(&i.ID, &i.Username)
+	return i, err
+}
+
 const setUserBlocked = `-- name: SetUserBlocked :one
 UPDATE users
 SET is_blocked = $2, auth_version = auth_version + 1, updated_at = now()

@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alexedwards/argon2id"
+	"github.com/bekadoux/cyberguard/backend/go/internal/auth"
+	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -23,35 +24,26 @@ func validAdminRole(role string) bool {
 	return role == "employee" || role == "analyst" || role == "admin"
 }
 
-func hashNewPassword(password string) (string, error) {
-	if len(password) < 12 || len(password) > 128 || !validHandoffText(password, 128, true) {
-		return "", errors.New("unsafe password")
-	}
-	return argon2id.CreateHash(password, &argon2id.Params{
-		Memory: 64 * 1024, Iterations: 1, Parallelism: 2, SaltLength: 16, KeyLength: 32,
-	})
-}
-
 func (a *HandoffAPI) createUser(w http.ResponseWriter, r *http.Request) {
 	if !a.adminOnly(w, r) {
 		return
 	}
 	var body struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Role     string `json:"role"`
+		Username string  `json:"username"`
+		Password string  `json:"password"`
+		Role     *string `json:"role"`
 	}
 	if !decodeHandoffJSON(w, r, &body) {
 		return
 	}
-	username := strings.ToLower(strings.TrimSpace(body.Username))
-	if !adminUsernamePattern.MatchString(username) || !validAdminRole(body.Role) {
-		writeError(w, 400, "invalid_request", "Invalid username or role.")
+	username, valid := auth.NewAccountUsername(body.Username)
+	if !valid || (body.Role != nil && *body.Role != "employee") {
+		writeError(w, 400, "invalid_request", "Only employee accounts can be created; change the role afterward.")
 		return
 	}
-	hash, err := hashNewPassword(body.Password)
+	hash, err := a.auth.service.HashNewPassword(r.Context(), body.Password)
 	if err != nil {
-		writeError(w, 400, "invalid_request", "Password must be nonblank and 12 to 128 UTF-8 bytes.")
+		a.newPasswordError(w, err)
 		return
 	}
 	actor, _ := actorUUID(a.user(r))
@@ -63,9 +55,7 @@ func (a *HandoffAPI) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx)
-	var id pgtype.UUID
-	err = tx.QueryRow(ctx, `INSERT INTO users(username,password_hash,role) VALUES($1,$2,$3)
-        ON CONFLICT(username) DO NOTHING RETURNING id`, username, hash, body.Role).Scan(&id)
+	created, err := identity.New(tx).RegisterEmployee(ctx, identity.RegisterEmployeeParams{Username: username, PasswordHash: hash})
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 409, "conflict", "Username unavailable.")
 		return
@@ -74,15 +64,16 @@ func (a *HandoffAPI) createUser(w http.ResponseWriter, r *http.Request) {
 		handoffStorageError(w, err)
 		return
 	}
+	id := created.ID
 	if _, err = tx.Exec(ctx, `INSERT INTO identity_audit(actor_id,subject_id,action,details)
-        VALUES($1,$2,'user_created',jsonb_build_object('role',$3::text))`, actor, id, body.Role); err != nil {
+        VALUES($1,$2,'user_created','{"role":"employee"}'::jsonb)`, actor, id); err != nil {
 		handoffStorageError(w, err)
 		return
 	}
 	if !commitOrError(w, tx, ctx) {
 		return
 	}
-	writeJSON(w, 201, map[string]any{"user": map[string]any{"id": id.String(), "username": username, "role": body.Role, "is_blocked": false}})
+	writeJSON(w, 201, map[string]any{"user": map[string]any{"id": id.String(), "username": username, "role": "employee", "is_blocked": false}})
 }
 
 type directoryQuery struct {
@@ -237,12 +228,20 @@ func (a *HandoffAPI) resetPassword(w http.ResponseWriter, r *http.Request) {
 	if !decodeHandoffJSON(w, r, &body) {
 		return
 	}
-	hash, err := hashNewPassword(body.Password)
+	hash, err := a.auth.service.HashNewPassword(r.Context(), body.Password)
 	if err != nil {
-		writeError(w, 400, "invalid_request", "Invalid password length.")
+		a.newPasswordError(w, err)
 		return
 	}
 	a.changeUser(w, r, target, "password", "", false, hash, body.Reason)
+}
+
+func (a *HandoffAPI) newPasswordError(w http.ResponseWriter, err error) {
+	if errors.Is(err, auth.ErrInvalidAccount) {
+		writeError(w, 400, "invalid_request", "Password must be nonblank and 12 to 128 UTF-8 bytes.")
+		return
+	}
+	a.auth.authError(w, err)
 }
 
 func (a *HandoffAPI) changeUser(w http.ResponseWriter, r *http.Request, target pgtype.UUID, action, newRole string, blocked bool, hash, reason string) {

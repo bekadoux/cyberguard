@@ -48,9 +48,7 @@ func NewService(users Users) (*Service, error) {
 		return nil, errors.New("authentication requires user queries")
 	}
 	// Fixed lanes keep startup/unknown-user work independent of host CPU count.
-	dummy, err := argon2id.CreateHash(rand.Text(), &argon2id.Params{
-		Memory: 64 * 1024, Iterations: 1, Parallelism: 2, SaltLength: 16, KeyLength: 32,
-	})
+	dummy, err := HashNewPassword(rand.Text())
 	if err != nil {
 		return nil, errors.New("could not initialize password verification")
 	}
