@@ -8,6 +8,7 @@ models.
 | Environment | Compose selection and service boundary |
 | --- | --- |
 | Local development | `compose.yaml` + `compose.dev.yaml`: Caddy, Go, and both PostgreSQL instances, with loopback host bindings and HTTP-only development settings. `compose.ai.yaml` adds optional Python and private CPU inference on the same host. |
+| Full local development | `docker/local-setup.sh` uses `compose.yaml` + `compose.ai.yaml` + `compose.full.yaml`. Only Caddy is published (loopback or an approved LAN IP), over HTTP. Go, both PostgreSQL instances, Python, Kev and Qwen stay private on one host. Model downloads run in a separate one-off container. |
 | Azure application VM | `compose.yaml` + `deploy/app-vm/compose.yaml`: public Caddy/SPA, unexposed Go, both PostgreSQL instances, and a dedicated private Go TLS gateway. Uses neither local override. |
 | Azure AI VM | Standalone `deploy/ai-vm/compose.yaml`: private Caddy, FastAPI, worker, Kev, and llama.cpp. No database, public frontend, or published model port. |
 

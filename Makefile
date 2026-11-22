@@ -18,7 +18,7 @@ APP_VM_CONFIG ?= /etc/cyberguard/app/config.env
 .PHONY: docker-caddy-check
 .PHONY: docker-smoke
 .PHONY: docker-test-readiness
-.PHONY: docker-test-web
+.PHONY: docker-test-web docker-test-local-setup
 .PHONY: docker-build-go docker-build-web frontend-test-packaged
 .PHONY: frontend-install frontend-dev frontend-check frontend-test-e2e frontend-test-e2e-live
 .PHONY: frontend-test-incidents-live
@@ -76,7 +76,8 @@ help:
 	  'docker-smoke        Build and verify a fresh disposable local Docker environment' \
 	  'docker-test-secrets Test local credential generation (requires openssl)' \
 	  'docker-test-readiness Test PostgreSQL healthchecks during first initialization' \
-	  'docker-test-web     Test packaged HTTP assertions with synthetic responses'
+	  'docker-test-web     Test packaged HTTP assertions with synthetic responses' \
+	  'docker-test-local-setup Test full local Compose isolation and setup lifecycle'
 	@printf '%s\n' \
 	  'ai-vm-config       Validate the standalone AI VM Compose configuration' \
 	  'ai-vm-build        Explicitly build/pull AI VM runtime images (no weights)' \
@@ -216,6 +217,9 @@ docker-test-readiness:
 
 docker-test-web:
 	bash docker/test-web-regressions.sh
+
+docker-test-local-setup:
+	bash docker/test-local-setup.sh
 
 docker-caddy-check:
 	@image="$$($(COMPOSE) config --format json | jq -er '.services.web.image')" && \

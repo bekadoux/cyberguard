@@ -1,11 +1,88 @@
 # Local Docker runbook
 
-This is a **loopback-only HTTP development environment**, not a deployment
-configuration. From the repository root in Bash, use Linux or WSL2, Docker with
-Compose v2, GNU Make, OpenSSL, and jq. First builds need network access, but not
-host Go, Node, or Python. See [deployment architecture](deployment.md) for routing.
+These are **HTTP development environments**, not production deployments. Neither
+setup needs host Go, Node.js, or Python. See [deployment architecture](deployment.md)
+for routing.
 
-## Fresh local environment
+## One-command setup with real AI
+
+Use a Linux amd64 machine with a local Docker engine, current Docker Compose,
+Bash, OpenSSL, and standard Linux utilities, including `ip` and `ss` (iproute2)
+and `flock` (util-linux). Run from the checkout:
+
+```bash
+bash docker/local-setup.sh
+```
+
+On the first run, choose loopback (default) or explicitly approve binding to a
+private LAN IPv4 address, choose the web port (default `8088`), and decide whether
+to seed four development accounts. Without them there is no initial login. The
+script asks for confirmation before preparing about 3 GB of pinned Kev and Qwen
+artifacts. First setup needs internet access for missing models, images, and
+build dependencies. Only Caddy is published. Go, PostgreSQL, FastAPI, the worker
+and model servers remain private.
+
+**LAN mode is unencrypted.** Use it only on a trusted development network with
+synthetic incident data and passwords you do not use elsewhere. Limit inbound
+traffic to the intended clients or subnet with network/firewall policy and verify
+it from a second machine; the script does not manage firewall rules. Use the
+printed URL consistently. Do not forward the port to the internet.
+
+The script shows `employee_a`, `employee_b`, `analyst`, and `admin` passwords
+once, directly in the terminal immediately after seeding, before preparing the
+AI models. If you miss that display, retrieve an initial password from the
+checkout:
+
+```bash
+cat .local/full-stack/secrets/dev_admin_password
+```
+
+The other accounts have corresponding `dev_<username>_password` files. These
+files do not reflect later password changes in the app. Keep the secrets and
+database volumes together.
+
+The core app starts before model preparation finishes, so you can sign in and
+submit synthetic reports while waiting. Those reports queue assessments for
+the worker; the full stack is ready once the worker passes its checks.
+
+| Command | Effect |
+| --- | --- |
+| `bash docker/local-setup.sh` | First setup, continue an interrupted setup, or start the existing stack. |
+| `bash docker/local-setup.sh stop` | Stop the containers without removing them or their data. |
+| `bash docker/local-setup.sh resume` | Restart with saved settings. With cached images and verified models, no downloads are required. |
+| `bash docker/local-setup.sh status` / `logs` | Show container status / recent logs. |
+| `bash docker/local-setup.sh check` | Run non-mutating dependency checks inside the running worker. |
+| `bash docker/local-setup.sh destroy` | After typed confirmation, remove only this checkout's full-stack containers, networks, database volumes, secrets and settings. Keep the model cache and Docker build artifacts. |
+| `bash docker/local-setup.sh destroy --purge-models` | Also remove `.local/full-stack-models/`. |
+
+The project is isolated from the loopback-only core setup and other checkouts;
+its name is derived from the checkout path. Keep the checkout at a stable path.
+Settings are saved under `.local/full-stack/`. If the LAN address changes, stop
+the stack and edit the first line of `.local/full-stack/settings` to an active
+private IPv4 address or `127.0.0.1` before resuming. Normal restarts do not rebuild
+the project images or apply new migrations. For a disposable environment, destroy
+and run setup again to build from the current checkout; for retained data, plan
+an explicit backup and migration rather than deleting the volumes.
+
+Runtime inference is CPU-only, with one worker and one generation slot.
+The model servers are capped at two CPUs each and 8 GiB (Kev) / 4 GiB
+(llama.cpp); those caps are not measured requirements. Model files are mounted
+read-only. If verification fails, stop the stack and investigate the reported
+artifact. `bash docker/local-setup.sh prepare-models` can fetch missing files,
+but will not overwrite a mismatched file. Failed jobs are not reset.
+
+To verify **real inference**, submit a fresh synthetic incident as an employee,
+then sign in as staff and refresh its assessment until it completes. `check`
+and `/ai/readyz` do not run inference. In LAN mode also check normal login and
+submission from a second machine, and verify that Go, SQL, and model ports are
+not reachable from there.
+
+## Core application setup (loopback only)
+
+The manual setup below uses Linux or WSL2, Docker with Compose v2, GNU Make,
+OpenSSL, and jq. First builds need network access.
+
+### Fresh local environment
 
 ```sh
 export DOCKER_SECRET_GID="$(id -g)"
@@ -135,6 +212,7 @@ route denial when the AI overlay is enabled.
 | --- | --- |
 | `make docker-config-check docker-caddy-check` | Compose and baked gateway configuration |
 | `make docker-test-secrets docker-test-readiness docker-test-web` | Secret generation, PostgreSQL TCP versus first-init socket readiness, gateway checkers |
+| `make docker-test-local-setup` | Full-stack Compose isolation and mocked interactive setup, resume, and teardown; requires `jq` and `script` (util-linux) |
 | `make docker-smoke` | Disposable runtime, persistence, database outage, and HTTP checks |
 
 `docker-smoke` accepts independent flags: `DOCKER_TEST_GO_INTEGRATION=1` adds the

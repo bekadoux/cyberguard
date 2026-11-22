@@ -1,0 +1,100 @@
+# Full local development: combine with compose.yaml and compose.ai.yaml, not compose.dev.yaml.
+services:
+  web:
+    ports:
+      - target: 8080
+        published: '${LOCAL_WEB_PORT:?Use docker/local-setup.sh}'
+        host_ip: '${LOCAL_BIND_IP:?Use docker/local-setup.sh}'
+        protocol: tcp
+    networks: [edge, local-ingress]
+  go-api:
+    environment:
+      APP_ENV: development
+      SESSION_COOKIE_SECURE: 'false'
+      TRUSTED_ORIGINS: ''
+  ai-api:
+    image: '${LOCAL_AI_IMAGE:?Use docker/local-setup.sh}'
+  ai-worker:
+    image: '${LOCAL_AI_IMAGE:?Use docker/local-setup.sh}'
+    environment:
+      AI_MODE: models
+    healthcheck:
+      test: [CMD, python, -m, cyberguard_ai.preflight]
+      interval: 20s
+      timeout: 15s
+      retries: 5
+      start_period: 10s
+    stop_grace_period: 30s
+  ai-kev:
+    image: '${LOCAL_KEV_IMAGE:?Use docker/local-setup.sh}'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:size=128m,mode=1777']
+    cpus: 2.0
+    mem_limit: 8g
+    environment:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '2'
+      TRANSFORMERS_OFFLINE: '1'
+      DO_NOT_TRACK: '1'
+      KEV_BACKEND: torch
+      KEV_PREFIX_CACHE: '0'
+    volumes:
+      - &model-cache
+        type: bind
+        source: '${LOCAL_MODEL_DIR:?Use docker/local-setup.sh}'
+        target: /models
+        read_only: true
+        bind: {create_host_path: false}
+    healthcheck:
+      test: [CMD, /opt/kev/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8009/v1/models', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 300s
+    logging: &model-logging
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '3'
+  ai-llm:
+    user: '10002:10002'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:size=16m,mode=1777']
+    command: [--model, /models/gguf/qwen2.5-1.5b-instruct-q4_k_m.gguf,
+              --alias, qwen2.5-1.5b-instruct, --host, 0.0.0.0,
+              --port, '8081', --threads, '2', --threads-batch, '2',
+              --parallel, '1', --ctx-size, '2048', --no-webui, --offline,
+              --n-gpu-layers, '0', --no-agent, --log-disable]
+    cpus: 2.0
+    mem_limit: 4g
+    volumes: [*model-cache]
+    logging: *model-logging
+  bootstrap-ai:
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+  prepare-models:
+    profiles: [local-setup]
+    image: '${LOCAL_PREPARE_IMAGE:?Use docker/local-setup.sh}'
+    build:
+      context: .
+      dockerfile: docker/ai/Dockerfile.prepare-models
+    user: '${LOCAL_OPERATOR_UID:?Use docker/local-setup.sh}:${DOCKER_SECRET_GID:?Use docker/local-setup.sh}'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:size=8m,mode=1777']
+    networks: [model-download]
+    volumes:
+      - <<: *model-cache
+        read_only: false
+
+networks:
+  # Only Caddy participates in ingress. Other runtime networks remain internal.
+  edge:
+    internal: true
+  local-ingress: {}
+  model-download: {}

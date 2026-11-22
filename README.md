@@ -9,6 +9,21 @@ See [Architecture](#architecture) for how the components fit together.
 
 ## Quick start
 
+For the **full local stack with real AI inference** on a Linux amd64 Docker host:
+
+```bash
+bash docker/local-setup.sh
+```
+
+Setup asks where to serve the app (loopback or a trusted LAN), whether to create
+development accounts, and whether to prepare the pinned models (about 3 GB).
+It builds and starts the stack, and shows generated account passwords once if
+you opt in. No host Go, Node.js, or Python is needed. See the
+[full local setup guide](docs/docker-setup.md#one-command-setup-with-real-ai) for
+stopping, resuming, and destroying this separate development project.
+
+### Core application only
+
 Try CyberGuard locally with Docker. You need **Linux or WSL2**, **Git**,
 **Docker with Compose v2**, **GNU Make**, **OpenSSL** and **jq**. Docker must be
 running; Go, Node.js and Python do not need to be installed on your machine.
@@ -38,7 +53,7 @@ see [Enable AI](#enable-ai).
 > This local setup uses HTTP and demo accounts. Do not expose it to the internet;
 > use the [server deployment guides](#deploy-on-a-server) instead.
 
-## First sign-in
+## First sign-in (core application setup)
 
 Sign in as **`admin`**. Its randomly generated password is stored locally:
 
@@ -51,9 +66,10 @@ registration; users sign in with an account provided by their administrator.
 
 ## Enable AI
 
-AI is optional: the application can run without it. To configure the AI service
-and download its models for local use, follow the [local AI runbook](docs/docker-setup.md#optional-local-ai).
-Models require additional disk space and memory.
+AI is optional: the application can run without it. Use the one-command setup
+above for a separate full-stack project, or follow the
+[manual local AI runbook](docs/docker-setup.md#optional-local-ai) to add AI to
+the core application setup. Models require additional disk space and memory.
 
 ## Deploy on a server
 
@@ -68,6 +84,9 @@ The guides target existing **Ubuntu 26.04 amd64** VMs and cover configuration,
 certificates, private networking and startup. They do not create cloud resources.
 
 ## Stop and restart
+
+For the full local setup, use `bash docker/local-setup.sh stop` and
+`bash docker/local-setup.sh resume`. The commands below are for the core setup.
 
 Run these commands from the project directory in Bash:
 
