@@ -190,6 +190,17 @@ configure() {
             *) printf 'Enter yes or no.\n' >&"$terminal" ;;
         esac
     done
+    DEMO_INCIDENTS_ENABLED=false
+    if [[ $seed == yes ]]; then
+        while :; do
+            ask 'Enable the admin button to add synthetic demo incidents? [y/N] '
+            case "$answer" in
+                [yY]|[yY][eE][sS]) DEMO_INCIDENTS_ENABLED=true; break ;;
+                ''|[nN]|[nN][oO]) break ;;
+                *) printf 'Enter yes or no.\n' >&"$terminal" ;;
+            esac
+        done
+    fi
     printf '%s\n' \
         'Real inference uses roughly 3 GB of pinned model artifacts, plus Docker images and caches.' \
         'Review the model licenses: https://huggingface.co/jaredpalmer/kev-0.8b' \
@@ -199,7 +210,7 @@ configure() {
     [[ $answer == [yY] || $answer == [yY][eE][sS] ]] || die 'Model preparation not accepted; nothing was deployed.'
     mkdir -m 700 -p -- "$state"
     temporary=$(mktemp "$state/.settings.XXXXXX")
-    printf '%s\n' "$LOCAL_BIND_IP" "$LOCAL_WEB_PORT" "$seed" > "$temporary"
+    printf '%s\n' "$LOCAL_BIND_IP" "$LOCAL_WEB_PORT" "$seed" "$DEMO_INCIDENTS_ENABLED" > "$temporary"
     mv -T -- "$temporary" "$settings"
     temporary=''
 }
@@ -208,9 +219,13 @@ read_settings() {
     local -a saved
     [[ -f $settings && ! -L $settings ]] || die "Expected a regular settings file: $settings"
     mapfile -t saved < "$settings"
-    [[ ${#saved[@]} == 3 ]] && local_ipv4 "${saved[0]}" && valid_port "${saved[1]}" &&
+    [[ ${#saved[@]} == 3 || ${#saved[@]} == 4 ]] &&
+        local_ipv4 "${saved[0]}" && valid_port "${saved[1]}" &&
         [[ ${saved[2]} == yes || ${saved[2]} == no ]] || die "Invalid settings: $settings"
     LOCAL_BIND_IP=${saved[0]} LOCAL_WEB_PORT=${saved[1]} seed=${saved[2]}
+    DEMO_INCIDENTS_ENABLED=${saved[3]-false}
+    [[ $DEMO_INCIDENTS_ENABLED == false || ( $DEMO_INCIDENTS_ENABLED == true && $seed == yes ) ]] ||
+        die "Invalid demo incident setting: $settings"
 }
 
 ensure_secrets() {
@@ -314,6 +329,9 @@ deploy() {
     step 'Start the core application and HTTP gateway'
     up 90 go-api web
     printf 'Core application: http://%s:%s/login\n' "$LOCAL_BIND_IP" "$LOCAL_WEB_PORT"
+    if [[ $DEMO_INCIDENTS_ENABLED == true ]]; then
+        printf '%s\n' 'Sign in as admin and choose Admin → Add 10 demo incidents.'
+    fi
 
     if [[ ! -e $state/models.done ]]; then
         prepare_models
@@ -360,7 +378,7 @@ destroy() {
     printf 'Destroyed the full local deployment. Docker images and build caches were left in place.\n'
 }
 
-export LOCAL_BIND_IP LOCAL_WEB_PORT
+export LOCAL_BIND_IP LOCAL_WEB_PORT DEMO_INCIDENTS_ENABLED
 if [[ -e $settings || -L $settings ]]; then
     read_settings
 else

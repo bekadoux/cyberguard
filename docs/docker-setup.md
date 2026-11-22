@@ -16,11 +16,12 @@ bash docker/local-setup.sh
 
 On the first run, choose loopback (default) or explicitly approve binding to a
 private LAN IPv4 address, choose the web port (default `8088`), and decide whether
-to seed four development accounts. Without them there is no initial login. The
-script asks for confirmation before preparing about 3 GB of pinned Kev and Qwen
-artifacts. First setup needs internet access for missing models, images, and
-build dependencies. Only Caddy is published. Go, PostgreSQL, FastAPI, the worker
-and model servers remain private.
+to seed four development accounts. Without them there is no initial login. If
+you create them, the script separately offers to enable the admin demo incidents
+button (default: No) and saves the answer. The script asks for confirmation
+before preparing about 3 GB of pinned Kev and Qwen artifacts. First setup needs
+internet access for missing models, images, and build dependencies. Only Caddy
+is published. Go, PostgreSQL, FastAPI, the worker and model servers remain private.
 
 **LAN mode is unencrypted.** Use it only on a trusted development network with
 synthetic incident data and passwords you do not use elsewhere. Limit inbound
@@ -119,12 +120,16 @@ privileged `db/.env` to runtime services.
 
 ### Add demo incidents
 
-Use this only on a dedicated synthetic demo stack. After applying both migration
-chains and provisioning the four demo accounts with the updated seed command,
-set `DEMO_INCIDENTS_ENABLED=true` before starting Go. For the core setup, put it
-in the root `.env` or run `DEMO_INCIDENTS_ENABLED=true make docker-up`. For the
-one-command stack, pass it on each `up` or `resume`, for example
-`DEMO_INCIDENTS_ENABLED=true bash docker/local-setup.sh resume`.
+Use this only on a dedicated synthetic demo stack. In the one-command setup,
+choose to create the development accounts, then opt in to the demo incidents
+button. The answer is saved for `up` and `resume`. Older three-line settings
+files leave the button off. After updating the images and migrations, on a
+stack with eligible demo accounts you can set the fourth line of
+`.local/full-stack/settings` to `true` while stopped, then resume.
+
+For the core setup, after applying both migration chains and provisioning the
+demo accounts, put `DEMO_INCIDENTS_ENABLED=true` in the root `.env` or run
+`DEMO_INCIDENTS_ENABLED=true make docker-up`.
 
 Sign in as an admin and choose **Admin → Add 10 demo incidents**. This creates
 one batch of ten `[Demo]` reports across `employee_a`, `employee_b`, and

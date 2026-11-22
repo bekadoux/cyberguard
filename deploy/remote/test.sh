@@ -14,6 +14,12 @@ git -C "$repo" init --quiet
 git -C "$repo" add deploy
 git -C "$repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
     -c core.hooksPath=/dev/null commit --quiet --no-gpg-sign -m 'test: prepare fixture release'
+old_revision=$(git -C "$repo" rev-parse HEAD)
+mkdir -p "$repo/deploy/app-vm"
+cp "$root/deploy/app-vm/config.env.example" "$repo/deploy/app-vm/"
+git -C "$repo" add deploy/app-vm
+git -C "$repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
+    -c core.hooksPath=/dev/null commit --quiet --no-gpg-sign -m 'test: support demo incidents'
 revision=$(git -C "$repo" rev-parse HEAD)
 printf 'must-not-upload\n' > "$repo/untracked"
 printf 'private test key\n' > "$scratch/app ssh key"
@@ -141,6 +147,17 @@ unset SAME_MACHINE
 grep -q 'two different VMs' "$scratch/out"
 
 : > "$scratch/trace"
+cp "$scratch/settings" "$scratch/missing-seed"
+printf 'DEMO_INCIDENTS=yes\n' >> "$scratch/missing-seed"
+reject bash "$repo/deploy/remote-setup.sh" --config "$scratch/missing-seed" preflight > "$scratch/out" 2>&1
+grep -q 'DEMO_INCIDENTS=yes requires DEMO_SEED=yes' "$scratch/out"
+sed "s/^REVISION=.*/REVISION=$old_revision/" "$scratch/settings" > "$scratch/old-release"
+printf 'DEMO_SEED=yes\nDEMO_INCIDENTS=yes\n' >> "$scratch/old-release"
+reject bash "$repo/deploy/remote-setup.sh" --config "$scratch/old-release" preflight > "$scratch/out" 2>&1
+grep -q 'selected revision does not support the demo incidents button' "$scratch/out"
+[[ ! -s $scratch/trace ]]
+
+: > "$scratch/trace"
 run preflight </dev/null
 grep -qx 'app batch' "$scratch/trace"
 grep -qx 'ai batch' "$scratch/trace"
@@ -166,6 +183,7 @@ grep -qx 'ai tty' "$scratch/trace"
 grep -qx 'APP_AI_TLS_NAME=ai.internal' "$scratch/config-app"
 grep -qx 'AI_GO_URL=https://app.internal:8443' "$scratch/config-ai"
 grep -qx 'APP_ALLOW_DEMO_SEED=no' "$scratch/config-app"
+reject grep -q '^DEMO_INCIDENTS_ENABLED=' "$scratch/config-app"
 grep -qx 'ai receive ai_runtime_url' "$scratch/trace"
 grep -qx 'ai receive ai_internal_token' "$scratch/trace"
 grep -qx 'app receive public.key' "$scratch/trace"
@@ -184,6 +202,22 @@ if grep -Eq 'upload|initialize|configure|prepare|receive| installed$' "$scratch/
     echo 'An ordinary lifecycle command tried to provision or open writes.' >&2
     exit 1
 fi
+
+# First setup offers the separate opt-in and saves it. Only the app VM receives it.
+printf '%s\n' app-test "$scratch/app ssh key" ai-test "$scratch/ai ssh key" \
+    cg.example.org 10.0.0.4 10.0.0.5 '' '' '' "$tls" provided yes yes yes |
+    script -q -e -c "bash '$repo/deploy/remote-setup.sh' --config '$scratch/interactive' install" /dev/null > "$scratch/out"
+grep -q 'Enable the admin button to add synthetic demo incidents (yes or no) \[no\]' "$scratch/out"
+grep -qx 'DEMO_SEED=yes' "$scratch/interactive"
+grep -qx 'DEMO_INCIDENTS=yes' "$scratch/interactive"
+grep -qx 'APP_ALLOW_DEMO_SEED=yes' "$scratch/config-app"
+grep -qx 'DEMO_INCIDENTS_ENABLED=true' "$scratch/config-app"
+reject grep -q 'DEMO_INCIDENTS' "$scratch/config-ai"
+grep -q 'Add 10 demo incidents' "$scratch/out"
+: > "$scratch/trace"
+bash "$repo/deploy/remote-setup.sh" --config "$scratch/interactive" resume </dev/null > "$scratch/out"
+grep -q 'Add 10 demo incidents' "$scratch/out"
+reject grep -Eq 'upload|initialize|configure|prepare|receive| installed$' "$scratch/trace"
 
 # Exercise the actual host helper logic in private temporary state, not /etc or Docker.
 (
@@ -208,7 +242,7 @@ fi
     check_database_volumes() { [[ -f $prepare_guard ]] || fail 'Missing managed volumes.'; }
     prepare
     prepare
-    [[ $(cat "$scratch/host-actions") == $'build\ndb-up\nbootstrap\nmigrate\nbootstrap-ai' ]]
+    [[ $(cat "$scratch/host-actions") == $'build\ndb-up\nbootstrap\nmigrate\nbootstrap-ai\nseed-demo' ]]
     rm -- "$prepare_guard"
     if (require_prepared); then echo 'Missing volumes were not detected.' >&2; exit 1; fi
     touch -- "$prepare_guard"

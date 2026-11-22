@@ -35,7 +35,7 @@ declare -A settings=(
     [APP_SSH]='' [APP_KEY]='' [AI_SSH]='' [AI_KEY]='' [REVISION]=''
     [APP_PUBLIC_NAME]='' [APP_PRIVATE_IP]='' [AI_PRIVATE_IP]=''
     [APP_GO_TLS_NAME]='app.internal' [APP_DB_TLS_NAME]='incidents.internal' [AI_TLS_NAME]='ai.internal'
-    [TLS_DIR]='' [PUBLIC_TLS]='acme' [DEMO_SEED]='no' [NETWORK_APPROVED]='no'
+    [TLS_DIR]='' [PUBLIC_TLS]='acme' [DEMO_SEED]='no' [DEMO_INCIDENTS]='no' [NETWORK_APPROVED]='no'
     [APP_EDGE_SUBNET]='172.28.40.0/28' [APP_IDENTITY_SUBNET]='172.28.41.0/28'
     [APP_INCIDENT_SUBNET]='172.28.42.0/28'
 )
@@ -80,6 +80,9 @@ configure() {
         'Synthetic demo only: seeding creates four development accounts. Do not opt in for real data.' \
         'The installer never prints passwords, changes NSGs/firewalls, or issues private certificates.' >&"$terminal"
     prompt DEMO_SEED 'Create demo accounts (yes or no)'
+    if [[ ${settings[DEMO_SEED]} == yes ]]; then
+        prompt DEMO_INCIDENTS 'Enable the admin button to add synthetic demo incidents (yes or no)'
+    fi
     printf 'Review public 80/443 and the private VM /32 allowlists before approving network exposure.\n' >&"$terminal"
     prompt NETWORK_APPROVED 'I reviewed and approved DNS, NSGs and Docker-aware firewall policy (yes or no)'
     [[ ${settings[NETWORK_APPROVED]} == yes ]] || die 'Network review not approved. Nothing was deployed.'
@@ -127,6 +130,9 @@ validate_settings() {
     done
     [[ ${settings[PUBLIC_TLS]} == acme || ${settings[PUBLIC_TLS]} == provided ]] || die 'Invalid PUBLIC_TLS.'
     [[ ${settings[DEMO_SEED]} == yes || ${settings[DEMO_SEED]} == no ]] || die 'Invalid DEMO_SEED.'
+    [[ ${settings[DEMO_INCIDENTS]} == yes || ${settings[DEMO_INCIDENTS]} == no ]] || die 'Invalid DEMO_INCIDENTS.'
+    [[ ${settings[DEMO_INCIDENTS]} == no || ${settings[DEMO_SEED]} == yes ]] ||
+        die 'DEMO_INCIDENTS=yes requires DEMO_SEED=yes.'
     [[ ${settings[NETWORK_APPROVED]} == yes ]] || die 'Review network policy, then set NETWORK_APPROVED=yes.'
     for key in APP_PUBLIC_NAME APP_GO_TLS_NAME APP_DB_TLS_NAME AI_TLS_NAME; do
         valid_dns "${settings[$key]}" || die "Invalid DNS name: $key"
@@ -153,6 +159,10 @@ validate_settings() {
     if [[ $command == install || $command == preflight ]]; then
         git -C "$root" cat-file -e "$revision:deploy/remote/host.sh" ||
             die 'The selected commit must contain the remote host installer. Use a reviewed, committed revision.'
+        if [[ ${settings[DEMO_INCIDENTS]} == yes ]]; then
+            git -C "$root" grep -q '^DEMO_INCIDENTS_ENABLED=' "$revision" -- deploy/app-vm/config.env.example ||
+                die 'The selected revision does not support the demo incidents button.'
+        fi
     fi
 }
 
@@ -322,6 +332,11 @@ app_config() {
         "APP_AI_TLS_NAME=${settings[AI_TLS_NAME]}" "APP_PUBLIC_TLS=${settings[PUBLIC_TLS]}" \
         "APP_ALLOW_DEMO_SEED=${settings[DEMO_SEED]}" 'APP_NETWORK_APPROVED=yes' \
         "APP_GO_IMAGE=cyberguard-go:$revision" "APP_WEB_IMAGE=cyberguard-web:$revision"
+    # False is already the app default. Keep the payload and deployment receipt
+    # unchanged for setups that did not opt in, including older pinned revisions.
+    if [[ ${settings[DEMO_INCIDENTS]} == yes ]]; then
+        printf '%s\n' 'DEMO_INCIDENTS_ENABLED=true'
+    fi
 }
 
 ai_config() {
@@ -446,4 +461,7 @@ printf '\nReady at https://%s/login\n' "${settings[APP_PUBLIC_NAME]}"
 printf '%s\n' 'Readiness passed; verify real inference with a new synthetic incident as a separate acceptance step.'
 if [[ ${settings[DEMO_SEED]} == yes ]]; then
     printf '%s\n' 'Demo initial passwords are on the app VM under /etc/cyberguard/app/secrets/credentials/provisioning/.'
+fi
+if [[ ${settings[DEMO_INCIDENTS]} == yes ]]; then
+    printf '%s\n' 'Sign in as admin and choose Admin → Add 10 demo incidents.'
 fi

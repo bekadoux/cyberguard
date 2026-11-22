@@ -113,9 +113,12 @@ Application admin and migrator credentials stay on the application VM.
 `DEMO_SEED=yes` explicitly enables the four development accounts for a
 synthetic demo; their initial passwords are in the protected application VM
 provisioning directory. The installer does not provision a real-user
-administrator account or print any passwords. The
-[demo incidents button](azure-app-deployment.md#4-explicit-fresh-database-setup)
-is a separate opt-in in the application VM configuration.
+administrator account or print any passwords. If you choose to seed the accounts,
+the installer also offers to enable **Admin → Add 10 demo incidents**. It defaults
+to No and saves the choice. For an unattended fresh install, set
+`DEMO_INCIDENTS=yes` alongside `DEMO_SEED=yes`. The installer only enables the
+button; it does not add any incidents. Do not edit the setting for an existing
+remote install: the receipts bind it to its original configuration.
 
 Preflight does not prove Azure NSG denial or public certificate issuance.
 The final checks verify real connectivity with TLS, including from the AI

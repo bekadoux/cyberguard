@@ -48,6 +48,7 @@ case "$1 $2" in
         [[ $2 == "$FIXTURE_PROJECT" ]]
         [[ ! -v COMPOSE_PROFILES && ! -v COMPOSE_FILE ]]
         [[ $AI_MODE == models && $DOCKER_SECRETS_DIR == "$PWD/.local/full-stack/secrets" ]]
+        [[ $DEMO_INCIDENTS_ENABLED == "${EXPECT_DEMO_INCIDENTS:-false}" ]]
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 config|pull|exec|logs) exit 0 ;;
@@ -104,14 +105,16 @@ reject run resume </dev/null > "$scratch/no-setup" 2>&1
 grep -q 'No full local setup' "$scratch/no-setup"
 
 # Interrupt model preparation after successful seeding. Passwords go only to the TTY.
-export FAIL_MODELS=1
-reject terminal '> "$FIXTURE_DIR/stdout"' <<< $'0.0.0.0\nlan\ny\n8088\n18088\n\ny' > "$scratch/first"
+export FAIL_MODELS=1 EXPECT_DEMO_INCIDENTS=true DEMO_INCIDENTS_ENABLED=false
+reject terminal '> "$FIXTURE_DIR/stdout"' <<< $'0.0.0.0\nlan\ny\n8088\n18088\n\ny\ny' > "$scratch/first"
 unset FAIL_MODELS
 grep -q '192.168.7.5' "$scratch/first"
 grep -q 'Choose an unused TCP port' "$scratch/first"
+grep -q 'Enable the admin button to add synthetic demo incidents? \[y/N\]' "$scratch/first"
 grep -q 'shown only once' "$scratch/first"
 grep -q 'dev_admin_password' "$scratch/first"
 [[ -e .local/full-stack/seed-demo.done && ! -e .local/full-stack/models.done ]]
+[[ $(cat .local/full-stack/settings) == $'192.168.7.5\n18088\nyes\ntrue' ]]
 for account in employee_a employee_b analyst admin; do
     password=$(<"$secrets/dev_${account}_password")
     [[ $password =~ ^[a-f0-9]{64}$ ]]
@@ -126,6 +129,7 @@ done
 : > "$scratch/docker.log"
 run </dev/null > "$scratch/resumed"
 grep -q 'http://192.168.7.5:18088/login' "$scratch/resumed"
+grep -q 'Add 10 demo incidents' "$scratch/resumed"
 [[ -e .local/full-stack/models.done && -d .local/full-stack-models ]]
 reject run prepare-models > "$scratch/running" 2>&1
 grep -q 'Stop the full stack' "$scratch/running"
@@ -140,6 +144,14 @@ if grep -Eq ' -T (bootstrap-|migrate-|seed-demo)' "$scratch/docker.log" ||
     exit 1
 fi
 grep -q 'stop web ai-worker' "$scratch/docker.log"
+
+# Old settings still load with the button off, even if the parent shell sets the flag.
+settings=.local/full-stack/settings
+cp "$settings" "$scratch/current-settings"
+head -n 3 "$scratch/current-settings" > "$settings"
+DEMO_INCIDENTS_ENABLED=true EXPECT_DEMO_INCIDENTS=false run status
+[[ $(wc -l < "$settings") == 3 ]]
+mv "$scratch/current-settings" "$settings"
 
 # An incomplete database pair must not be silently recreated.
 cp "$scratch/volumes" "$scratch/saved-volumes"
@@ -160,5 +172,11 @@ terminal destroy <<< destroy > "$scratch/destroyed"
 grep -q 'down --volumes --remove-orphans' "$scratch/docker.log"
 terminal destroy --purge-models <<< destroy > "$scratch/purged"
 [[ ! -e .local/full-stack-models ]]
+
+# Accept account seeding but leave the incident option blank: it is saved off.
+FAIL_MODELS=1 EXPECT_DEMO_INCIDENTS=false DEMO_INCIDENTS_ENABLED=true \
+    reject terminal <<< $'\n18088\n\n\ny' > "$scratch/default"
+[[ $(cat "$settings") == $'127.0.0.1\n18088\nyes\nfalse' ]]
+reject grep -q 'Add 10 demo incidents' "$scratch/default"
 
 echo 'Full local setup: Compose isolation and lifecycle checks passed.'
