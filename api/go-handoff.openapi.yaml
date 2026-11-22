@@ -58,7 +58,7 @@ paths:
           required: true
           schema: {type: string, format: uuid}
       responses:
-        '200': {description: Assigned to caller, status becomes triage}
+        '200': {description: 'Assigned to caller, status becomes triage'}
         '401': {description: Session required}
         '403': {description: Professional role required}
         '404': {description: Incident not found}
@@ -194,7 +194,7 @@ paths:
                 text: {type: string, minLength: 1, maxLength: 5000}
                 visibility: {type: string, enum: [public, internal]}
       responses:
-        '201': {description: Comment created, history and notifications updated}
+        '201': {description: 'Comment created, history and notifications updated'}
         '403': {description: Visibility/assignment forbidden}
   /incidents/{id}/history:
     get:
@@ -209,7 +209,7 @@ paths:
       summary: List own recent incident notifications
       description: Incident-linked notifications and their read/unread actions require current access to the non-archived incident.
       responses:
-        '200': {description: Own notifications only, max 100 records}
+        '200': {description: 'Own notifications only, max 100 records'}
   /notifications/{id}/read:
     post:
       summary: Mark own notification read
@@ -241,24 +241,26 @@ paths:
                 properties:
                   users: {type: array, items: {$ref: '#/components/schemas/User'}}
                   next_cursor: {type: [string, 'null']}
-        '400': {description: Invalid filter, cursor or page size}
+        '400': {description: 'Invalid filter, cursor or page size'}
         '403': {description: Admin role required}
     post:
-      summary: Admin creates an account
+      summary: Admin creates an employee account
+      description: Use the separate role change operation to promote an existing account.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [username, password, role]
+              required: [username, password]
               additionalProperties: false
               properties:
-                username: {type: string, minLength: 3, maxLength: 64}
+                username: {type: string, minLength: 3, maxLength: 128, description: Maximum 128 UTF-8 bytes before normalization; normalized username is 3–64 ASCII characters.}
                 password: {$ref: '#/components/schemas/NewPassword'}
-                role: {type: string, enum: [employee, analyst, admin]}
+                role: {type: [string, 'null'], enum: [employee, null], description: Optional legacy field. The role is always employee.}
       responses:
         '201': {description: Account created; password never returned}
+        '400': {description: Invalid credentials or requested non-employee role}
         '409': {description: Username already exists}
   /admin/users/{id}/role:
     post:
@@ -277,7 +279,8 @@ paths:
                 reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
       responses:
         '200': {description: Role updated and auth_version incremented}
-        '409': {description: Cannot change own role}
+        '403': {description: Admin role required or owner_protected}
+        '409': {description: Cannot change own role or remove the last active admin}
   /admin/users/{id}/block:
     post:
       summary: Admin blocks/unblocks another user and revokes old sessions
@@ -295,7 +298,8 @@ paths:
                 reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
       responses:
         '200': {description: Block flag updated and auth_version incremented}
-        '409': {description: Cannot block/unblock self}
+        '403': {description: Admin role required or owner_protected}
+        '409': {description: Cannot block/unblock self or remove the last active admin}
   /admin/users/{id}/password:
     post:
       summary: Admin resets password with Argon2id and revokes old sessions
@@ -310,15 +314,67 @@ paths:
               additionalProperties: false
               properties:
                 password: {$ref: '#/components/schemas/NewPassword'}
+                current_password: {type: string, format: password, maxLength: 128, description: Required when the owner changes their own password. Other admins may not reset the owner's password.}
                 reason: {type: string, maxLength: 1000, description: Optional non-secret audit reason}
       responses:
         '200': {description: Password reset; no hash or password returned}
+        '403': {description: 'Admin role required, owner_protected, or invalid_confirmation'}
+        '429': {description: confirmation_rate_limited; Retry-After is supplied}
   /admin/audit:
     get:
       summary: Admin reads user administration audit (incident history is separate)
       responses:
         '200': {description: Last 500 identity events; no credential content}
         '403': {description: Admin role required}
+  /admin/ownership:
+    get:
+      summary: Read the current owner ID
+      responses:
+        '200':
+          description: Owner UUID, or null until the operator initializes ownership.
+          content:
+            application/json:
+              schema: &ownership_response
+                type: object
+                required: [owner_id]
+                additionalProperties: false
+                properties:
+                  owner_id: {type: [string, 'null'], format: uuid}
+        '400': {description: Unexpected query parameters}
+        '401': {description: Session required}
+        '403': {description: Admin role required}
+        '503': {description: Identity storage unavailable}
+  /admin/ownership/transfer:
+    post:
+      summary: Current owner transfers ownership to another active admin
+      description: >-
+        Requires the current owner's own password. Ownership and its audit entry
+        commit together. Both accounts keep their existing admin role. The new owner
+        gains the protection immediately; the old owner loses it immediately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [user_id, password]
+              properties:
+                user_id: {type: string, format: uuid}
+                password: {type: string, format: password, minLength: 1, maxLength: 128, description: Current owner's password; at most 128 UTF-8 bytes.}
+      responses:
+        '200':
+          description: New owner ID; no cookie or credential content.
+          content:
+            application/json:
+              schema: *ownership_response
+        '400': {description: Invalid input or self-transfer}
+        '401': {description: Session required or account authorization changed during confirmation}
+        '403': {description: 'Admin role required, owner_required, invalid_confirmation, or rejected browser origin'}
+        '409': {description: 'owner_target_ineligible; target is missing, blocked, or not an admin'}
+        '415': {description: Content-Type must be application/json}
+        '429': {description: confirmation_rate_limited; Retry-After is supplied}
+        '503': {description: Identity storage or password verification temporarily unavailable}
   /incidents/{id}/ai-feedback:
     post:
       summary: Record human review of a real AI assessment and optionally confirm category
@@ -351,7 +407,7 @@ paths:
         '400': {description: Invalid decision or category}
         '403': {description: Assigned analyst or admin required}
         '404': {description: Incident or assessment unavailable}
-        '409': {description: Duplicate review, terminal incident or synthetic fixture}
+        '409': {description: 'Duplicate review, terminal incident or synthetic fixture'}
   /incidents/{id}/ai-feedback/{job_id}:
     get:
       summary: Read the persisted human review for a stored assessment
@@ -380,7 +436,7 @@ paths:
         '400': {description: Unexpected query parameters}
         '401': {description: Session required}
         '403': {description: Professional role required}
-        '404': {description: Missing or archived incident, or no matching stored result}
+        '404': {description: 'Missing or archived incident, or no matching stored result'}
   /notifications/{id}/unread:
     post:
       summary: Mark an own notification as unread

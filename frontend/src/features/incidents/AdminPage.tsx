@@ -48,25 +48,48 @@ function NewPasswordField({
 
 function ResetPasswordForm({
   username,
+  confirmCurrentPassword,
   disabled,
   onSubmit,
   onCancel,
 }: {
   username: string;
+  confirmCurrentPassword: boolean;
   disabled: boolean;
-  onSubmit: (password: string) => void;
+  onSubmit: (password: string, currentPassword?: string) => void;
   onCancel: () => void;
 }) {
   const [password, setPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   return (
     <form
       className="workflow-form"
       aria-label={`Reset password for ${username}`}
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit(password);
+        onSubmit(password, confirmCurrentPassword ? currentPassword : undefined);
       }}
     >
+      {confirmCurrentPassword && (
+        <label>
+          Current password for {username}
+          <input
+            type="password"
+            autoComplete="current-password"
+            required
+            value={currentPassword}
+            onChange={({ currentTarget }) => {
+              const next = currentTarget.value;
+              currentTarget.setCustomValidity(
+                new TextEncoder().encode(next).length <= 128
+                  ? ''
+                  : 'Use at most 128 UTF-8 bytes.',
+              );
+              setCurrentPassword(next);
+            }}
+          />
+        </label>
+      )}
       <NewPasswordField
         label={`New password for ${username}`}
         value={password}
@@ -88,11 +111,11 @@ export function AdminPage() {
   const { user, pending, runProtected } = useAuth();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [audit, setAudit] = useState<IdentityEvent[]>([]);
+  const [ownerId, setOwnerId] = useState<string | null>();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [resetId, setResetId] = useState<string | null>(null);
   const resetOpener = useRef<HTMLButtonElement | null>(null);
-  const [role, setRole] = useState<ManagedUser['role']>('employee');
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -103,12 +126,17 @@ export function AdminPage() {
     if (user?.role !== 'admin') return;
     const controller = new AbortController();
     void runProtected(() =>
-      Promise.all([adminApi.users(controller.signal), adminApi.audit(controller.signal)]),
+      Promise.all([
+        adminApi.users(controller.signal),
+        adminApi.audit(controller.signal),
+        adminApi.ownerId(controller.signal),
+      ]),
     ).then(
-      ([accounts, events]) => {
+      ([accounts, events, owner]) => {
         if (!controller.signal.aborted) {
           setUsers(accounts);
           setAudit(events);
+          setOwnerId(owner);
         }
       },
       (e) => {
@@ -160,41 +188,27 @@ export function AdminPage() {
       )}
       <section className="panel detail-panel workflow-card">
         <h2>Create user</h2>
+        <p>New accounts are employees. To assign another role, use Manage users below.</p>
         <form
           className="workflow-form"
           onSubmit={(e) => {
             e.preventDefault();
-            void mutate(() => adminApi.create(username, password, role), 'User created.');
+            void mutate(() => adminApi.create(username, password), 'User created.');
             setPassword('');
           }}
         >
-          <div className="workflow-pair">
-            <label>
-              Username
-              <input
-                required
-                minLength={3}
-                maxLength={64}
-                pattern="[a-z0-9][a-z0-9_.\-]{2,63}"
-                autoComplete="off"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </label>
-            <label>
-              Role
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as ManagedUser['role'])}
-              >
-                {roles.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <label>
+            Username
+            <input
+              required
+              minLength={3}
+              maxLength={64}
+              pattern="[a-z0-9][a-z0-9_.\-]{2,63}"
+              autoComplete="off"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </label>
           <NewPasswordField
             label="Initial password"
             value={password}
@@ -221,91 +235,99 @@ export function AdminPage() {
           />
         </label>
         <ul className="activity-list">
-          {users.map((account) => (
-            <li key={account.id}>
-              <div className="workflow-row">
-                <div>
-                  <strong>{account.username}</strong>{' '}
-                  <span className="muted">
-                    {account.is_blocked ? 'Blocked' : 'Active'} · {account.role}
-                  </span>
+          {users.map((account) => {
+            const isOwner = account.id === ownerId;
+            const isSelf = account.id === user.id;
+            const mayReset = ownerId !== undefined && (!isOwner || isSelf);
+            return (
+              <li key={account.id}>
+                <div className="workflow-row">
+                  <div>
+                    <strong>{account.username}</strong>{' '}
+                    <span className="muted">
+                      {account.is_blocked ? 'Blocked' : 'Active'} · {account.role}
+                      {isOwner && ' · Application owner'}
+                    </span>
+                  </div>
+                  <span className="metadata-id">{account.id.slice(0, 8)}</span>
                 </div>
-                <span className="metadata-id">{account.id.slice(0, 8)}</span>
-              </div>
-              <div className="workflow-actions">
-                <label>
-                  Role
-                  <select
-                    aria-label={`Role for ${account.username}`}
-                    value={account.role}
-                    disabled={busy || account.id === user.id}
-                    onChange={(e) => {
-                      const nextRole = e.target.value as ManagedUser['role'];
-                      if (window.confirm(`Change role for ${account.username}?`))
+                <div className="workflow-actions">
+                  <label>
+                    Role
+                    <select
+                      aria-label={`Role for ${account.username}`}
+                      value={account.role}
+                      disabled={busy || isSelf || isOwner}
+                      onChange={(e) => {
+                        const nextRole = e.target.value as ManagedUser['role'];
+                        if (window.confirm(`Change role for ${account.username}?`))
+                          void mutate(
+                            () => adminApi.role(account.id, nextRole, reason),
+                            'Role updated.',
+                          );
+                      }}
+                    >
+                      {roles.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    disabled={busy || isSelf || isOwner}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `${account.is_blocked ? 'Unblock' : 'Block'} ${account.username}?`,
+                        )
+                      )
                         void mutate(
-                          () => adminApi.role(account.id, nextRole, reason),
-                          'Role updated.',
+                          () => adminApi.block(account.id, !account.is_blocked, reason),
+                          'Account status updated.',
                         );
                     }}
                   >
-                    {roles.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className="button button-secondary"
-                  disabled={busy || account.id === user.id}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `${account.is_blocked ? 'Unblock' : 'Block'} ${account.username}?`,
-                      )
-                    )
+                    {account.is_blocked ? 'Unblock' : 'Block'}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    aria-label={`Reset password for ${account.username}`}
+                    aria-expanded={resetId === account.id}
+                    disabled={busy || pending || !mayReset}
+                    onClick={(e) => {
+                      resetOpener.current = e.currentTarget;
+                      setResetId(resetId === account.id ? null : account.id);
+                    }}
+                  >
+                    Reset password
+                  </button>
+                </div>
+                {resetId === account.id && mayReset && (
+                  <ResetPasswordForm
+                    key={String(isOwner)}
+                    username={account.username}
+                    confirmCurrentPassword={isOwner && isSelf}
+                    disabled={busy || pending}
+                    onCancel={() => {
+                      setResetId(null);
+                      resetOpener.current?.focus();
+                    }}
+                    onSubmit={(next, current) => {
+                      setResetId(null);
                       void mutate(
-                        () => adminApi.block(account.id, !account.is_blocked, reason),
-                        'Account status updated.',
+                        () => adminApi.password(account.id, next, reason, current),
+                        'Password reset.',
                       );
-                  }}
-                >
-                  {account.is_blocked ? 'Unblock' : 'Block'}
-                </button>
-                <button
-                  type="button"
-                  className="button button-secondary"
-                  aria-label={`Reset password for ${account.username}`}
-                  aria-expanded={resetId === account.id}
-                  disabled={busy || pending}
-                  onClick={(e) => {
-                    resetOpener.current = e.currentTarget;
-                    setResetId(resetId === account.id ? null : account.id);
-                  }}
-                >
-                  Reset password
-                </button>
-              </div>
-              {resetId === account.id && (
-                <ResetPasswordForm
-                  username={account.username}
-                  disabled={busy || pending}
-                  onCancel={() => {
-                    setResetId(null);
-                    resetOpener.current?.focus();
-                  }}
-                  onSubmit={(next) => {
-                    setResetId(null);
-                    void mutate(
-                      () => adminApi.password(account.id, next, reason),
-                      'Password reset.',
-                    );
-                  }}
-                />
-              )}
-            </li>
-          ))}
+                    }}
+                  />
+                )}
+              </li>
+            );
+          })}
         </ul>
         {users.length === 0 && <p className="muted">No users loaded.</p>}
       </section>

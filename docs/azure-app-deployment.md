@@ -162,7 +162,7 @@ shortcut. Before either migrator writes, the manager compares the SQL files for 
 databases in the selected image to the checkout and pins that image ID for the run.
 It accepts Go only if absent or exited, then checks current and image target versions
 after migrating. There is no automatic downgrade. Currently identity
-must reach 00003 and incidents 00007. API and worker never migrate themselves.
+must reach 00004 and incidents 00007. API and worker never migrate themselves.
 Status uses separate file-backed migrator connections with server-side
 `default_transaction_read_only=on`. This is deliberate: Goose can lazily create its
 version table even in status mode. Startup/check must reject an unmigrated database
@@ -173,6 +173,33 @@ For this synthetic demo only, set `APP_ALLOW_DEMO_SEED=yes`, then explicitly run
 and `admin` are in protected provisioning files. Read privately; never put passwords in
 command arguments, browser configuration, screenshots or test reports. Repeating seed
 preserves accounts and passwords. Do not seed these accounts into a real-user deployment.
+
+### Initialize the application owner
+
+After migrating and before starting Go, initialize the owner once. On an
+existing installation, do this during the upgrade maintenance window, with Go
+stopped. The command refuses to replace an already-initialized owner.
+
+For a fresh installation, supply a protected file with the initial password:
+
+```bash
+sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env \
+  init-owner first_admin --create < /secure/path/owner-password
+```
+
+Alternatively, explicitly select an existing active admin, including on a
+legacy demo installation. This does not change their password:
+
+```bash
+sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env \
+  init-owner existing_admin
+```
+
+Only then, if you want people to self-register as `employee`, set
+`SIGNUP_ENABLED=true` in `/etc/cyberguard/app/config.env`. The default is false.
+Enable it only for an audience allowed to create active accounts; the API
+does not ask for an invite or approval. Do not use the demo seed to create
+the initial admin for a real-user deployment.
 
 ## 5. Connect the AI VM and start
 

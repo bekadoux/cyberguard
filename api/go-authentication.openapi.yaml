@@ -14,6 +14,70 @@ servers:
   - url: http://127.0.0.1:8088/api
     description: Local Docker Caddy gateway (HTTP development only)
 paths:
+  /auth/signup:
+    post:
+      operationId: signup
+      summary: Register an active employee account
+      security: []
+      description: >-
+        Available only with SIGNUP_ENABLED=true. The server assigns employee;
+        no role field is accepted. Signup does not start or modify a session.
+        Sign in separately. Five attempts per peer per minute, independently of login.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 128
+                  description: At most 128 UTF-8 bytes before trimming and lowercasing; normalized username is 3–64 ASCII characters.
+                password:
+                  type: string
+                  format: password
+                  maxLength: 128
+                  description: Nonblank and 12–128 UTF-8 bytes, without NUL. Never trimmed, logged or returned.
+      responses:
+        '201':
+          description: Employee created; no Set-Cookie is issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '403':
+          $ref: '#/components/responses/CSRFRejected'
+        '404':
+          description: Public signup is not enabled.
+        '409':
+          description: username_taken; no existing account details are disclosed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          $ref: '#/components/responses/BodyTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          description: signup_rate_limited.
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /auth/login:
     post:
       operationId: login
@@ -26,7 +90,7 @@ paths:
         Five POST attempts per peer address per one-minute window are allowed,
         including successful and malformed attempts. At most two password checks
         run concurrently per Go process. Login clears prior session values and
-        invalidates the old token when one was supplied. No public registration.
+        invalidates the old token when one was supplied.
         Only a successful login issues a cookie; failed login responses never emit
         Set-Cookie, even if an existing session was supplied. The persistent cookie
         expires at the absolute session deadline; idle expiry is enforced in PostgreSQL.
@@ -193,7 +257,7 @@ components:
           properties:
             code:
               type: string
-              enum: [invalid_request, invalid_credentials, authentication_required, csrf_rejected, body_too_large, unsupported_media_type, login_rate_limited, auth_busy, auth_unavailable, internal_error]
+              enum: [invalid_request, invalid_credentials, authentication_required, csrf_rejected, body_too_large, unsupported_media_type, login_rate_limited, signup_rate_limited, username_taken, auth_busy, auth_unavailable, internal_error]
             message:
               type: string
   responses:
@@ -216,7 +280,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     BodyTooLarge:
-      description: Login request exceeds its 4096-byte read limit; body_too_large.
+      description: Credentials request exceeds its 4096-byte read limit; body_too_large.
       content:
         application/json:
           schema:

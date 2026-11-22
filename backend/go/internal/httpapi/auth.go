@@ -22,12 +22,15 @@ import (
 )
 
 type Authentication struct {
-	service  *auth.Service
-	sessions *scs.SessionManager
-	limiter  *auth.LoginLimiter
-	csrf     *http.CrossOriginProtection
-	settings config.AuthConfig
-	timeout  time.Duration
+	service                  *auth.Service
+	sessions                 *scs.SessionManager
+	limiter                  *auth.LoginLimiter
+	signupLimiter            *auth.LoginLimiter
+	ownerConfirmationLimiter *auth.LoginLimiter
+	registrar                auth.EmployeeRegistrar
+	csrf                     *http.CrossOriginProtection
+	settings                 config.AuthConfig
+	timeout                  time.Duration
 }
 
 type userDTO struct {
@@ -52,6 +55,10 @@ func NewAuthentication(users auth.Users, store scs.Store, settings config.AuthCo
 	service, err := auth.NewService(users)
 	if err != nil {
 		return nil, err
+	}
+	registrar, _ := users.(auth.EmployeeRegistrar)
+	if settings.SignupEnabled && registrar == nil {
+		return nil, errors.New("signup requires employee registration queries")
 	}
 	sessions := scs.New()
 	sessions.Store = store
@@ -96,7 +103,9 @@ func NewAuthentication(users auth.Users, store scs.Store, settings config.AuthCo
 	}))
 	return &Authentication{
 		service: service, sessions: sessions, csrf: csrf, settings: settings, timeout: timeout,
-		limiter: auth.NewLoginLimiter(5, time.Minute, 10000),
+		limiter:       auth.NewLoginLimiter(5, time.Minute, 10000),
+		signupLimiter: auth.NewLoginLimiter(5, time.Minute, 10000), registrar: registrar,
+		ownerConfirmationLimiter: auth.NewLoginLimiter(5, time.Minute, 10000),
 	}, nil
 }
 
@@ -105,6 +114,9 @@ func (a *Authentication) Mount(router chi.Router) {
 		routes.Use(a.browserPolicy)
 		routes.Use(a.withDeadline)
 		routes.With(a.limitLogin, a.withSession).Post("/login", a.login)
+		if a.settings.SignupEnabled {
+			routes.Post("/signup", a.signup)
+		}
 		routes.With(a.withSession, a.requireUser).Get("/me", a.me)
 		routes.With(a.withSession).Post("/logout", a.logout)
 	})

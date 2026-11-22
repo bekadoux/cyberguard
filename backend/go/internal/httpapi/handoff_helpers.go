@@ -55,6 +55,8 @@ func (a *HandoffAPI) mountAuxiliaryRoutes(router chi.Router) {
 		r.Post("/users/{id}/block", a.setBlocked)
 		r.Post("/users/{id}/password", a.resetPassword)
 		r.Get("/audit", a.listAudit)
+		r.Get("/ownership", a.getOwnership)
+		r.Post("/ownership/transfer", a.transferOwnership)
 	})
 }
 

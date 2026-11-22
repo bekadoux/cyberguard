@@ -73,6 +73,7 @@ load_config() {
     [[ $APP_AI_IP != "$APP_BIND_IP" ]] || fail 'Application and AI VM addresses must differ.'
     [[ $APP_NETWORK_APPROVED == yes || $APP_NETWORK_APPROVED == no ]] || fail 'Invalid network acknowledgement.'
     [[ $APP_ALLOW_DEMO_SEED == yes || $APP_ALLOW_DEMO_SEED == no ]] || fail 'Invalid demo acknowledgement.'
+    [[ $SIGNUP_ENABLED == true || $SIGNUP_ENABLED == false ]] || fail 'SIGNUP_ENABLED must be true or false.'
     [[ $APP_PUBLIC_TLS == acme || $APP_PUBLIC_TLS == provided ]] || fail 'Public TLS must be acme or provided.'
     for key in APP_PUBLIC_NAME APP_GO_TLS_NAME APP_DB_TLS_NAME APP_AI_TLS_NAME; do
         [[ ${!key} =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ && ${!key} == *.* && ${!key} != *..* && ! ${!key} =~ ^[0-9.]+$ ]] || fail "Invalid TLS DNS name: $key"

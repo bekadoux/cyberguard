@@ -115,6 +115,26 @@ files capture them. Container URLs use service names and port 5432. Compose can
 interpolate the root `.env`; it does not inject it wholesale. Never pass the
 privileged `db/.env` to runtime services.
 
+### Demo with self-registration
+
+After `docker-migrate`, skip `docker-seed-demo` if participants should register
+themselves. From the checkout in Bash, initialize the owner once using a protected
+file containing the owner's initial password:
+
+```bash
+export DOCKER_SECRET_GID="$(id -g)"
+docker compose -f compose.yaml -f compose.dev.yaml run --rm -T \
+  migrate-identity /app/seed -owner first_admin -create-owner < /secure/path/owner-password
+SIGNUP_ENABLED=true make docker-up
+```
+
+If the old demo seed already created `admin`, select that account instead:
+run the same Compose command ending in `/app/seed -owner admin`, without a
+password file. Keep the signup setting on subsequent restarts while enrollment
+is needed. Use only synthetic data. Until a signup screen is available, use
+[`POST /auth/signup`](../api/go-authentication.openapi.yaml) through the API.
+The owner can then promote registered employees through the admin role API.
+
 ## Updates and persistence
 
 - Keep `.local/docker-secrets/` and the data volumes together. Secret generation

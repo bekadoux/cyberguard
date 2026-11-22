@@ -22,7 +22,7 @@ from Go. Deployment uses verified TLS; see [deployment architecture](deployment.
   [`db/migrations/`](../db/migrations) owns the two Goose migration chains.
   Apply new numbered migrations rather than editing shared/applied migrations.
   Add explicit grants for new tables. Python does not run its own migrations.
-- Current heads are identity `00003` and incidents `00007`. The incident insert
+- Current heads are identity `00004` and incidents `00007`. The incident insert
   trigger writes the snapshot, initial job, and submitted event in the incident
   transaction. One initial job per incident is enforced in PostgreSQL.
 - Human AI review is an incident action, unique by normalized job UUID. Accepting or
@@ -58,6 +58,33 @@ Start Go in a clean runtime-only environment. Neither Go nor Make automatically 
 when one is empty. Go reads regular secret files (at most 16 KiB) at startup and
 removes one final LF/CRLF only. Percent-encode passwords in connection URLs. Editing
 a file neither rotates its database role nor reloads a process.
+
+## Initialize the application owner
+
+After applying the identity migrations, run the one-off `seed` binary with the
+`identity_migrator` connection. Ownership is initially unset and can be initialized
+only once. This does not run during application startup or the legacy demo seed.
+
+For a fresh installation, create one new active admin as the owner. Supply a
+protected password file via standard input, with no password in command arguments:
+
+```bash
+backend/go/bin/seed -owner first_admin -create-owner < /secure/path/owner-password
+```
+
+On an existing installation, explicitly select an active admin without changing
+their password:
+
+```bash
+backend/go/bin/seed -owner existing_admin
+```
+
+The commands use `IDENTITY_MIGRATION_DATABASE_URL` or its `_FILE` alternative;
+do not expose migration credentials to Go API processes. For managed Docker/VM
+installations use the corresponding [local](docker-setup.md#demo-with-self-registration)
+or [server](azure-app-deployment.md#initialize-the-application-owner) procedure.
+Keep the owner's password in an approved password manager: other admins cannot
+reset it and there is no in-app recovery override.
 
 ## Integration tests
 

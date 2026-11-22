@@ -27,7 +27,7 @@ func Load() (Config, error) {
 	return load(os.LookupEnv)
 }
 
-// LoadIdentityMigrationURL is for one-off migration/demo commands, not the API.
+// LoadIdentityMigrationURL is for one-off migration and provisioning commands, not the API.
 // It deliberately does not require or read the runtime API configuration.
 func LoadIdentityMigrationURL() (string, error) {
 	return databaseURL(os.LookupEnv, "IDENTITY_MIGRATION_DATABASE_URL")

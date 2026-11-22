@@ -8,9 +8,9 @@ with handlers in `internal/httpapi`, auth and session logic in `internal/auth` a
 | Contract | Responsibility |
 | --- | --- |
 | [Foundation](../api/go-foundation.openapi.yaml) | Process liveness and connectivity readiness |
-| [Authentication](../api/go-authentication.openapi.yaml) | Login, current user, and logout |
+| [Authentication](../api/go-authentication.openapi.yaml) | Employee signup, login, current user, and logout |
 | [Incident intake](../api/go-incidents.openapi.yaml) | Create, scoped list, and detail |
-| [Incident workflows](../api/go-handoff.openapi.yaml) | Assignment, transitions, archive, comments, history, notifications, administration, and AI feedback |
+| [Incident workflows and administration](../api/go-handoff.openapi.yaml) | Incident actions, notifications, accounts, ownership, and AI feedback |
 
 Direct Go routes are unprefixed; Caddy exposes them under `/api`. The private AI
 worker routes are not public. JSON uses UUIDs, `snake_case` fields, UTC/RFC 3339
@@ -39,6 +39,32 @@ raw URLs, or credentials. HTTP DTOs do not serialize persistence models.
   **before** their operation. They do not emit cookies or save the session afterward.
   This avoids a late refresh error after a committed business write. Revocation
   cannot retract an already-authorized in-flight operation or response.
+
+## Employee signup and ownership
+
+- `POST /auth/signup` is available only with `SIGNUP_ENABLED=true`. It accepts
+  `username` and `password`, creates an immediately active `employee`, and returns
+  `201` without setting a cookie. Sign in separately. Usernames are trimmed,
+  lowercased, and unique; `409 username_taken` does not disclose account details.
+  The same new-password policy as admin creation/reset applies: 12–128 UTF-8
+  bytes, nonblank, no NUL, not trimmed, and stored only as an Argon2id hash.
+- Signup uses the existing browser policy and has an independent per-peer limit
+  of five attempts per minute. It shares the process-wide password work limit
+  with login. When enabled, anyone with access to the application can register.
+  Leave it disabled for closed enrollment, or restrict access at the network
+  layer. There is no invitation, email verification, or approval step.
+- The admin creation API also creates `employee` accounts; `analyst` and `admin`
+  are assigned through a separate role change. Frontend changes are separate.
+- Ownership is not a fourth role. It belongs to one active admin, initialized by
+  an operator after [identity migrations](database-setup.md#initialize-the-application-owner).
+  No existing admin is selected automatically during an upgrade. Other admins
+  cannot block or demote the owner or reset their password. The owner must supply
+  their current password to change it, and the change revokes their old sessions.
+- The current owner can transfer ownership to another active admin via
+  `POST /admin/ownership/transfer` with their own current password. The change and
+  its audit entry commit together. The previous owner stays an ordinary admin.
+  `GET /admin/ownership` returns the owner UUID (or `null` before initialization)
+  to admins. There is no application-level override or owner recovery endpoint.
 
 ## Workflow and service boundaries
 

@@ -3,7 +3,13 @@ set -euo pipefail
 umask 077
 # shellcheck source=deploy/app-vm/common.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
-[[ $# == 3 && $1 == --config ]] || fail 'Usage: manage.sh --config FILE ACTION (see docs/azure-app-deployment.md)'
+[[ $# -ge 3 && $1 == --config ]] || fail 'Usage: manage.sh --config FILE ACTION (see docs/azure-app-deployment.md)'
+if [[ $3 == init-owner ]]; then
+    [[ $# == 4 || ( $# == 5 && $5 == --create ) ]] || fail 'Usage: manage.sh --config FILE init-owner USERNAME [--create]'
+    [[ $4 =~ ^[a-z0-9][a-z0-9_.-]{2,63}$ ]] || fail 'Provide a normalized owner username.'
+else
+    [[ $# == 3 ]] || fail 'Unexpected arguments.'
+fi
 load_config "$2"
 action=$3
 
@@ -134,7 +140,7 @@ migration_check() {
     local database result target
     for database in identity incidents; do
         target=$(expected_version "$database")
-        result=$(tool "status-$database")
+        result=$(tool --interactive=false "status-$database" </dev/null)
         if ! jq -es --arg database "$database" --argjson expected "$target" \
             'map(select(.msg == "migration versions")) | last | .database == $database and .current == $expected and .target == $expected' <<< "$result" >/dev/null; then
             fail "Migration versions do not match this checkout/image: $database"
@@ -163,7 +169,7 @@ case "$action" in
     status) compose ps; exit ;;
     logs) compose logs --tail 100; exit ;;
     create-secrets) exec bash "$APP_DEPLOY_DIR/create-secrets.sh" --config "$2" ;;
-    db-up|bootstrap|migrate|migration-status|bootstrap-ai|seed-demo|up|check|check-ai|maintenance-on|maintenance-off|quiesce|stop) ;;
+    db-up|bootstrap|migrate|migration-status|bootstrap-ai|seed-demo|init-owner|up|check|check-ai|maintenance-on|maintenance-off|quiesce|stop) ;;
     *) fail 'Unknown action. See docs/azure-app-deployment.md.' ;;
 esac
 state_check
@@ -176,7 +182,7 @@ case "$action" in
         printf '%s\n' 'Local Go stopped; startup blocked until successful migrate. Stop ALL remote/local AI workers separately before migrating.' ;;
     stop) compose stop ;;
     *)
-        local_check
+        local_check </dev/null
         case "$action" in
             db-up)
                 pause_writes
@@ -206,6 +212,19 @@ case "$action" in
                 require_stopped
                 migration_check
                 tool seed-demo ;;
+            init-owner)
+                # Only seed may read the supplied password, never a Compose
+                # child (including the read-only migration status containers).
+                {
+                    require_stopped
+                    verify_migration_image
+                    migration_check
+                } </dev/null
+                if [[ ${5:-} == --create ]]; then
+                    tool migrate-identity /app/seed -owner "$4" -create-owner
+                else
+                    tool migrate-identity /app/seed -owner "$4" </dev/null
+                fi ;;
             up|check|maintenance-off)
                 verify_web_bind
                 [[ ! -e $APP_STATE_DIR/maintenance/public/upgrade-blocked ]] || fail 'Upgrade incomplete; successful explicit migrate is required before startup/resume.'

@@ -17,6 +17,7 @@ type AuthConfig struct {
 	Lifetime       time.Duration
 	IdleTimeout    time.Duration
 	TrustedProxies []netip.Prefix
+	SignupEnabled  bool
 }
 
 func loadAuth(lookup func(string) (string, bool)) (AuthConfig, error) {
@@ -35,6 +36,12 @@ func loadAuth(lookup func(string) (string, bool)) (AuthConfig, error) {
 	}
 	if !cfg.CookieSecure && cfg.Environment != "development" {
 		return AuthConfig{}, errors.New("SESSION_COOKIE_SECURE=false requires APP_ENV=development")
+	}
+	if value, ok := lookup("SIGNUP_ENABLED"); ok {
+		if value != "true" && value != "false" {
+			return AuthConfig{}, errors.New("SIGNUP_ENABLED must be true or false")
+		}
+		cfg.SignupEnabled = value == "true"
 	}
 	var err error
 	cfg.Lifetime, err = sessionDuration(lookup, "SESSION_LIFETIME", 8*time.Hour)

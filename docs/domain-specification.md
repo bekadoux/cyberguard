@@ -197,6 +197,20 @@ Constraints:
   Confirmed-field edits and new AI reviews are unavailable in `closed` and
   `false_positive`; reopening follows the lifecycle rules above.
 
+### Account registration and ownership
+
+- When self-registration is enabled, a new account is active immediately and has
+  the `employee` role. Users do not choose their role. Usernames are unique after
+  normalization; a conflict reveals only that the name is unavailable.
+- Administrators assign `analyst` and `admin` to existing accounts. They can block
+  ordinary accounts after registration.
+- One active admin is the application owner. Other admins cannot block or demote
+  the owner or reset their password. Only the current owner can transfer ownership
+  to another active admin, after confirming their own password. The former owner
+  retains the `admin` role without owner protection.
+- The deployment operator initializes the first owner separately from registration.
+  For a demo, participants can register and an admin assigns the needed roles.
+
 ## Playbooks for the LLM brief
 
 There is one playbook per category except `other`. The worker supplies up to four
