@@ -14,6 +14,30 @@ Deferred ideas are not release commitments.
   on the staff incident view. Signals must never automatically change severity.
   The domain rubric is in [English](domain-specification.md#indicators-yesno-questions)
   and [Slovak](domain-specification.sk.md#indikátory-otázky-ánonie).
+- [ ] Redesign the staff incident assessment and human review.
+  - Keep Kev's recommendation visible even when the chart is collapsed. If Kev
+    abstains, show “No recommendation,” the highest-scoring category and its
+    score when available, and whether `other` won or the score fell below the
+    suggestion threshold. Do not present that top result as a recommendation or
+    enable Accept for it.
+  - Show category scores in a collapsible horizontal bar chart, ranked highest
+    first and labelled with category names and percentages. Default it to closed
+    when Kev recommends a category and open when Kev abstains. Preserve staff's
+    manual toggle on refresh of the same assessment. Keep indicators separate.
+  - For Accept, show the category as text instead of a picker. For Correct, show
+    the picker; when there is no recommendation, label that action “Choose a
+    category.” Reject still leaves the confirmed category unchanged.
+  - Group the LLM summary, reported facts, unknowns, and follow-up questions in
+    a collapsible “AI draft brief” that starts expanded. Keep approved playbook
+    steps separate from the generated brief.
+- [ ] Add an “AI assessment” status column to the staff incident queue, separate
+  from incident status. Show Queued, In progress, Complete, and Failed; Complete
+  means the job finished, not that it produced a recommendation or was reviewed.
+  Add the job status, not the assessment itself, to the staff list response.
+  Omit it from employee responses and update it with the existing manual list
+  refresh. Do not poll or fetch an assessment per row.
+- [ ] Redesign the sign-in page and add a sign-up page based on the team's
+  concept images.
 
 ## Validation and release work
 
