@@ -142,8 +142,9 @@ dc run --rm --no-deps ai-worker python -m cyberguard_ai.preflight
 # Exercise the unchanged management/check path with a tiny, test-only manifest.
 # The production manifest and real model directory are never rewritten or selected.
 staged=$AI_TEST_DIR/staged/deploy/ai-vm
-mkdir -p "$staged"
+mkdir -p "$staged" "$AI_TEST_DIR/staged/docker/ai"
 cp "$AI_DEPLOY_DIR/"{common.sh,manage.sh,prepare-models.sh,compose.yaml,Caddyfile} "$staged/"
+cp "$AI_REPO_ROOT/docker/ai/inference-cpus.sh" "$AI_TEST_DIR/staged/docker/ai/"
 mkdir "$AI_MODEL_DIR/fixture"
 printf 'synthetic model fixture' > "$AI_MODEL_DIR/fixture/model.bin"
 hash=$(sha256sum "$AI_MODEL_DIR/fixture/model.bin" | cut -d' ' -f1)

@@ -5,6 +5,8 @@ set -euo pipefail
 umask 077
 
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+# shellcheck source=docker/ai/inference-cpus.sh
+source "$root/docker/ai/inference-cpus.sh"
 work_dir=$PWD
 config="$root/.local/remote-setup.env"
 command=install
@@ -36,6 +38,7 @@ declare -A settings=(
     [APP_PUBLIC_NAME]='' [APP_PRIVATE_IP]='' [AI_PRIVATE_IP]=''
     [APP_GO_TLS_NAME]='app.internal' [APP_DB_TLS_NAME]='incidents.internal' [AI_TLS_NAME]='ai.internal'
     [TLS_DIR]='' [PUBLIC_TLS]='acme' [DEMO_SEED]='no' [DEMO_INCIDENTS]='no' [NETWORK_APPROVED]='no'
+    [AI_INFERENCE_THREADS]='all'
     [APP_EDGE_SUBNET]='172.28.40.0/28' [APP_IDENTITY_SUBNET]='172.28.41.0/28'
     [APP_INCIDENT_SUBNET]='172.28.42.0/28'
 )
@@ -83,6 +86,13 @@ configure() {
     if [[ ${settings[DEMO_SEED]} == yes ]]; then
         prompt DEMO_INCIDENTS 'Enable the admin button to add synthetic demo incidents (yes or no)'
     fi
+    printf '%s\n' 'Using all CPUs on the AI VM can make its other services less responsive under load.' >&"$terminal"
+    while :; do
+        prompt AI_INFERENCE_THREADS 'AI VM inference threads per model (positive integer to limit)'
+        if valid_inference_threads "${settings[AI_INFERENCE_THREADS]}"; then break; fi
+        settings[AI_INFERENCE_THREADS]=all
+        printf 'Enter all or a positive whole number with up to 9 digits.\n' >&"$terminal"
+    done
     printf 'Review public 80/443 and the private VM /32 allowlists before approving network exposure.\n' >&"$terminal"
     prompt NETWORK_APPROVED 'I reviewed and approved DNS, NSGs and Docker-aware firewall policy (yes or no)'
     [[ ${settings[NETWORK_APPROVED]} == yes ]] || die 'Network review not approved. Nothing was deployed.'
@@ -133,6 +143,8 @@ validate_settings() {
     [[ ${settings[DEMO_INCIDENTS]} == yes || ${settings[DEMO_INCIDENTS]} == no ]] || die 'Invalid DEMO_INCIDENTS.'
     [[ ${settings[DEMO_INCIDENTS]} == no || ${settings[DEMO_SEED]} == yes ]] ||
         die 'DEMO_INCIDENTS=yes requires DEMO_SEED=yes.'
+    valid_inference_threads "${settings[AI_INFERENCE_THREADS]}" ||
+        die 'AI_INFERENCE_THREADS must be all or a positive integer with up to 9 digits.'
     [[ ${settings[NETWORK_APPROVED]} == yes ]] || die 'Review network policy, then set NETWORK_APPROVED=yes.'
     for key in APP_PUBLIC_NAME APP_GO_TLS_NAME APP_DB_TLS_NAME AI_TLS_NAME; do
         valid_dns "${settings[$key]}" || die "Invalid DNS name: $key"
@@ -162,6 +174,10 @@ validate_settings() {
         if [[ ${settings[DEMO_INCIDENTS]} == yes ]]; then
             git -C "$root" grep -q '^DEMO_INCIDENTS_ENABLED=' "$revision" -- deploy/app-vm/config.env.example ||
                 die 'The selected revision does not support the demo incidents button.'
+        fi
+        if [[ ${settings[AI_INFERENCE_THREADS]} != all ]]; then
+            git -C "$root" grep -q '^AI_INFERENCE_THREADS=' "$revision" -- deploy/ai-vm/config.env.example ||
+                die 'The selected revision does not support setting AI_INFERENCE_THREADS.'
         fi
     fi
 }
@@ -343,6 +359,10 @@ ai_config() {
     printf '%s\n' "AI_BIND_IP=${settings[AI_PRIVATE_IP]}" 'AI_NETWORK_APPROVED=yes' \
         "AI_GO_URL=https://${settings[APP_GO_TLS_NAME]}:8443" "AI_TLS_NAME=${settings[AI_TLS_NAME]}" \
         "AI_IMAGE=cyberguard-ai:$revision" "AI_KEV_IMAGE=cyberguard-kev:$revision"
+    # The supported default needs no payload change; keep older releases and receipts valid.
+    if [[ ${settings[AI_INFERENCE_THREADS]} != all ]]; then
+        printf '%s\n' "AI_INFERENCE_THREADS=${settings[AI_INFERENCE_THREADS]}"
+    fi
 }
 
 send_config() {

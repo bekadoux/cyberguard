@@ -4,6 +4,8 @@ set -euo pipefail
 
 AI_DEPLOY_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 AI_REPO_ROOT=$(CDPATH='' cd -- "$AI_DEPLOY_DIR/../.." && pwd)
+# shellcheck source=docker/ai/inference-cpus.sh
+source "$AI_REPO_ROOT/docker/ai/inference-cpus.sh"
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
@@ -11,7 +13,8 @@ load_config() {
     local file=$1 key value line
     [[ -f $file && ! -L $file ]] || fail 'A regular configuration file is required.'
     # Explicit config wins over inherited Compose/application settings.
-    unset COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME COMPOSE_ENV_FILES
+    unset COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME COMPOSE_ENV_FILES \
+        AI_INFERENCE_CPUS AI_INFERENCE_PIDS
     AI_PROJECT_NAME=cyberguard-ai-vm
     AI_MODEL_DIR=/var/lib/cyberguard-ai/models
     AI_SECRETS_DIR=/etc/cyberguard/ai/secrets
@@ -23,13 +26,14 @@ load_config() {
     AI_GO_URL=https://app.internal:8443
     AI_IMAGE=cyberguard-ai:azure
     AI_KEV_IMAGE=cyberguard-kev:azure
+    AI_INFERENCE_THREADS=all
     local -A seen=()
     while IFS= read -r line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
         [[ $line == *=* ]] || fail 'Expected literal KEY=value configuration.'
         key=${line%%=*}; value=${line#*=}
         case "$key" in
-            AI_PROJECT_NAME|AI_MODEL_DIR|AI_SECRETS_DIR|AI_SECRET_GID|AI_BIND_IP|AI_PORT|AI_NETWORK_APPROVED|AI_TLS_NAME|AI_GO_URL|AI_IMAGE|AI_KEV_IMAGE) ;;
+            AI_PROJECT_NAME|AI_MODEL_DIR|AI_SECRETS_DIR|AI_SECRET_GID|AI_BIND_IP|AI_PORT|AI_NETWORK_APPROVED|AI_TLS_NAME|AI_GO_URL|AI_IMAGE|AI_KEV_IMAGE|AI_INFERENCE_THREADS) ;;
             *) fail 'Unknown configuration key.' ;;
         esac
         [[ ! ${seen[$key]+exists} ]] || fail "Duplicate configuration key: $key"
@@ -60,6 +64,7 @@ load_config() {
     done
     [[ $AI_BIND_IP == 127.0.0.1 || $a == 10 || ($a == 172 && $b -ge 16 && $b -le 31) || ($a == 192 && $b == 168) ]] || fail 'Bind only to loopback or an RFC1918 IPv4 address.'
     [[ $AI_IMAGE =~ ^[a-zA-Z0-9][a-zA-Z0-9._/:@-]+$ && $AI_KEV_IMAGE =~ ^[a-zA-Z0-9][a-zA-Z0-9._/:@-]+$ ]] || fail 'Invalid image reference.'
+    valid_inference_threads "$AI_INFERENCE_THREADS" || fail 'AI_INFERENCE_THREADS must be all or a positive integer with up to 9 digits.'
     export AI_PROJECT_NAME AI_MODEL_DIR AI_SECRETS_DIR AI_SECRET_GID AI_BIND_IP AI_PORT
     export AI_NETWORK_APPROVED AI_TLS_NAME AI_GO_URL AI_IMAGE AI_KEV_IMAGE
 }

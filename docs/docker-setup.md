@@ -18,7 +18,8 @@ On the first run, choose loopback (default) or explicitly approve binding to a
 private LAN IPv4 address, choose the web port (default `8088`), and decide whether
 to seed four development accounts. Without them there is no initial login. If
 you create them, the script separately offers to enable the admin demo incidents
-button (default: No) and saves the answer. The script asks for confirmation
+button (default: No) and saves the answer. It also asks for the maximum number
+of AI inference threads per model (default: `all`). The script asks for confirmation
 before preparing about 3 GB of pinned Kev and Qwen artifacts. First setup needs
 internet access for missing models, images, and build dependencies. Only Caddy
 is published. Go, PostgreSQL, FastAPI, the worker and model servers remain private.
@@ -67,12 +68,24 @@ the project images or apply new migrations. For a disposable environment, destro
 and run setup again to build from the current checkout; for retained data, plan
 an explicit backup and migration rather than deleting the volumes.
 
-Runtime inference is CPU-only, with one worker and one generation slot.
-The model servers are capped at two CPUs each and 8 GiB (Kev) / 4 GiB
-(llama.cpp); those caps are not measured requirements. Model files are mounted
-read-only. If verification fails, stop the stack and investigate the reported
-artifact. `bash docker/local-setup.sh prepare-models` can fetch missing files,
-but will not overwrite a mismatched file. Failed jobs are not reset.
+Runtime inference is CPU-only, with one assessment worker and one Qwen generation
+slot. Kev and Qwen run in sequence. Each model gets a CPU quota and thread count
+matching the Docker engine's reported CPU count, or the configured limit if it
+is lower. Using `all` may make the app or host less responsive under load; enter
+a smaller number to leave headroom. Kev and Qwen retain their 8 GiB and 4 GiB
+memory caps respectively; these are not measured requirements.
+
+To change the limit, set the fifth line of `.local/full-stack/settings` to `all`
+or a positive integer and run `bash docker/local-setup.sh resume` after active
+assessments finish. For older three-line settings files, first add `false` as
+the fourth line (the demo incidents option). Older settings without a fifth
+line use `all` on the next `resume`. Changing the effective thread count
+recreates the model containers; it does not remove incidents or model files.
+
+Model files are mounted read-only. If verification fails, stop the stack and
+investigate the reported artifact. `bash docker/local-setup.sh prepare-models`
+can fetch missing files, but will not overwrite a mismatched file. Failed jobs
+are not reset.
 
 To verify **real inference**, submit a fresh synthetic incident as an employee,
 then sign in as staff and refresh its assessment until it completes. `check`

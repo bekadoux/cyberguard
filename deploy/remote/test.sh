@@ -7,19 +7,21 @@ scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT
 for tool in git openssl script; do command -v "$tool" >/dev/null; done
 repo="$scratch/repo"
-mkdir -p "$repo/deploy/remote" "$scratch/bin" "$scratch/tls"
+mkdir -p "$repo/deploy/remote" "$repo/docker/ai" "$scratch/bin" "$scratch/tls"
 cp "$root/deploy/remote-setup.sh" "$repo/deploy/"
 cp "$root/deploy/remote/host.sh" "$repo/deploy/remote/"
+cp "$root/docker/ai/inference-cpus.sh" "$repo/docker/ai/"
 git -C "$repo" init --quiet
-git -C "$repo" add deploy
+git -C "$repo" add deploy docker
 git -C "$repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
     -c core.hooksPath=/dev/null commit --quiet --no-gpg-sign -m 'test: prepare fixture release'
 old_revision=$(git -C "$repo" rev-parse HEAD)
-mkdir -p "$repo/deploy/app-vm"
+mkdir -p "$repo/deploy/app-vm" "$repo/deploy/ai-vm"
 cp "$root/deploy/app-vm/config.env.example" "$repo/deploy/app-vm/"
-git -C "$repo" add deploy/app-vm
+cp "$root/deploy/ai-vm/config.env.example" "$repo/deploy/ai-vm/"
+git -C "$repo" add deploy
 git -C "$repo" -c user.name=Fixture -c user.email=fixture@example.invalid \
-    -c core.hooksPath=/dev/null commit --quiet --no-gpg-sign -m 'test: support demo incidents'
+    -c core.hooksPath=/dev/null commit --quiet --no-gpg-sign -m 'test: support demo incidents and thread limits'
 revision=$(git -C "$repo" rev-parse HEAD)
 printf 'must-not-upload\n' > "$repo/untracked"
 printf 'private test key\n' > "$scratch/app ssh key"
@@ -155,6 +157,14 @@ sed "s/^REVISION=.*/REVISION=$old_revision/" "$scratch/settings" > "$scratch/old
 printf 'DEMO_SEED=yes\nDEMO_INCIDENTS=yes\n' >> "$scratch/old-release"
 reject bash "$repo/deploy/remote-setup.sh" --config "$scratch/old-release" preflight > "$scratch/out" 2>&1
 grep -q 'selected revision does not support the demo incidents button' "$scratch/out"
+sed "s/^REVISION=.*/REVISION=$old_revision/" "$scratch/settings" > "$scratch/old-threads"
+printf 'AI_INFERENCE_THREADS=4\n' >> "$scratch/old-threads"
+reject bash "$repo/deploy/remote-setup.sh" --config "$scratch/old-threads" preflight > "$scratch/out" 2>&1
+grep -q 'selected revision does not support setting AI_INFERENCE_THREADS' "$scratch/out"
+cp "$scratch/settings" "$scratch/bad-threads"
+printf 'AI_INFERENCE_THREADS=1.5\n' >> "$scratch/bad-threads"
+reject bash "$repo/deploy/remote-setup.sh" --config "$scratch/bad-threads" preflight > "$scratch/out" 2>&1
+grep -q 'AI_INFERENCE_THREADS must be all or a positive integer' "$scratch/out"
 [[ ! -s $scratch/trace ]]
 
 : > "$scratch/trace"
@@ -184,6 +194,7 @@ grep -qx 'APP_AI_TLS_NAME=ai.internal' "$scratch/config-app"
 grep -qx 'AI_GO_URL=https://app.internal:8443' "$scratch/config-ai"
 grep -qx 'APP_ALLOW_DEMO_SEED=no' "$scratch/config-app"
 reject grep -q '^DEMO_INCIDENTS_ENABLED=' "$scratch/config-app"
+reject grep -q '^AI_INFERENCE_THREADS=' "$scratch/config-ai"
 grep -qx 'ai receive ai_runtime_url' "$scratch/trace"
 grep -qx 'ai receive ai_internal_token' "$scratch/trace"
 grep -qx 'app receive public.key' "$scratch/trace"
@@ -203,9 +214,9 @@ if grep -Eq 'upload|initialize|configure|prepare|receive| installed$' "$scratch/
     exit 1
 fi
 
-# First setup offers the separate opt-in and saves it. Only the app VM receives it.
+# First setup saves both choices and only sends each setting to the relevant VM.
 printf '%s\n' app-test "$scratch/app ssh key" ai-test "$scratch/ai ssh key" \
-    cg.example.org 10.0.0.4 10.0.0.5 '' '' '' "$tls" provided yes yes yes |
+    cg.example.org 10.0.0.4 10.0.0.5 '' '' '' "$tls" provided yes yes 0 4 yes |
     script -q -e -c "bash '$repo/deploy/remote-setup.sh' --config '$scratch/interactive' install" /dev/null > "$scratch/out"
 grep -q 'Enable the admin button to add synthetic demo incidents (yes or no) \[no\]' "$scratch/out"
 grep -qx 'DEMO_SEED=yes' "$scratch/interactive"
@@ -213,6 +224,11 @@ grep -qx 'DEMO_INCIDENTS=yes' "$scratch/interactive"
 grep -qx 'APP_ALLOW_DEMO_SEED=yes' "$scratch/config-app"
 grep -qx 'DEMO_INCIDENTS_ENABLED=true' "$scratch/config-app"
 reject grep -q 'DEMO_INCIDENTS' "$scratch/config-ai"
+grep -q 'AI VM inference threads per model (positive integer to limit) \[all\]' "$scratch/out"
+grep -q 'Enter all or a positive whole number' "$scratch/out"
+grep -qx 'AI_INFERENCE_THREADS=4' "$scratch/interactive"
+grep -qx 'AI_INFERENCE_THREADS=4' "$scratch/config-ai"
+reject grep -q 'AI_INFERENCE_THREADS' "$scratch/config-app"
 grep -q 'Add 10 demo incidents' "$scratch/out"
 : > "$scratch/trace"
 bash "$repo/deploy/remote-setup.sh" --config "$scratch/interactive" resume </dev/null > "$scratch/out"
@@ -272,6 +288,7 @@ reject grep -Eq 'upload|initialize|configure|prepare|receive| installed$' "$scra
         "$repo/deploy/ai-vm/config.env.example" > "$config"
     mark bootstrapped
     configure_vm "$(sha "$scratch/config-ai")" < "$scratch/config-ai"
+    grep -qx 'AI_INFERENCE_THREADS=4' "$config"
     if (receive_file ai_internal_token <<< invalid); then echo 'Malformed token accepted.' >&2; exit 1; fi
     receive_file ai_internal_token < <(printf '%064d\n' 0)
     receive_file ai_runtime_url < <(printf 'postgres://python_incidents:%064d@incidents.internal:5432/cyberguard_incidents?sslmode=verify-full&sslrootcert=/run/certs/ca.crt\n' 0)

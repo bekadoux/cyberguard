@@ -11,7 +11,8 @@ trap 'rm -rf -- "$scratch"' EXIT
 export LOCAL_BIND_IP=192.168.7.5 LOCAL_WEB_PORT=18088 LOCAL_OPERATOR_UID=1000 DOCKER_SECRET_GID=1000
 export LOCAL_MODEL_DIR="$scratch/models" LOCAL_AI_IMAGE=ai:test LOCAL_KEV_IMAGE=kev:test
 export LOCAL_PREPARE_IMAGE=prepare:test AI_MODE=fake
-docker compose --env-file /dev/null -f compose.yaml -f compose.ai.yaml -f compose.full.yaml \
+AI_INFERENCE_CPUS=6 AI_INFERENCE_PIDS=320 \
+    docker compose --env-file /dev/null -f compose.yaml -f compose.ai.yaml -f compose.full.yaml \
     --profile ai-models --profile tools --profile local-setup config --format json > "$scratch/compose.json"
 jq -e '
   ([.services | to_entries[] | select(.value.ports) | .key] == ["web"]) and
@@ -21,12 +22,15 @@ jq -e '
   (.networks | [.edge, .identity, .incidents, .["ai-inference"]] | all(.internal)) and
   (.services | .["ai-worker"].environment.AI_MODE == "models" and
     (.["ai-kev"].volumes + .["ai-llm"].volumes | length == 2 and all(.target == "/models" and .read_only)) and
+    ([.["ai-kev"], .["ai-llm"]] | all(.cpus == 6 and .pids_limit == 320)) and
+    (.["ai-kev"].environment | [.OMP_NUM_THREADS, .MKL_NUM_THREADS, .OPENBLAS_NUM_THREADS] | all(. == "6")) and
+    (.["ai-llm"].command | .[index("--threads")+1] == "6" and .[index("--threads-batch")+1] == "6" and .[index("--parallel")+1] == "1") and
     (.["prepare-models"] | .profiles == ["local-setup"] and (.volumes | length == 1 and all(.target == "/models" and (.read_only | not))) and (has("secrets") | not)))
 ' "$scratch/compose.json" >/dev/null
 
 mkdir -p "$scratch/repo/docker/ai" "$scratch/bin"
 cp docker/{local-setup,create-secrets}.sh "$scratch/repo/docker/"
-cp docker/ai/create-ai-secrets.sh "$scratch/repo/docker/ai/"
+cp docker/ai/{create-ai-secrets,inference-cpus}.sh "$scratch/repo/docker/ai/"
 cd "$scratch/repo"
 export FIXTURE_DIR="$scratch" PATH="$scratch/bin:$PATH"
 digest=$(printf '%s' "$PWD" | sha256sum)
@@ -39,7 +43,12 @@ printf '%s\n' "$*" >> "$FIXTURE_DIR/docker.log"
 case "$1 $2" in
     'context show') echo default ;;
     'context inspect') echo unix:///var/run/docker.sock ;;
-    'info --format') echo linux/x86_64 ;;
+    'info --format')
+        case "$3" in
+            '{{.OSType}}/{{.Architecture}}') echo linux/x86_64 ;;
+            '{{.NCPU}}') echo "${FIXTURE_CPUS:-12}" ;;
+            *) exit 1 ;;
+        esac ;;
     'volume ls')
         if [[ -f $FIXTURE_DIR/volumes ]]; then cat "$FIXTURE_DIR/volumes"; fi ;;
     'ps -aq'|'network ls'|'image inspect'|'build --tag'|'compose version') ;;
@@ -51,7 +60,10 @@ case "$1 $2" in
         [[ $DEMO_INCIDENTS_ENABLED == "${EXPECT_DEMO_INCIDENTS:-false}" ]]
         while [[ $# -gt 0 ]]; do
             case "$1" in
-                config|pull|exec|logs) exit 0 ;;
+                config)
+                    [[ $AI_INFERENCE_CPUS == "${EXPECT_CPUS:-4}" && $AI_INFERENCE_PIDS == 256 ]]
+                    exit 0 ;;
+                pull|exec|logs) exit 0 ;;
                 ps)
                     if [[ $* == *--status* && -f $FIXTURE_DIR/running ]]; then echo ai-kev; fi
                     exit 0 ;;
@@ -59,6 +71,7 @@ case "$1 $2" in
                     if [[ $* == *'identity-db incident-db' ]]; then
                         printf '%s\n' "${FIXTURE_PROJECT}_identity-data" "${FIXTURE_PROJECT}_incident-data" > "$FIXTURE_DIR/volumes"
                     elif [[ $* == *'ai-kev ai-llm' ]]; then
+                        [[ $AI_INFERENCE_CPUS == "${EXPECT_CPUS:-4}" && $AI_INFERENCE_PIDS == 256 ]]
                         touch "$FIXTURE_DIR/running"
                     fi
                     exit 0 ;;
@@ -90,6 +103,7 @@ if [[ $* == *:8088 ]]; then echo '8088 is busy'; fi
 EOF
 chmod +x "$scratch/bin/"{docker,ip,ss}
 export COMPOSE_PROFILES=tools COMPOSE_FILE=wrong DOCKER_SECRETS_DIR=wrong
+export AI_INFERENCE_CPUS=99 AI_INFERENCE_PIDS=99
 unset DOCKER_HOST DOCKER_CONTEXT
 
 run() { bash docker/local-setup.sh "$@"; }
@@ -106,15 +120,17 @@ grep -q 'No full local setup' "$scratch/no-setup"
 
 # Interrupt model preparation after successful seeding. Passwords go only to the TTY.
 export FAIL_MODELS=1 EXPECT_DEMO_INCIDENTS=true DEMO_INCIDENTS_ENABLED=false
-reject terminal '> "$FIXTURE_DIR/stdout"' <<< $'0.0.0.0\nlan\ny\n8088\n18088\n\ny\ny' > "$scratch/first"
+reject terminal '> "$FIXTURE_DIR/stdout"' <<< $'0.0.0.0\nlan\ny\n8088\n18088\n\ny\n0\n4\ny' > "$scratch/first"
 unset FAIL_MODELS
 grep -q '192.168.7.5' "$scratch/first"
 grep -q 'Choose an unused TCP port' "$scratch/first"
 grep -q 'Enable the admin button to add synthetic demo incidents? \[y/N\]' "$scratch/first"
+grep -q 'AI inference threads per model (positive integer to limit) \[all\]' "$scratch/first"
+grep -q 'Enter all or a positive whole number' "$scratch/first"
 grep -q 'shown only once' "$scratch/first"
 grep -q 'dev_admin_password' "$scratch/first"
 [[ -e .local/full-stack/seed-demo.done && ! -e .local/full-stack/models.done ]]
-[[ $(cat .local/full-stack/settings) == $'192.168.7.5\n18088\nyes\ntrue' ]]
+[[ $(cat .local/full-stack/settings) == $'192.168.7.5\n18088\nyes\ntrue\n4' ]]
 for account in employee_a employee_b analyst admin; do
     password=$(<"$secrets/dev_${account}_password")
     [[ $password =~ ^[a-f0-9]{64}$ ]]
@@ -130,6 +146,7 @@ done
 run </dev/null > "$scratch/resumed"
 grep -q 'http://192.168.7.5:18088/login' "$scratch/resumed"
 grep -q 'Add 10 demo incidents' "$scratch/resumed"
+grep -q '4 inference threads per model' "$scratch/resumed"
 [[ -e .local/full-stack/models.done && -d .local/full-stack-models ]]
 reject run prepare-models > "$scratch/running" 2>&1
 grep -q 'Stop the full stack' "$scratch/running"
@@ -145,12 +162,16 @@ if grep -Eq ' -T (bootstrap-|migrate-|seed-demo)' "$scratch/docker.log" ||
 fi
 grep -q 'stop web ai-worker' "$scratch/docker.log"
 
-# Old settings still load with the button off, even if the parent shell sets the flag.
+# Legacy settings still load; the CPU setting becomes all when the models next start.
 settings=.local/full-stack/settings
 cp "$settings" "$scratch/current-settings"
 head -n 3 "$scratch/current-settings" > "$settings"
 DEMO_INCIDENTS_ENABLED=true EXPECT_DEMO_INCIDENTS=false run status
 [[ $(wc -l < "$settings") == 3 ]]
+head -n 4 "$scratch/current-settings" > "$settings"
+EXPECT_CPUS=12 run resume </dev/null > "$scratch/legacy-resume"
+grep -q '12 inference threads per model' "$scratch/legacy-resume"
+[[ $(wc -l < "$settings") == 4 ]]
 mv "$scratch/current-settings" "$settings"
 
 # An incomplete database pair must not be silently recreated.
@@ -173,10 +194,13 @@ grep -q 'down --volumes --remove-orphans' "$scratch/docker.log"
 terminal destroy --purge-models <<< destroy > "$scratch/purged"
 [[ ! -e .local/full-stack-models ]]
 
-# Accept account seeding but leave the incident option blank: it is saved off.
-FAIL_MODELS=1 EXPECT_DEMO_INCIDENTS=false DEMO_INCIDENTS_ENABLED=true \
-    reject terminal <<< $'\n18088\n\n\ny' > "$scratch/default"
-[[ $(cat "$settings") == $'127.0.0.1\n18088\nyes\nfalse' ]]
+# Accept account seeding but leave the incident and inference options at their defaults.
+EXPECT_CPUS=12 EXPECT_DEMO_INCIDENTS=false DEMO_INCIDENTS_ENABLED=true \
+    terminal <<< $'\n18088\n\n\n\ny' > "$scratch/default"
+[[ $(cat "$settings") == $'127.0.0.1\n18088\nyes\nfalse\nall' ]]
+grep -q '12 inference threads per model' "$scratch/default"
 reject grep -q 'Add 10 demo incidents' "$scratch/default"
+EXPECT_CPUS=8 FIXTURE_CPUS=8 EXPECT_DEMO_INCIDENTS=false run resume </dev/null > "$scratch/resized"
+grep -q '8 inference threads per model' "$scratch/resized"
 
 echo 'Full local setup: Compose isolation and lifecycle checks passed.'

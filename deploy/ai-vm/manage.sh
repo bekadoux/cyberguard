@@ -39,7 +39,11 @@ gateway_check() {
 # local_check takes the original config explicitly, avoiding shell config evaluation.
 config_file=$2
 case "$3" in
-    config) compose config --quiet; printf '%s\n' 'Compose configuration valid (not a readiness check).' ;;
+    config)
+        configure_inference_resources "$AI_INFERENCE_THREADS" 128
+        compose config --quiet
+        printf '%s\n' 'Compose configuration valid (not a readiness check).'
+        ;;
     build)
         docker build -f "$AI_REPO_ROOT/backend/python/Dockerfile" -t "$AI_IMAGE" "$AI_REPO_ROOT"
         docker build -f "$AI_REPO_ROOT/docker/ai/Dockerfile.kev" -t "$AI_KEV_IMAGE" "$AI_REPO_ROOT"
@@ -47,8 +51,10 @@ case "$3" in
         ;;
     up|check)
         local_check "$config_file"
+        configure_inference_resources "$AI_INFERENCE_THREADS" 128
         compose config --quiet
         if [[ $3 == up ]]; then
+            printf 'Loading Kev and Qwen (%s inference threads per model).\n' "$AI_INFERENCE_CPUS"
             compose up -d --no-build --pull never --wait --wait-timeout 600 \
                 ai-kev ai-llm ai-api ai-gateway
             compose run --rm --no-deps --pull never ai-worker python -m cyberguard_ai.preflight

@@ -214,8 +214,12 @@ checked before rolling code back. Do not prune unrelated Docker state or remove 
 Credential/certificate rotation needs deliberate changes on both hosts and container
 recreation; editing files alone does not rotate a DB role or reload the Python client.
 
-Configured limits are two threads per model, one worker, and one LLM slot;
-the 8 GiB Kev and 4 GiB llama.cpp caps are not measured peak usage.
+`AI_INFERENCE_THREADS` in `/etc/cyberguard/ai/config.env` defaults to `all`.
+On `manage.sh up`, Kev and Qwen each get a thread count and matching CPU quota
+based on the Docker engine's CPU count, capped at the configured value if it
+is a positive integer. Set a lower value to leave CPU headroom for the API and
+other processes on the VM. There is still one worker and one Qwen generation
+slot. The 8 GiB Kev and 4 GiB llama.cpp memory caps are not measured peak usage.
 
 Deallocate the VM manually when unused; stopping containers or shutting down the guest
 is not Azure deallocation. Managed disks and other retained resources can still cost

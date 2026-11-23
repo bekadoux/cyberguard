@@ -100,9 +100,9 @@ services:
       TRANSFORMERS_OFFLINE: '1'
       HF_HUB_DISABLE_TELEMETRY: '1'
       DO_NOT_TRACK: '1'
-      OMP_NUM_THREADS: '2'
-      MKL_NUM_THREADS: '2'
-      OPENBLAS_NUM_THREADS: '2'
+      OMP_NUM_THREADS: '${AI_INFERENCE_CPUS:-2}'
+      MKL_NUM_THREADS: '${AI_INFERENCE_CPUS:-2}'
+      OPENBLAS_NUM_THREADS: '${AI_INFERENCE_CPUS:-2}'
       KEV_DTYPE: fp32
       KEV_BACKEND: torch
       KEV_PREFIX_CACHE: '0'
@@ -114,8 +114,8 @@ services:
         bind: {create_host_path: false}
     tmpfs: ['/tmp:size=128m,mode=1777']
     mem_limit: 8g
-    cpus: 2.0
-    pids_limit: 128
+    cpus: '${AI_INFERENCE_CPUS:-2}'
+    pids_limit: '${AI_INFERENCE_PIDS:-128}'
     networks: [inference]
     healthcheck:
       test: [CMD, /opt/kev/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8009/v1/models', timeout=3).read()"]
@@ -128,7 +128,10 @@ services:
     # llama.cpp b12211, source 7d7f0287530bc8981690f361d8c1627dbae1c99a.
     image: ghcr.io/ggml-org/llama.cpp:server@sha256:30300ecfcb7ef05dc9413867dd7d03c9ce66eef00fec3576a6a15e9bf2b0bae7
     user: '10002:10002'
-    command: [--model, /models/gguf/qwen2.5-1.5b-instruct-q4_k_m.gguf, --alias, qwen2.5-1.5b-instruct, --host, 0.0.0.0, --port, '8081', --threads, '2', --threads-batch, '2', --parallel, '1', --ctx-size, '2048', --no-webui, --log-disable, --offline, --n-gpu-layers, '0', --no-agent]
+    command: [--model, /models/gguf/qwen2.5-1.5b-instruct-q4_k_m.gguf, --alias, qwen2.5-1.5b-instruct,
+              --host, 0.0.0.0, --port, '8081', --threads, '${AI_INFERENCE_CPUS:-2}',
+              --threads-batch, '${AI_INFERENCE_CPUS:-2}', --parallel, '1', --ctx-size, '2048',
+              --no-webui, --log-disable, --offline, --n-gpu-layers, '0', --no-agent]
     volumes:
       - type: bind
         source: ${AI_MODEL_DIR:-/var/lib/cyberguard-ai/models}
@@ -137,8 +140,8 @@ services:
         bind: {create_host_path: false}
     tmpfs: ['/tmp:size=16m,mode=1777']
     mem_limit: 4g
-    cpus: 2.0
-    pids_limit: 128
+    cpus: '${AI_INFERENCE_CPUS:-2}'
+    pids_limit: '${AI_INFERENCE_PIDS:-128}'
     networks: [inference]
     healthcheck:
       test: [CMD, curl, -fsS, --max-time, '3', 'http://127.0.0.1:8081/health']

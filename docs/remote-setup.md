@@ -79,8 +79,9 @@ bash deploy/remote-setup.sh
 ```
 
 The first run prompts for the two SSH endpoints, private IPs, DNS names,
-certificate directory, and approval of the network policy. It saves literal,
-non-secret settings in `.local/remote-setup.env`, including the Git revision.
+certificate directory, the AI inference thread limit, and approval of the network
+policy. It saves literal, non-secret settings in `.local/remote-setup.env`,
+including the Git revision.
 For unattended use or to override the default Docker subnets, make a private
 copy of [`deploy/remote/config.env.example`](../deploy/remote/config.env.example)
 and run `bash deploy/remote-setup.sh --config /path/to/settings.env install`.
@@ -119,6 +120,15 @@ to No and saves the choice. For an unattended fresh install, set
 `DEMO_INCIDENTS=yes` alongside `DEMO_SEED=yes`. The installer only enables the
 button; it does not add any incidents. Do not edit the setting for an existing
 remote install: the receipts bind it to its original configuration.
+
+`AI_INFERENCE_THREADS=all` is the default for revisions that support the setting.
+It uses all CPUs reported by Docker **on the AI VM**, not the workstation. Enter
+a positive integer to limit each model's thread count and CPU quota to at most
+that number and leave room for other services. A numeric limit requires a
+supporting revision; older pinned releases retain their original defaults.
+The choice is for fresh installs. For an installed deployment, follow the
+[AI VM upgrade runbook](azure-ai-deployment.md#upgrading-an-existing-deployment)
+instead of editing the workstation settings and rerunning the installer.
 
 Preflight does not prove Azure NSG denial or public certificate issuance.
 The final checks verify real connectivity with TLS, including from the AI

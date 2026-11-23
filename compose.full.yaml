@@ -31,12 +31,13 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     tmpfs: ['/tmp:size=128m,mode=1777']
-    cpus: 2.0
+    cpus: '${AI_INFERENCE_CPUS:-2}'
+    pids_limit: '${AI_INFERENCE_PIDS:-256}'
     mem_limit: 8g
     environment:
-      OMP_NUM_THREADS: '2'
-      MKL_NUM_THREADS: '2'
-      OPENBLAS_NUM_THREADS: '2'
+      OMP_NUM_THREADS: '${AI_INFERENCE_CPUS:-2}'
+      MKL_NUM_THREADS: '${AI_INFERENCE_CPUS:-2}'
+      OPENBLAS_NUM_THREADS: '${AI_INFERENCE_CPUS:-2}'
       TRANSFORMERS_OFFLINE: '1'
       DO_NOT_TRACK: '1'
       KEV_BACKEND: torch
@@ -67,10 +68,12 @@ services:
     tmpfs: ['/tmp:size=16m,mode=1777']
     command: [--model, /models/gguf/qwen2.5-1.5b-instruct-q4_k_m.gguf,
               --alias, qwen2.5-1.5b-instruct, --host, 0.0.0.0,
-              --port, '8081', --threads, '2', --threads-batch, '2',
+              --port, '8081', --threads, '${AI_INFERENCE_CPUS:-2}',
+              --threads-batch, '${AI_INFERENCE_CPUS:-2}',
               --parallel, '1', --ctx-size, '2048', --no-webui, --offline,
               --n-gpu-layers, '0', --no-agent, --log-disable]
-    cpus: 2.0
+    cpus: '${AI_INFERENCE_CPUS:-2}'
+    pids_limit: '${AI_INFERENCE_PIDS:-256}'
     mem_limit: 4g
     volumes: [*model-cache]
     logging: *model-logging

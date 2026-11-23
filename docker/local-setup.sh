@@ -32,6 +32,8 @@ for tool in docker sha256sum flock; do
 done
 root=$(CDPATH='' cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
+# shellcheck source=docker/ai/inference-cpus.sh
+source "$root/docker/ai/inference-cpus.sh"
 digest=$(printf '%s' "$root" | sha256sum)
 project="cyberguard-full-${digest:0:16}"
 local_dir="$root/.local"
@@ -42,7 +44,7 @@ secrets="$state/secrets"
 
 # Do not use a remote Docker daemon or ambient Compose configuration.
 unset COMPOSE_FILE COMPOSE_PROFILES COMPOSE_PROJECT_NAME COMPOSE_ENV_FILES \
-    COMPOSE_REMOVE_ORPHANS COMPOSE_IGNORE_ORPHANS
+    COMPOSE_REMOVE_ORPHANS COMPOSE_IGNORE_ORPHANS AI_INFERENCE_CPUS AI_INFERENCE_PIDS
 context=$(docker context show) || die 'Could not resolve the Docker context.'
 endpoint=${DOCKER_HOST:-}
 if [[ -n ${DOCKER_CONTEXT:-} || -z $endpoint ]]; then
@@ -201,6 +203,13 @@ configure() {
             esac
         done
     fi
+    printf '%s\n' 'Using all CPUs for inference can make the app or host less responsive under load.' >&"$terminal"
+    while :; do
+        ask 'AI inference threads per model (positive integer to limit) [all]: '
+        inference_threads=${answer:-all}
+        if valid_inference_threads "$inference_threads"; then break; fi
+        printf 'Enter all or a positive whole number with up to 9 digits.\n' >&"$terminal"
+    done
     printf '%s\n' \
         'Real inference uses roughly 3 GB of pinned model artifacts, plus Docker images and caches.' \
         'Review the model licenses: https://huggingface.co/jaredpalmer/kev-0.8b' \
@@ -210,7 +219,8 @@ configure() {
     [[ $answer == [yY] || $answer == [yY][eE][sS] ]] || die 'Model preparation not accepted; nothing was deployed.'
     mkdir -m 700 -p -- "$state"
     temporary=$(mktemp "$state/.settings.XXXXXX")
-    printf '%s\n' "$LOCAL_BIND_IP" "$LOCAL_WEB_PORT" "$seed" "$DEMO_INCIDENTS_ENABLED" > "$temporary"
+    printf '%s\n' "$LOCAL_BIND_IP" "$LOCAL_WEB_PORT" "$seed" "$DEMO_INCIDENTS_ENABLED" \
+        "$inference_threads" > "$temporary"
     mv -T -- "$temporary" "$settings"
     temporary=''
 }
@@ -219,13 +229,15 @@ read_settings() {
     local -a saved
     [[ -f $settings && ! -L $settings ]] || die "Expected a regular settings file: $settings"
     mapfile -t saved < "$settings"
-    [[ ${#saved[@]} == 3 || ${#saved[@]} == 4 ]] &&
+    (( ${#saved[@]} >= 3 && ${#saved[@]} <= 5 )) &&
         local_ipv4 "${saved[0]}" && valid_port "${saved[1]}" &&
         [[ ${saved[2]} == yes || ${saved[2]} == no ]] || die "Invalid settings: $settings"
     LOCAL_BIND_IP=${saved[0]} LOCAL_WEB_PORT=${saved[1]} seed=${saved[2]}
     DEMO_INCIDENTS_ENABLED=${saved[3]-false}
     [[ $DEMO_INCIDENTS_ENABLED == false || ( $DEMO_INCIDENTS_ENABLED == true && $seed == yes ) ]] ||
         die "Invalid demo incident setting: $settings"
+    inference_threads=${saved[4]-all}
+    valid_inference_threads "$inference_threads" || die "Invalid AI inference thread setting: $settings"
 }
 
 ensure_secrets() {
@@ -317,6 +329,7 @@ prepare_models() {
 
 deploy() {
     verify_bind_address
+    configure_inference_resources "$inference_threads" 256
     ensure_secrets
     step 'Validate the full local Compose configuration'
     compose --profile tools --profile local-setup config --quiet
@@ -348,7 +361,7 @@ deploy() {
     compose pull --policy missing ai-llm
     step 'Start the AI assessment API'
     up 90 ai-api
-    step 'Load Kev and Qwen on CPU'
+    step "Load Kev and Qwen ($AI_INFERENCE_CPUS inference threads per model)"
     up 600 ai-kev ai-llm
     step 'Start the worker and wait for authenticated dependency checks'
     up 150 ai-worker
