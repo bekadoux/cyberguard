@@ -7,13 +7,34 @@ Deferred ideas are not release commitments.
 
 ## Agreed product work
 
-- [ ] Add a reporter-safe status timeline. Expose only events relevant to the
-  reporter; do not expose professional metadata, internal notes, or AI output.
-- [ ] Align AI triage with the domain's eight-indicator rubric. Update the model/API/UI
-  together, determine thresholds after evaluation, and highlight supported signals
-  on the staff incident view. Signals must never automatically change severity.
-  The domain rubric is in [English](domain-specification.md#indicators-yesno-questions)
-  and [Slovak](domain-specification.sk.md#indikátory-otázky-ánonie).
+### Go backend and documentation
+
+- [ ] Improve the root [README](../README.md): explain what CyberGuard does, who
+  uses it, and how to get it running and sign in from a fresh checkout. Keep AI
+  optional and link to the detailed runbooks.
+- [ ] Write the detailed project report in LaTeX. Cover architecture, roles and
+  incident workflows, data and API boundaries, AI behavior and limitations, and
+  deployment and validation. Distinguish shipped behavior from planned work and
+  measured results from fixture coverage.
+- [ ] Implement the Go API for the reporter-safe status timeline. Define which
+  events the reporter can see and enforce access on the server. Do not reuse the
+  staff audit history response or expose professional metadata, internal notes,
+  or AI output.
+- [ ] Add the initial AI job status to the staff incident-list response. Return
+  the status only, not assessment contents; omit the field from employee
+  responses. Preserve list filters and cursor pagination.
+
+### AI and frontend
+
+- [ ] Reconcile the four current AI signals with the domain's eight-indicator
+  rubric. Update the model, assessment API, and UI together, determine thresholds
+  from evaluation, and highlight supported signals on the staff incident view.
+  Signals must never automatically change severity. The rubric is in
+  [English](domain-specification.md#indicators-yesno-questions) and
+  [Slovak](domain-specification.sk.md#indikátory-otázky-ánonie).
+- [ ] Review the AI prompts, assessment output, and UI against the domain spec
+  and fix confirmed inconsistencies. Check category criteria and how the UI
+  explains when the model makes no recommendation.
 - [ ] Redesign the staff incident assessment and human review.
   - Keep Kev's recommendation visible even when the chart is collapsed. If Kev
     abstains, show “No recommendation,” the highest-scoring category and its
@@ -30,26 +51,48 @@ Deferred ideas are not release commitments.
   - Group the LLM summary, reported facts, unknowns, and follow-up questions in
     a collapsible “AI draft brief” that starts expanded. Keep approved playbook
     steps separate from the generated brief.
-- [ ] Add an “AI assessment” status column to the staff incident queue, separate
-  from incident status. Show Queued, In progress, Complete, and Failed; Complete
-  means the job finished, not that it produced a recommendation or was reviewed.
-  Add the job status, not the assessment itself, to the staff list response.
-  Omit it from employee responses and update it with the existing manual list
-  refresh. Do not poll or fetch an assessment per row.
+- [ ] Display the reporter-safe timeline in the incident view using the new Go
+  API, not the staff audit history.
+- [ ] Add an “AI assessment” column to the staff incident queue, separate from
+  incident status. Show Queued, In progress, Complete, and Failed; Complete means
+  the job finished, not that it produced a recommendation or was reviewed. Use
+  the existing manual list refresh. Do not poll or fetch an assessment per row.
 - [ ] Redesign the sign-in page and add a sign-up page based on the team's
-  concept images.
+  concept images. Use the existing feature-gated sign-up API: it creates an
+  employee account and does not start a session. Handle disabled registration.
+
+### Team decisions and handoffs
+
+- [ ] Have the Go and frontend owners agree on the timeline and queue API
+  contracts before implementation. Specify who can read each field, which
+  timeline events are visible to reporters, and how the UI handles an incident
+  with no AI job.
+- [ ] Decide which environments should enable self-registration. Adding a
+  sign-up page does not mean opening public registration on the deployed app.
 
 ## Validation and release work
+
+Each implementer owns focused automated tests for their changes. Model quality
+evaluation, synthetic integration fixtures, and real-environment acceptance
+cover different risks; none substitutes for the others.
+
+### AI and frontend validation
+
+- [ ] Evaluate English and Slovak reports against reviewed labels. Establish category
+  and indicator metrics, calibration/uncertainty thresholds, and a rubric for
+  brief usefulness, factual errors, and unsupported claims. Review model licenses,
+  provenance, playbook content, and model-server logging before handling real data.
+- [ ] Recheck the Firefox accessibility scanner workaround after browser/tool
+  upgrades and remove the temporary frontend `minimatch` override when the lint
+  dependencies resolve to a patched release on their own.
+
+### Deployment and real-environment acceptance
 
 - [ ] Run the full demo on the target hosts with real Kev/Qwen: submit a synthetic
   report, close the submitting browser, inspect progress as staff, verify the
   original snapshot and access rules, ask the reporter a question, record a human
   decision, update severity separately, and complete resolution/confirmation.
   Verify core workflows also work during AI outages.
-- [ ] Evaluate English and Slovak reports against reviewed labels. Establish category
-  and indicator metrics, calibration/uncertainty thresholds, and a rubric for
-  brief usefulness, factual errors, and unsupported claims. Review model licenses,
-  provenance, playbook content, and model-server logging before handling real data.
 - [ ] Measure model startup and warm latency, peak RAM/CPU, disk growth, and core API
   responsiveness on the target VMs. Confirm sizing, quotas, and cost.
 - [ ] Verify actual Azure bootstrap, private-source allow/deny rules, public
@@ -62,10 +105,11 @@ Deferred ideas are not release commitments.
 - [ ] Decide and document safe handling for pending legacy jobs if a real deployment
   has them. Retrying terminal failures, regenerating assessments, or backfilling
   historical context require separate reviewed policies; none is implied by that decision.
-- [ ] Decide on CI coverage for the existing Make checks. Recheck the Firefox
-  accessibility scanner workaround after browser/tool upgrades, and remove the
-  temporary frontend `minimatch` override when the lint dependencies resolve to
-  a patched release on their own.
+
+### Team release decision
+
+- [ ] Decide whether CI coverage for the existing Make checks is in scope for
+  this delivery or deferred.
 
 ## Deferred or conditional
 
