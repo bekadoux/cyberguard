@@ -5,7 +5,7 @@ umask 077
 root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
 scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT
-for tool in git openssl script; do command -v "$tool" >/dev/null; done
+for tool in git openssl script setsid; do command -v "$tool" >/dev/null; done
 repo="$scratch/repo"
 mkdir -p "$repo/deploy/remote" "$repo/docker/ai" "$scratch/bin" "$scratch/tls"
 cp "$root/deploy/remote-setup.sh" "$repo/deploy/"
@@ -90,6 +90,17 @@ case "$*" in
             printf '%032d\n' 2
         fi ;;
     *"'-s'"*"'inspect'"*) cat >/dev/null; echo "$role inspect" >> "$FIXTURE/trace" ;;
+    *"'-s'"*"'reset-plan'"*)
+        cat >/dev/null
+        echo "$role reset-plan" >> "$FIXTURE/trace"
+        [[ ${RESET_REJECT_TARGET:-none} != "$role" ]]
+        echo "$role reset inventory"
+        ;;
+    *"'-s'"*"'reset'"*)
+        cat >/dev/null
+        echo "$role reset" >> "$FIXTURE/trace"
+        [[ ${RESET_FAIL_TARGET:-none} != "$role" ]]
+        ;;
     *"'-s'"*) cat >/dev/null; echo "$role os-dns" >> "$FIXTURE/trace" ;;
     *'tar --no-same-owner -xpf -'*)
         tar -tf - > "$FIXTURE/archive-$role"
@@ -214,6 +225,33 @@ if grep -Eq 'upload|initialize|configure|prepare|receive| installed$' "$scratch/
     exit 1
 fi
 
+# Reset needs an actual TTY and does not reset anything before both inventories
+# pass and the operator confirms. A reset can target a previously pinned release.
+reset_pty() {
+    script -q -e -c "bash '$repo/deploy/remote-setup.sh' --config '$1' reset ${2:-}" /dev/null
+}
+: > "$scratch/trace"
+reject setsid --wait bash "$repo/deploy/remote-setup.sh" --config "$scratch/settings" reset </dev/null > "$scratch/out" 2>&1
+grep -q 'Reset requires an interactive terminal' "$scratch/out"
+[[ ! -s $scratch/trace ]]
+reject reset_pty "$scratch/settings" <<< cancel > "$scratch/out"
+grep -q 'Reset cancelled; nothing was deleted' "$scratch/out"
+[[ $(grep -E ' reset(-plan)?$' "$scratch/trace") == $'ai reset-plan\napp reset-plan' ]]
+: > "$scratch/trace"
+RESET_REJECT_TARGET=app reject reset_pty "$scratch/settings" <<< RESET > "$scratch/out"
+[[ $(grep -E ' reset(-plan)?$' "$scratch/trace") == $'ai reset-plan\napp reset-plan' ]]
+: > "$scratch/trace"
+RESET_FAIL_TARGET=ai reject reset_pty "$scratch/settings" <<< RESET > "$scratch/out"
+[[ $(grep -E ' reset(-plan)?$' "$scratch/trace") == $'ai reset-plan\napp reset-plan\nai reset' ]]
+: > "$scratch/trace"
+reset_pty "$scratch/settings" <<< RESET > "$scratch/out"
+[[ $(grep -E ' reset(-plan)?$' "$scratch/trace") == $'ai reset-plan\napp reset-plan\nai reset\napp reset' ]]
+grep -q 'Remote reset complete' "$scratch/out"
+reject grep -Eq 'upload|initialize|configure|prepare|receive| up$' "$scratch/trace"
+grep -E '^(APP|AI)_(SSH|KEY)=' "$scratch/settings" > "$scratch/legacy"
+reset_pty "$scratch/legacy" --legacy <<< RESET > "$scratch/out"
+grep -q 'Remote reset complete' "$scratch/out"
+
 # First setup saves both choices and only sends each setting to the relevant VM.
 printf '%s\n' app-test "$scratch/app ssh key" ai-test "$scratch/ai ssh key" \
     cg.example.org 10.0.0.4 10.0.0.5 '' '' '' "$tls" provided yes yes 0 4 yes |
@@ -295,4 +333,97 @@ reject grep -Eq 'upload|initialize|configure|prepare|receive| installed$' "$scra
     if (receive_file go.key "$(sha "$tls/go.key")" < "$tls/go.key"); then echo 'App key reached AI.' >&2; exit 1; fi
 )
 
-echo 'Remote setup: SSH orchestration, scoped transfer, cutover and resume checks passed.'
+# Reset only the flagged project and reserved unlabeled volumes. Use temp paths
+# and a fake Docker engine; never alter the real workstation or another project.
+(
+    source "$root/deploy/remote/host.sh"
+    role=app
+    project=cyberguard-app-vm
+    etc="$scratch/reset-etc"
+    data="$scratch/reset-data"
+    state="$scratch/reset-state"
+    config="$etc/config.env"
+    machine=$(cat /etc/machine-id)
+    mkdir "$etc" "$data"
+    touch "$scratch/reset-container" "$scratch/reset-network" "$scratch/reset-volume" "$scratch/reset-unlabeled"
+    touch "$scratch/unrelated-volume"
+    lock_host() { :; }
+    docker() {
+        [[ $1 == --host && $2 == unix:///var/run/docker.sock ]] || fail 'Expected local Docker socket.'
+        shift 2
+        local filter="label=com.docker.compose.project=$project"
+        case "$*" in
+            "ps --all --quiet --filter $filter")
+                if [[ -e $scratch/reset-container ]]; then echo app-container; fi ;;
+            "network ls --quiet --filter $filter")
+                if [[ -e $scratch/reset-network ]]; then echo app-network; fi ;;
+            "volume ls --quiet --filter $filter")
+                if [[ -e $scratch/reset-volume ]]; then echo "${project}_identity-data"; fi ;;
+            'volume ls --format {{.Name}}')
+                echo unrelated-volume
+                if [[ -e $scratch/reset-unlabeled ]]; then echo "${project}_web-data"; fi ;;
+            'volume inspect --format '*)
+                if [[ ${FOREIGN_VOLUME:-no} == yes ]]; then echo unrelated; fi ;;
+            'container rm --force -- app-container') rm -- "$scratch/reset-container" ;;
+            'network rm -- app-network') rm -- "$scratch/reset-network" ;;
+            "volume rm -- ${project}_identity-data")
+                [[ ${BUSY_VOLUME:-no} != yes ]] || return 1
+                rm -- "$scratch/reset-volume" ;;
+            "volume rm -- ${project}_web-data") rm -- "$scratch/reset-unlabeled" ;;
+            *) fail 'Unexpected Docker command during reset.' ;;
+        esac
+    }
+    reject_reset() {
+        if (reset_host "$@") > "$scratch/out" 2>&1; then
+            echo 'Unexpected reset success.' >&2
+            exit 1
+        fi
+    }
+    reject_reset reset-plan managed "$machine"
+    grep -q 'Unmanaged resources remain' "$scratch/out"
+    mkdir "$state"
+    reject_reset reset-plan legacy "$machine"
+    rmdir "$state"
+    printf 'APP_PROJECT_NAME=cyberguard-app-vm-custom\n' > "$config"
+    reject_reset reset-plan legacy "$machine"
+    printf 'APP_PROJECT_NAME=%s\n' "$project" > "$config"
+    FOREIGN_VOLUME=yes reject_reset reset-plan legacy "$machine"
+    reject_reset reset legacy '11111111111111111111111111111111'
+    [[ -e $scratch/reset-container ]]
+    (
+        # Host functions call the stub when validating the reset mount inventory.
+        # shellcheck disable=SC2317
+        findmnt() { printf '%s/nested-mount\n' "$data"; }
+        reject_reset reset-plan legacy "$machine"
+    )
+    reset_host reset-plan legacy "$machine" > "$scratch/preview"
+    grep -q "${project}_web-data" "$scratch/preview"
+    reject grep -q 'unrelated-volume' "$scratch/preview"
+    [[ -e $scratch/reset-container ]]
+    BUSY_VOLUME=yes reject_reset reset legacy "$machine"
+    [[ -d $etc && -d $data && -e $scratch/reset-volume ]]
+    reset_host reset legacy "$machine"
+    [[ ! -e $etc && ! -e $data && ! -e $scratch/reset-volume && ! -e $scratch/reset-unlabeled ]]
+    [[ -e $scratch/unrelated-volume ]]
+    # An already-clean host can be retried after the peer failed.
+    reset_host reset-plan managed "$machine" >/dev/null
+
+    # Managed reset uses the original deployment fingerprint and sudo operator.
+    mkdir -m 0700 "$state" "$data"
+    operator=$(id -un)
+    deployment=$(printf 'a%.0s' {1..64})
+    # Called indirectly by the sourced receipt validator.
+    # shellcheck disable=SC2317
+    stat() {
+        if [[ $* == "-c %u:%a $state" ]]; then echo 0:700
+        else command stat "$@"; fi
+    }
+    printf '%s:%s\n' "${deployment/a/b}" "$operator" > "$state/deployment"
+    reject_reset reset-plan managed "$machine"
+    grep -q 'Use the original settings' "$scratch/out"
+    printf '%s:%s\n' "$deployment" "$operator" > "$state/deployment"
+    reset_host reset managed "$machine"
+    [[ ! -e $state && ! -e $data && -e $scratch/unrelated-volume ]]
+)
+
+echo 'Remote setup: SSH orchestration, scoped transfer, cutover, resume and reset checks passed.'

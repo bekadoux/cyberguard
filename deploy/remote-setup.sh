@@ -15,16 +15,19 @@ if [[ ${1:-} == --config && $# -ge 2 ]]; then
     shift 2
 fi
 if (( $# )); then command=$1; shift; fi
+reset_mode=managed
+if [[ $command == reset && ${1:-} == --legacy ]]; then reset_mode=legacy; shift; fi
 usage() {
     printf '%s\n' \
         'Usage: bash deploy/remote-setup.sh [--config FILE] [install|preflight|resume|status|check|stop]' \
+        '       bash deploy/remote-setup.sh [--config FILE] reset [--legacy]' \
         'Default: install. The default settings file is .local/remote-setup.env.'
 }
 die() { printf '%s\n' "$*" >&2; exit 1; }
 (( $# == 0 )) || { usage >&2; exit 2; }
 case "$command" in
     -h|--help) usage; exit 0 ;;
-    install|preflight|resume|status|check|stop) ;;
+    install|preflight|resume|status|check|stop|reset) ;;
     *) usage >&2; exit 2 ;;
 esac
 
@@ -138,6 +141,7 @@ validate_settings() {
         value=${keys[$key]}
         [[ -z $value || ( -f $value && -r $value ) ]] || die "Cannot read the $key SSH key file."
     done
+    if [[ $command == reset && $reset_mode == legacy ]]; then return; fi
     [[ ${settings[PUBLIC_TLS]} == acme || ${settings[PUBLIC_TLS]} == provided ]] || die 'Invalid PUBLIC_TLS.'
     [[ ${settings[DEMO_SEED]} == yes || ${settings[DEMO_SEED]} == no ]] || die 'Invalid DEMO_SEED.'
     [[ ${settings[DEMO_INCIDENTS]} == yes || ${settings[DEMO_INCIDENTS]} == no ]] || die 'Invalid DEMO_INCIDENTS.'
@@ -183,6 +187,9 @@ validate_settings() {
 }
 
 config=$(local_path "$config" "$work_dir")
+if [[ $command == reset ]]; then
+    { exec {terminal}<>/dev/tty; } 2>/dev/null || die 'Reset requires an interactive terminal.'
+fi
 if [[ -e $config || -L $config ]]; then
     load_settings
     validate_settings "$(dirname -- "$config")"
@@ -313,6 +320,35 @@ inspect_host() {
         remote "$1" sudo -n bash -s -- "$1" "$deployment" inspect
 }
 
+reset_host() {
+    local role=$1 verb=$2 expected=$app_machine
+    if [[ $role == ai ]]; then expected=$ai_machine; fi
+    # Stream the current helper: reset must also work against releases deployed
+    # before this action existed, without uploading or changing those releases.
+    remote "$role" sudo -n bash -s -- "$role" "$deployment" "$verb" "$reset_mode" "$expected" \
+        < "$root/deploy/remote/host.sh"
+}
+
+reset_deployment() {
+    local answer
+    phase='verify both reset targets'
+    printf 'Reset scope: %s (%s), then %s (%s).\n' \
+        'AI VM' "${hosts[ai]}" 'app VM' "${hosts[app]}" >&"$terminal"
+    reset_host ai reset-plan >&"$terminal"
+    reset_host app reset-plan >&"$terminal"
+    printf '%s\n' \
+        'This permanently deletes the listed CyberGuard containers, networks, volumes, credentials,' \
+        'certificates, deployment state and cached models. It does not reinstall anything.' >&"$terminal"
+    printf 'Type RESET to continue: ' >&"$terminal"
+    IFS= read -r answer <&"$terminal" || die 'Reset cancelled; nothing was deleted.'
+    [[ $answer == RESET ]] || die 'Reset cancelled; nothing was deleted.'
+    phase='reset the AI VM'
+    reset_host ai reset
+    phase='reset the app VM'
+    reset_host app reset
+    printf '%s\n' 'Remote reset complete. Run preflight and install to deploy again.'
+}
+
 upload() {
     git -C "$root" archive "$revision" |
         remote "$1" bash -c '
@@ -394,13 +430,21 @@ ai_machine=$(remote ai cat /etc/machine-id </dev/null)
 [[ $app_machine =~ ^[a-f0-9]{32}$ && $ai_machine =~ ^[a-f0-9]{32}$ && $app_machine != "$ai_machine" ]] ||
     die 'SSH must identify two different VMs with valid machine IDs.'
 # Bind receipts to the VM pair, revision and effective topology, not workstation paths or SSH aliases.
-deployment=$(
-    { printf '%s\n' "$app_machine" "$ai_machine"; app_config; ai_config; } |
-        sha256sum
-)
-deployment=${deployment%% *}
+if [[ $command == reset && $reset_mode == legacy ]]; then
+    deployment=legacy
+else
+    deployment=$(
+        { printf '%s\n' "$app_machine" "$ai_machine"; app_config; ai_config; } |
+            sha256sum
+    )
+    deployment=${deployment%% *}
+fi
 
 case "$command" in
+    reset)
+        reset_deployment
+        exit
+        ;;
     install|preflight)
         phase='prerequisite checks'
         preflight

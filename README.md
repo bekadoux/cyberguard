@@ -75,15 +75,10 @@ the core application setup. Models require additional disk space and memory.
 
 ## Deploy on a server
 
-For a fresh deployment on the two Azure VMs, start from your workstation:
-
-```bash
-bash deploy/remote-setup.sh
-```
-
-The [remote installer guide](docs/remote-setup.md) covers SSH keys, DNS,
-network rules, TLS files, and start/stop commands. The installer does not
-create Azure resources or take over an existing manual deployment.
+Follow the [step-by-step Azure deployment guide](docs/remote-setup.md) to
+create the app and AI VMs, configure their network and TLS, and run the SSH
+installer from your workstation. It also covers verification, demo sign-in,
+and a clean reset for disposable deployments.
 
 For manual deployment or upgrades, follow the guides in order:
 

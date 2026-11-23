@@ -25,7 +25,7 @@ assert_own_state() {
        -f $state/deployment && ! -L $state/deployment ]] ||
         fail "No managed remote setup state for the $role VM. Run install with the original settings."
     [[ $(cat "$state/deployment") == "$deployment:$operator" ]] ||
-        fail "The $role VM belongs to a different revision, operator, or configuration. Upgrade/adoption is a separate operation."
+        fail "The $role VM belongs to a different revision, operator, or configuration. Use the original settings; upgrade/adoption is separate."
 }
 
 volume_names() {
@@ -57,6 +57,140 @@ assert_unused() {
 
 inspect() {
     if present "$state"; then assert_own_state; else assert_unused; fi
+}
+
+lock_host() {
+    # Stable across reset, unlike the deployment-state directory it removes.
+    local lock="/run/cyberguard-remote-$role.lock"
+    if present "$lock"; then
+        [[ -f $lock && ! -L $lock && -O $lock ]] || fail 'Unsafe remote installer lock.'
+    fi
+    exec 7>>"$lock"
+    flock -n 7 || fail "Another remote install or reset operation is active on the $role VM."
+}
+
+lock_state() {
+    # Also excludes an older installed helper that only locks this directory.
+    exec 8<"$state"
+    flock -n 8 || fail "Another remote install operation is active on the $role VM."
+}
+
+reset_docker() { docker --host unix:///var/run/docker.sock "$@"; }
+
+reset_inventory() {
+    local filter="label=com.docker.compose.project=$project" all volume owner
+    reset_containers='' reset_networks='' reset_volumes=''
+    if ! command -v docker >/dev/null; then
+        [[ ! -e /var/lib/docker ]] || fail 'Docker data exists but Docker is unavailable; inspect it before resetting.'
+        return
+    fi
+    reset_containers=$(reset_docker ps --all --quiet --filter "$filter") ||
+        fail 'Cannot inspect the local Docker daemon.'
+    reset_networks=$(reset_docker network ls --quiet --filter "$filter") || fail 'Cannot inspect Docker networks.'
+    reset_volumes=$(reset_docker volume ls --quiet --filter "$filter") || fail 'Cannot inspect Docker volumes.'
+    if [[ $role == app ]]; then
+        all=$(reset_docker volume ls --format '{{.Name}}') || fail 'Cannot list reserved Docker volume names.'
+        for volume in "${project}_identity-data" "${project}_incident-data" "${project}_web-data"; do
+            grep -Fxq -- "$volume" <<< "$all" || continue
+            grep -Fxq -- "$volume" <<< "$reset_volumes" && continue
+            owner=$(reset_docker volume inspect --format '{{with index .Labels "com.docker.compose.project"}}{{.}}{{end}}' "$volume") ||
+                fail "Cannot inspect reserved volume $volume."
+            [[ -z $owner ]] || fail "Reserved volume $volume belongs to a different project; refusing reset."
+            reset_volumes+=$'\n'"$volume"
+        done
+    fi
+}
+
+check_reset_paths() {
+    local mounts path target
+    mounts=$(findmnt -rn -o TARGET) || fail 'Cannot inspect host mounts.'
+    for path in "$etc" "$data" "$state"; do
+        [[ $(realpath -m -- "$path") == "$path" && ! -L $path ]] ||
+            fail "Refusing a symlink or relocated reset path: $path"
+        present "$path" || continue
+        [[ -d $path ]] || fail "Expected a directory at reset path: $path"
+        while IFS= read -r target; do
+            [[ $target != "$path" && $target != "$path/"* ]] ||
+                fail "Refusing a mounted reset path: $target"
+        done <<< "$mounts"
+    done
+}
+
+check_reset_config() {
+    local line key
+    local -A expected
+    present "$config" || return 0
+    [[ -f $config && ! -L $config ]] || fail 'Expected a regular config for reset.'
+    if [[ $role == app ]]; then
+        expected=([APP_PROJECT_NAME]="$project" [APP_STATE_DIR]="$data" [APP_SECRETS_DIR]="$etc/secrets")
+    else
+        expected=([AI_PROJECT_NAME]="$project" [AI_MODEL_DIR]="$data/models" [AI_SECRETS_DIR]="$etc/secrets")
+    fi
+    while IFS= read -r line || [[ -n $line ]]; do
+        key=${line%%=*}
+        [[ $line == *=* && $key =~ ^[A-Z_]+$ && -v expected[$key] ]] || continue
+        [[ ${line#*=} == "${expected[$key]}" ]] ||
+            fail "Custom $key is outside the default reset scope. Clean up that deployment manually."
+    done < "$config"
+}
+
+check_reset_scope() {
+    local mode=$1
+    check_reset_paths
+    if present "$state"; then
+        [[ $mode == managed ]] || fail '--legacy refuses to reset a managed installation.'
+        assert_own_state
+    fi
+    check_reset_config
+    reset_inventory
+    if [[ $mode == managed ]] && ! present "$state"; then
+        if present "$etc" || present "$data" || [[ -n $reset_containers$reset_networks$reset_volumes ]]; then
+            fail 'Unmanaged resources remain. Use reset --legacy only for an old manual deployment.'
+        fi
+    fi
+}
+
+reset_host() {
+    local verb=$1 mode=$2 machine=$3 object
+    [[ $mode == managed || $mode == legacy ]] || fail 'Invalid reset mode.'
+    [[ $machine =~ ^[a-f0-9]{32}$ && $(cat /etc/machine-id) == "$machine" ]] ||
+        fail 'The VM identity changed; refusing reset.'
+    if [[ $verb == reset ]]; then
+        lock_host
+        if present "$state"; then
+            [[ $mode == managed ]] || fail '--legacy refuses to reset a managed installation.'
+            assert_own_state
+            lock_state
+        fi
+    fi
+    check_reset_scope "$mode"
+    if [[ $verb == reset-plan ]]; then
+        printf '%s (%s, %s): %s %s %s\n' "$role" "$(hostname)" "$project" "$etc" "$data" "$state"
+        printf '  Containers: %s\n  Networks: %s\n  Volumes: %s\n' \
+            "${reset_containers//$'\n'/ }" "${reset_networks//$'\n'/ }" "${reset_volumes//$'\n'/ }"
+        return
+    fi
+    # Docker refuses to remove networks and volumes still used by other projects.
+    while IFS= read -r object; do
+        [[ -z $object ]] || reset_docker container rm --force -- "$object" ||
+            fail "Could not remove container $object; deployment files were kept."
+    done <<< "$reset_containers"
+    while IFS= read -r object; do
+        [[ -z $object ]] || reset_docker network rm -- "$object" ||
+            fail "Could not remove network $object; deployment files were kept."
+    done <<< "$reset_networks"
+    while IFS= read -r object; do
+        [[ -z $object ]] || reset_docker volume rm -- "$object" ||
+            fail "Could not remove volume $object; deployment files were kept."
+    done <<< "$reset_volumes"
+    reset_inventory
+    [[ -z $reset_containers$reset_networks$reset_volumes ]] ||
+        fail 'Project Docker resources remain. Configuration, credentials and state were kept.'
+    check_reset_paths
+    # Keep the receipt until every other deletion completes so reset can resume.
+    rm -rf --one-file-system -- "$etc" "$data"
+    rm -rf --one-file-system -- "$state"
+    printf '%s VM: reset complete.\n' "$role"
 }
 
 claim_fresh_state() {
@@ -241,7 +375,12 @@ main() {
     local action=$3
     shift 3
     [[ $role == app || $role == ai ]] || fail 'Invalid VM role.'
-    [[ $deployment =~ ^[a-f0-9]{64}$ ]] || fail 'Invalid deployment ID.'
+    case "$action:${1:-}" in
+        reset:legacy|reset-plan:legacy)
+            [[ $deployment == legacy ]] || fail 'Invalid legacy reset request.' ;;
+        *)
+            [[ $deployment =~ ^[a-f0-9]{64}$ ]] || fail 'Invalid deployment ID.' ;;
+    esac
     operator=${SUDO_USER:-}
     [[ -n $operator && $operator != root ]] || fail 'Use sudo from the non-root VM account.'
     gid=$(id -g "$operator")
@@ -253,11 +392,14 @@ main() {
     project="cyberguard-$role-vm"
     unset DOCKER_HOST DOCKER_CONTEXT COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES
 
-    if [[ $action == inspect ]]; then inspect; return; fi
+    case "$action:$#" in
+        inspect:0) inspect; return ;;
+        reset:2|reset-plan:2) reset_host "$action" "$@"; return ;;
+    esac
     repo=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
+    lock_host
     if [[ $action == initialize ]]; then claim_fresh_state; else assert_own_state; fi
-    exec 8<"$state"
-    flock -n 8 || fail "Another remote install operation is active on the $role VM."
+    lock_state
 
     case "$action:$#" in
         initialize:0)
