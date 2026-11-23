@@ -115,7 +115,8 @@ type analystDTO struct {
 
 type internalIncidentSummaryDTO struct {
 	incidentSummaryDTO
-	Severity *string `json:"severity"`
+	Severity           *string `json:"severity"`
+	AIAssessmentStatus *string `json:"ai_assessment_status"`
 }
 
 type internalIncidentDetailDTO struct {
@@ -269,7 +270,11 @@ func (a *IncidentAPI) list(w http.ResponseWriter, r *http.Request) {
 	for _, row := range page.Incidents {
 		dto := summaryDTO(row)
 		if internalIncidentView(user, row.ReporterID) {
-			items = append(items, internalIncidentSummaryDTO{incidentSummaryDTO: dto, Severity: nullableText(row.Severity)})
+			items = append(items, internalIncidentSummaryDTO{
+				incidentSummaryDTO: dto,
+				Severity:           nullableText(row.Severity),
+				AIAssessmentStatus: nullableText(row.AiAssessmentStatus),
+			})
 		} else {
 			items = append(items, dto)
 		}

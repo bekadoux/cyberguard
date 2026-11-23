@@ -9,7 +9,7 @@ with handlers in `internal/httpapi`, auth and session logic in `internal/auth` a
 | --- | --- |
 | [Foundation](../api/go-foundation.openapi.yaml) | Process liveness and connectivity readiness |
 | [Authentication](../api/go-authentication.openapi.yaml) | Employee signup, login, current user, and logout |
-| [Incident intake](../api/go-incidents.openapi.yaml) | Create, scoped list, and detail |
+| [Incident intake](../api/go-incidents.openapi.yaml) | Create, scoped list with initial AI status for staff, and detail |
 | [Incident workflows and administration](../api/go-handoff.openapi.yaml) | Incident actions, notifications, accounts, ownership, demo incidents, and AI feedback |
 
 Direct Go routes are unprefixed; Caddy exposes them under `/api`. The private AI
@@ -88,6 +88,9 @@ latest 500 visible entries; notifications return the latest 100. These feeds
 do not paginate. A create transaction includes the first
 assessment job; a worker result never updates incident fields. An authorized human
 can record one decision per real assessment and update the category through Go.
+The staff list exposes only the initial job status; the
+[frontend handoff](frontend-handoff/staff-assessment-status.md) defines the null
+case and labels.
 
 Go runs resolution maintenance at startup and hourly to close eligible
 seven-day-old resolutions. Account administration has a separate audit trail in the

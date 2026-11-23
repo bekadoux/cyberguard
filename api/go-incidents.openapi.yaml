@@ -90,6 +90,9 @@ paths:
         changing filters starts a fresh traversal. Unknown/duplicate/empty parameters
         are rejected. No reporter_id, severity, company-access or sort overrides.
         List omits description and resolution text; use detail for analyst username.
+        Analyst/admin rows include ai_assessment_status for the initial job, including
+        on their own reports. Null means no initial job exists. Employee rows omit
+        the field. Assessment contents and job IDs are never returned here.
       parameters:
         - in: query
           name: limit
@@ -234,6 +237,12 @@ components:
     IncidentSummary:
       allOf:
         - $ref: '#/components/schemas/IncidentFields'
+        - type: object
+          properties:
+            ai_assessment_status:
+              type: [string, 'null']
+              enum: [queued, running, completed, failed, null]
+              description: Staff only. Complete means the job finished, not that a human reviewed it.
       unevaluatedProperties: false
     IncidentDetail:
       allOf:

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -113,6 +114,97 @@ func TestIncidentHTTPPostgresIntegration(t *testing.T) {
 		w := authRequest(router, http.MethodPost, "/incidents", validIncident, b)
 		if w.Code != 401 || len(w.Result().Cookies()) != 0 {
 			t.Fatal("blocked account created incident or changed cookie")
+		}
+	})
+	t.Run("initial assessment statuses are staff-only and paginate with incidents", func(t *testing.T) {
+		wantStatus := map[string]any{id: "queued"}
+		for _, fixture := range []struct {
+			cookie *http.Cookie
+			status string
+		}{{analyst, "running"}, {admin, "completed"}, {a, "failed"}, {a, ""}} {
+			w := authRequest(router, http.MethodPost, "/incidents", validIncident, fixture.cookie)
+			if w.Code != 201 || strings.Contains(w.Body.String(), `"ai_assessment_status"`) {
+				t.Fatalf("unexpected create status or projection: %d", w.Code)
+			}
+			rowID := incidentJSON(t, w)["incident"].(map[string]any)["id"].(string)
+			if _, err := incidentDB.Migrator.Exec(ctx, `UPDATE incidents SET category='phishing' WHERE id=$1`, rowID); err != nil {
+				t.Fatal(err)
+			}
+			if fixture.status == "" {
+				if _, err := incidentDB.Migrator.Exec(ctx, `DELETE FROM assessment_jobs WHERE incident_id=$1`, rowID); err != nil {
+					t.Fatal(err)
+				}
+				wantStatus[rowID] = nil
+				continue
+			}
+			if _, err := incidentDB.Migrator.Exec(ctx, `UPDATE assessment_jobs SET status=$2,
+				claim_token=CASE WHEN $2='running' THEN gen_random_uuid() END,
+				lease_expires_at=CASE WHEN $2='running' THEN now()+interval '1 minute' END
+				WHERE incident_id=$1`, rowID, fixture.status); err != nil {
+				t.Fatal(err)
+			}
+			wantStatus[rowID] = fixture.status
+		}
+		// A later job of a different kind must not appear in the list projection.
+		if _, err := incidentDB.Migrator.Exec(ctx, `INSERT INTO assessment_jobs
+			(incident_id, incident_revision, kind, status) VALUES ($1,1,'regenerated_assessment','failed')`, id); err != nil {
+			t.Fatal(err)
+		}
+		for _, other := range []struct {
+			status, category string
+		}{{"submitted", "other"}, {"triage", "phishing"}} {
+			w := authRequest(router, http.MethodPost, "/incidents", validIncident, admin)
+			if w.Code != 201 {
+				t.Fatalf("create nonmatching incident: %d", w.Code)
+			}
+			rowID := incidentJSON(t, w)["incident"].(map[string]any)["id"].(string)
+			if _, err := incidentDB.Migrator.Exec(ctx, `UPDATE incidents SET status=$2,category=$3 WHERE id=$1`, rowID, other.status, other.category); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, cookie := range []*http.Cookie{analyst, admin} {
+			base := "/incidents?category=phishing&status=submitted&limit=2"
+			path, seen := base, make(map[string]bool)
+			for range 3 {
+				w := authRequest(router, http.MethodGet, path, "", cookie)
+				if w.Code != 200 {
+					t.Fatalf("list page failed: %d %s", w.Code, w.Body)
+				}
+				page := incidentJSON(t, w)
+				for _, item := range page["incidents"].([]any) {
+					row := item.(map[string]any)
+					rowID := row["id"].(string)
+					got, present := row["ai_assessment_status"]
+					want, known := wantStatus[rowID]
+					if !known || !present || got != want || seen[rowID] || row["category"] != "phishing" {
+						t.Fatalf("incorrect or duplicate staff row: %v", row)
+					}
+					seen[rowID] = true
+				}
+				if page["next_cursor"] == nil {
+					break
+				}
+				path = base + "&cursor=" + url.QueryEscape(page["next_cursor"].(string))
+			}
+			if len(seen) != len(wantStatus) {
+				t.Fatalf("filtered pagination returned %d of %d", len(seen), len(wantStatus))
+			}
+		}
+		w := authRequest(router, http.MethodGet, "/incidents", "", analyst)
+		if w.Code != 200 || len(incidentJSON(t, w)["incidents"].([]any)) != len(wantStatus)+2 {
+			t.Fatal("unfiltered list lost incidents")
+		}
+		w = authRequest(router, http.MethodGet, "/incidents?category=phishing", "", a)
+		if w.Code != 200 || strings.Contains(w.Body.String(), `"ai_assessment_status"`) ||
+			len(incidentJSON(t, w)["incidents"].([]any)) != 3 {
+			t.Fatalf("employee list visibility changed: %d %s", w.Code, w.Body)
+		}
+		w = authRequest(router, http.MethodGet, "/incidents/"+id, "", analyst)
+		if w.Code != 200 || strings.Contains(w.Body.String(), `"ai_assessment_status"`) {
+			t.Fatal("staff detail gained an assessment status")
+		}
+		if _, err := incidentDB.Runtime.Exec(ctx, `SELECT claim_token FROM assessment_jobs LIMIT 0`); err == nil {
+			t.Fatal("list grant must not permit reading worker claims")
 		}
 	})
 	t.Run("incident database failure is safe", func(t *testing.T) {

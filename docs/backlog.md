@@ -20,9 +20,8 @@ Deferred ideas are not release commitments.
   events the reporter can see and enforce access on the server. Do not reuse the
   staff audit history response or expose professional metadata, internal notes,
   or AI output.
-- [ ] Add the initial AI job status to the staff incident-list response. Return
-  the status only, not assessment contents; omit the field from employee
-  responses. Preserve list filters and cursor pagination.
+- [x] Expose the [initial AI job status](frontend-handoff/staff-assessment-status.md)
+  in the staff list without changing employee responses, filters or pagination.
 
 ### AI and frontend
 

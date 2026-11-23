@@ -226,7 +226,8 @@
   incident migrations `00003_context_and_investigations.sql`,
   `00004_job_context_read.sql`, `00005_snapshot_worker_safety.sql`,
   `00006_ai_feedback.sql`, `00007_ai_feedback_uuid.sql`,
-  `00008_demo_incident_batch.sql` and `00009_demo_incident_scenarios.sql` before
+  `00008_demo_incident_batch.sql`, `00009_demo_incident_scenarios.sql` and
+  `00010_staff_assessment_status.sql` before
   restarting the updated application/AI worker. Migration 00007 refuses conflicting
   feedback decisions for the same normalized job UUID; it never rewrites history.
   Historical jobs are not backfilled. Migration 00005 preserves snapshot-less jobs

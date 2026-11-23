@@ -162,7 +162,7 @@ shortcut. Before either migrator writes, the manager compares the SQL files for 
 databases in the selected image to the checkout and pins that image ID for the run.
 It accepts Go only if absent or exited, then checks current and image target versions
 after migrating. There is no automatic downgrade. Currently identity
-must reach 00005 and incidents 00009. API and worker never migrate themselves.
+must reach 00005 and incidents 00010. API and worker never migrate themselves.
 Status uses separate file-backed migrator connections with server-side
 `default_transaction_read_only=on`. This is deliberate: Goose can lazily create its
 version table even in status mode. Startup/check must reject an unmigrated database
