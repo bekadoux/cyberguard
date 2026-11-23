@@ -12,10 +12,9 @@ Deferred ideas are not release commitments.
 - [ ] Improve the root [README](../README.md): explain what CyberGuard does, who
   uses it, and how to get it running and sign in from a fresh checkout. Keep AI
   optional and link to the detailed runbooks.
-- [ ] Write the detailed project report in LaTeX. Cover architecture, roles and
-  incident workflows, data and API boundaries, AI behavior and limitations, and
-  deployment and validation. Distinguish shipped behavior from planned work and
-  measured results from fixture coverage.
+- [ ] Review the [English LaTeX project report](report/README.md) before
+  submission. Update its baseline and validation evidence if the final
+  submission describes a later version.
 - [x] Implement the [reporter-safe status timeline Go API](frontend-handoff/reporter-status-timeline.md)
   without exposing staff audit history.
 - [x] Expose the [initial AI job status](frontend-handoff/staff-assessment-status.md)
