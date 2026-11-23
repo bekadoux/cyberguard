@@ -16,13 +16,10 @@ Deferred ideas are not release commitments.
   incident workflows, data and API boundaries, AI behavior and limitations, and
   deployment and validation. Distinguish shipped behavior from planned work and
   measured results from fixture coverage.
-- [ ] Implement the Go API for the reporter-safe status timeline. Define which
-  events the reporter can see and enforce access on the server. Do not reuse the
-  staff audit history response or expose professional metadata, internal notes,
-  or AI output.
-- [ ] Add the initial AI job status to the staff incident-list response. Return
-  the status only, not assessment contents; omit the field from employee
-  responses. Preserve list filters and cursor pagination.
+- [x] Implement the [reporter-safe status timeline Go API](frontend-handoff/reporter-status-timeline.md)
+  without exposing staff audit history.
+- [x] Expose the [initial AI job status](frontend-handoff/staff-assessment-status.md)
+  in the staff list without changing employee responses, filters or pagination.
 
 ### AI and frontend
 
@@ -63,10 +60,7 @@ Deferred ideas are not release commitments.
 
 ### Team decisions and handoffs
 
-- [ ] Have the Go and frontend owners agree on the timeline and queue API
-  contracts before implementation. Specify who can read each field, which
-  timeline events are visible to reporters, and how the UI handles an incident
-  with no AI job.
+- [ ] Share both Go API handoff files and create the frontend follow-up issues.
 - [ ] Decide which environments should enable self-registration. Adding a
   sign-up page does not mean opening public registration on the deployed app.
 

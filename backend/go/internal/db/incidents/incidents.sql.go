@@ -89,21 +89,24 @@ func (q *Queries) GetVisibleIncident(ctx context.Context, arg GetVisibleIncident
 }
 
 const listVisibleIncidents = `-- name: ListVisibleIncidents :many
-SELECT id, reporter_id, title, status, category, severity, assigned_analyst_id, created_at, updated_at
-FROM incidents
-WHERE archived_at IS NULL
-  AND (reporter_id = $1 OR $2::boolean)
-  AND ($3::text IS NULL OR status = $3::text)
-  AND ($4::text IS NULL OR category = $4::text)
+SELECT i.id, i.reporter_id, i.title, i.status, i.category, i.severity,
+       i.assigned_analyst_id, i.created_at, i.updated_at, j.status AS ai_assessment_status
+FROM incidents AS i
+LEFT JOIN assessment_jobs AS j
+  ON $1::boolean AND j.incident_id = i.id AND j.kind = 'initial_assessment'
+WHERE i.archived_at IS NULL
+  AND (i.reporter_id = $2 OR $1::boolean)
+  AND ($3::text IS NULL OR i.status = $3::text)
+  AND ($4::text IS NULL OR i.category = $4::text)
   AND ($5::timestamptz IS NULL OR
-       (created_at, id) < ($5::timestamptz, $6::uuid))
-ORDER BY created_at DESC, id DESC
+       (i.created_at, i.id) < ($5::timestamptz, $6::uuid))
+ORDER BY i.created_at DESC, i.id DESC
 LIMIT $7
 `
 
 type ListVisibleIncidentsParams struct {
-	ActorID         pgtype.UUID
 	ReadCompany     bool
+	ActorID         pgtype.UUID
 	StatusFilter    pgtype.Text
 	CategoryFilter  pgtype.Text
 	BeforeCreatedAt pgtype.Timestamptz
@@ -112,23 +115,24 @@ type ListVisibleIncidentsParams struct {
 }
 
 type ListVisibleIncidentsRow struct {
-	ID                pgtype.UUID
-	ReporterID        pgtype.UUID
-	Title             string
-	Status            string
-	Category          pgtype.Text
-	Severity          pgtype.Text
-	AssignedAnalystID pgtype.UUID
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
+	ID                 pgtype.UUID
+	ReporterID         pgtype.UUID
+	Title              string
+	Status             string
+	Category           pgtype.Text
+	Severity           pgtype.Text
+	AssignedAnalystID  pgtype.UUID
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	AiAssessmentStatus pgtype.Text
 }
 
 // Ownership is applied before pagination, never by filtering an unrestricted page.
 // List projections deliberately exclude long descriptions/resolution text.
 func (q *Queries) ListVisibleIncidents(ctx context.Context, arg ListVisibleIncidentsParams) ([]ListVisibleIncidentsRow, error) {
 	rows, err := q.db.Query(ctx, listVisibleIncidents,
-		arg.ActorID,
 		arg.ReadCompany,
+		arg.ActorID,
 		arg.StatusFilter,
 		arg.CategoryFilter,
 		arg.BeforeCreatedAt,
@@ -152,6 +156,7 @@ func (q *Queries) ListVisibleIncidents(ctx context.Context, arg ListVisibleIncid
 			&i.AssignedAnalystID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AiAssessmentStatus,
 		); err != nil {
 			return nil, err
 		}

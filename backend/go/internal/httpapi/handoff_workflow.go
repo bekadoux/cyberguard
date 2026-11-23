@@ -121,6 +121,14 @@ func (a *HandoffAPI) assign(w http.ResponseWriter, r *http.Request) {
 		handoffStorageError(w, err)
 		return
 	}
+	// Older assignment records do not distinguish first assignment from a
+	// reassignment. Record exactly the confirmed state change going forward.
+	if current.status == "submitted" {
+		if err = recordStatusChange(ctx, tx, id, actor, "submitted", "triage", ""); err != nil {
+			handoffStorageError(w, err)
+			return
+		}
+	}
 	if err = notifyIncident(ctx, tx, target, id, "incident_assigned", "An incident has been assigned to you."); err != nil {
 		handoffStorageError(w, err)
 		return
@@ -381,6 +389,10 @@ func changeIncidentStatus(ctx context.Context, tx pgx.Tx, id, actor pgtype.UUID,
 			return err
 		}
 	}
+	return recordStatusChange(ctx, tx, id, actor, from, to, reason)
+}
+
+func recordStatusChange(ctx context.Context, tx pgx.Tx, id, actor pgtype.UUID, from, to, reason string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO incident_actions(incident_id,actor_id,action,reason,details,created_at)
 		VALUES($1,$2,'status_changed',NULLIF($3,''),$4,statement_timestamp())`, id, actor, reason, map[string]string{"from": from, "to": to})
 	return err

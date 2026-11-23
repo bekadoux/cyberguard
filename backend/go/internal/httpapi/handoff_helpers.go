@@ -37,6 +37,7 @@ func (a *HandoffAPI) mountIncidentRoutes(r chi.Router) {
 	r.Get("/{id}/comments", a.listComments)
 	r.Post("/{id}/comments", a.addComment)
 	r.Get("/{id}/history", a.listHistory)
+	r.Get("/{id}/timeline", a.listReporterTimeline)
 	r.Get("/{id}/ai-feedback/{job_id}", a.getAIFeedback)
 	r.Post("/{id}/ai-feedback", a.reviewAIFeedback)
 }

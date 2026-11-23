@@ -48,6 +48,46 @@ components:
 security:
   - sessionCookie: []
 paths:
+  /incidents/{id}/timeline:
+    get:
+      operationId: listReporterTimeline
+      summary: Read an incident's status timeline as its reporter
+      description: >-
+        The authenticated reporter of a non-archived incident, regardless of role,
+        receives status and time only, newest first. The cursor is scoped to the
+        incident and does not grant access. The submission timestamp is always recorded;
+        older transitions lacking a reliable source are not reconstructed.
+        Staff action history is separate.
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {in: query, name: cursor, schema: {type: string, minLength: 1, maxLength: 256}}
+      responses:
+        '200':
+          description: Status timeline page. No audit metadata or AI data.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [events, next_cursor]
+                properties:
+                  events:
+                    type: array
+                    maxItems: 100
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [status, occurred_at]
+                      properties:
+                        status:
+                          $ref: './go-incidents.openapi.yaml#/components/schemas/IncidentStatus'
+                        occurred_at: {type: string, format: date-time, description: UTC RFC 3339}
+                  next_cursor: {type: [string, 'null']}
+        '400': {description: Invalid or unsupported query parameter or cursor}
+        '401': {description: Missing or invalid session}
+        '404': {description: 'Incident missing, malformed, not owned by the caller, or archived'}
+        '503': {description: Session or incident dependency unavailable}
   /incidents/{id}/claim:
     post:
       summary: Atomically claim an unassigned submitted incident
