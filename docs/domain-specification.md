@@ -124,6 +124,31 @@ Rules:
 - A "no" probability ≠ "it did not happen". It means "the description does not say".
 - The severity guidance is for analysts. An indicator never changes incident severity automatically.
 
+### Current AI signals and the rubric (proposal)
+
+The model currently reports four signals. Proposed mapping to the rubric:
+
+| Current AI signal | Rubric indicator | Proposal |
+| --- | --- | --- |
+| Suspicious link clicked | `clicked_link` | Same meaning; keep |
+| Credentials entered | `credentials_entered` | Same meaning; keep |
+| Files encrypted | — | Add to the rubric as `files_encrypted`: a strong sign of ransomware; severity guidance ↑ to critical |
+| Unauthorized access reported | — | Add to the rubric as `unauthorized_access`; severity guidance ↑ to high |
+
+Rubric indicators the model does not cover yet, in the proposed order of
+implementation: `payment_made` and `data_sent_out` (financial and GDPR
+consequences), then `attachment_opened`, `multiple_affected`, `ongoing` and
+`device_abnormal`.
+
+The 0–3 potential impact score is shown to staff as a hint next to the severity
+field: 0 → low, 1 → medium, 2 → high, 3 → critical. It is never pre-selected or
+saved as the confirmed severity.
+
+When there is no category suggestion, the UI says why (proposed wording):
+
+- `other` won: “No category suggested: the description does not clearly match any category. Choose one manually.”
+- Below the threshold: “No category suggested: the model is not confident enough. Highest score: ‹category› ‹score›. Choose a category.”
+
 ## Lifecycle and statuses
 
 Seven statuses following the NIST/SANS model. They are separate from AI job states (`queued`, `running`, `completed`, `failed`).
@@ -210,6 +235,47 @@ Constraints:
   retains the `admin` role without owner protection.
 - The deployment operator initializes the first owner separately from registration.
   For a demo, participants can register and an admin assigns the needed roles.
+- Proposed: self-registration is enabled only on local and dedicated demo stacks
+  (for example during the project defense). A deployment that holds real data keeps
+  it disabled; accounts are created by an administrator.
+
+## Notifications and reporter timeline
+
+### In-app notifications (current behavior)
+
+| Event | Recipient |
+| --- | --- |
+| An analyst claims the incident | Reporter |
+| An admin assigns an analyst | Assigned analyst and reporter |
+| The status changes, including automatic closure | Reporter |
+| Staff add a public comment | Reporter |
+| The reporter answers a question or adds a public comment | Assigned analyst |
+| The reporter requests a review of the resolution | Assigned analyst |
+
+### Reporter timeline (proposal)
+
+The incident view shows an employee reporter a simplified timeline built from the
+action history. The server decides which events are included; the staff action
+history is never reused for this view.
+
+| Event | Shown to the employee as | Details shown |
+| --- | --- | --- |
+| Incident submitted | Report submitted | Time |
+| Claimed, assigned or reassigned | An analyst is handling your report | Current analyst's username |
+| `triage` → `investigating` | Investigation started | — |
+| → `awaiting_reporter` | Waiting for your answer | Link to the public question |
+| `awaiting_reporter` → `investigating` | Your answer was received | — |
+| → `resolved` | Resolved: please confirm | Resolution note |
+| → `closed` by the reporter | Closed: you confirmed the resolution | — |
+| → `closed` automatically | Closed automatically after 7 days | — |
+| → `false_positive` | Closed: no security threat found | Reason |
+| `resolved` → `investigating` | You requested a review | The reporter's own reason |
+| Reopened by an admin | Reopened by the security team | No reason (it may be internal) |
+
+Hidden from employees: category and severity changes (only the current confirmed
+category is visible), `affected_system` edits, internal comments, AI job states
+and feedback, archiving, demo-data markers, and staff actors other than the
+current assigned analyst.
 
 ## Playbooks for the LLM brief
 
@@ -254,10 +320,45 @@ The examples below are synthetic and contain no real passwords or company data.
 
 The full set contains 80 labelled descriptions (61 English, 19 Slovak) in
 [demo-incidents.csv](demo-incidents.csv). These are reference labels, not measured
-model results. The local demo script can submit scenario no. 2 only; account seeding
-does not import incidents.
+model results. **Admin → Demo data** adds up to ten randomly selected synthetic
+reports per click from a catalog of 15 scenarios based on this set (12 English,
+3 Slovak) until the catalog is used up.
 
-Presentation scenario: no. 2 goes through the full cycle — report, AI suggestion, question to the employee, analyst corrects severity, resolution, confirmation.
+Presentation scenario: two browsers side by side, an analyst in one and the employee
+in the other. The employee submits scenario no. 2; the analyst sees it in the queue
+with the AI assessment, which the employee cannot see. The analyst asks a public
+question and adds an internal note; the employee sees only the question. The
+analyst confirms category and severity and records the resolution; the employee
+confirms it. Finally an admin uses Demo data to fill the queue.
+
+## Business process (BPMN)
+
+The BPMN 2.0 model [CyberGuard_BPMN.drawio](bpmn/CyberGuard_BPMN.drawio) shows the
+whole incident-handling process: 70 activities, 23 gateways, two pools and one
+subprocess. The company pool has four lanes (employee, CyberGuard system, security
+analyst, administrator / security manager); the second pool is an external security
+service provider. The subprocess “Investigation and response” is expanded on page 2.
+
+The model follows the lifecycle above: tasks named “Set status: …” correspond to
+the statuses, the timer event is the 7-day automatic closure, and the review and
+reopening loops return the incident to investigation.
+
+It also contains business steps that happen outside the application. They belong
+to the process but are not application features:
+
+- **Critical incidents:** the administrator or security manager assesses a
+  `critical` incident and informs company management.
+- **Escalation:** the assigned analyst may escalate to an external security
+  provider. The request and the provider's conclusion are recorded as internal comments.
+- **Response measures:** after containment and removing the cause, the analyst
+  chooses only the measures the incident needs (an inclusive gateway), following the playbook.
+- **Personal data:** if personal data are affected, the analyst prepares the
+  documents for a possible GDPR notification (within 72 hours) and informs the administrator.
+- **After closure:** the analyst records lessons learned in an internal comment;
+  the administrator reviews the incident and updates the playbooks.
+
+Simplifications: admin assignment, archiving and reopening a false positive are
+allowed by the lifecycle but not drawn.
 
 ## Agreed decisions
 
@@ -275,3 +376,12 @@ Presentation scenario: no. 2 goes through the full cycle — report, AI suggesti
 | Ransomware | Classified under `malware`; not stored separately | SaiLenT |
 | Number of categories | All 8 stay; `other` only for incidents that fit no category | SaiLenT |
 | Description language | English and Slovak accepted; English is the main language | SaiLenT |
+
+## Proposed decisions (to confirm)
+
+| Question | Proposal | Needs agreement from |
+| --- | --- | --- |
+| Which events the reporter timeline shows | See [Reporter timeline](#reporter-timeline-proposal) | Daniil, frontend owner |
+| How current AI signals map to the rubric; potential impact hint | See [Current AI signals and the rubric](#current-ai-signals-and-the-rubric-proposal) | SaiLenT |
+| Wording when there is no category suggestion | See [Current AI signals and the rubric](#current-ai-signals-and-the-rubric-proposal) | SaiLenT, frontend owner |
+| Where self-registration is enabled | Local and dedicated demo stacks only | Nikita |

@@ -130,6 +130,30 @@ Pravidlá:
 - Pravdepodobnosť „nie" ≠ „nestalo sa". Znamená to „v popise sa to neuvádza".
 - Odporúčania sú určené analytikom. Indikátory nikdy automaticky nemenia závažnosť incidentu.
 
+### Aktuálne signály AI a metodika (návrh)
+
+Model dnes vyhodnocuje štyri signály. Navrhované priradenie k metodike:
+
+| Aktuálny signál AI | Indikátor metodiky | Návrh |
+| --- | --- | --- |
+| Kliknutie na podozrivý odkaz | `clicked_link` | Rovnaký význam; ponechať |
+| Zadanie prihlasovacích údajov | `credentials_entered` | Rovnaký význam; ponechať |
+| Zašifrovanie súborov | — | Doplniť do metodiky ako `files_encrypted`: silný znak ransomvéru; odporúčanie ↑ na critical |
+| Nahlásený neoprávnený prístup | — | Doplniť do metodiky ako `unauthorized_access`; odporúčanie ↑ na high |
+
+Indikátory metodiky, ktoré model zatiaľ nepokrýva, v navrhovanom poradí
+implementácie: `payment_made` a `data_sent_out` (finančné a GDPR dôsledky),
+potom `attachment_opened`, `multiple_affected`, `ongoing` a `device_abnormal`.
+
+Skóre potenciálneho dopadu 0–3 sa analytikom zobrazuje ako pomôcka pri poli
+závažnosti: 0 → low, 1 → medium, 2 → high, 3 → critical. Nikdy sa vopred
+nevyberie ani neuloží ako potvrdená závažnosť.
+
+Ak AI nenavrhne kategóriu, používateľské rozhranie vysvetlí prečo (navrhované znenie):
+
+- Zvíťazila `other`: „Kategória nie je navrhnutá: popis jasne nezodpovedá žiadnej kategórii. Vyberte ju ručne.“
+- Pod prahom: „Kategória nie je navrhnutá: model si nie je dostatočne istý. Najvyššie skóre: ‹kategória› ‹skóre›. Vyberte kategóriu.“
+
 ## Životný cyklus a stavy
 
 Sedem stavov podľa modelu NIST/SANS. Sú oddelené od stavov AI úlohy (`queued`, `running`, `completed`, `failed`).
@@ -216,6 +240,47 @@ Obmedzenia:
   hesla. Bývalému vlastníkovi zostane rola `admin` bez ochrany vlastníka.
 - Prvého vlastníka nastaví prevádzkovateľ mimo registrácie. Pri deme sa účastníci
   môžu zaregistrovať sami a administrátor im následne pridelí potrebné roly.
+- Návrh: samoregistrácia je povolená len v lokálnom a samostatnom demo prostredí
+  (napríklad počas obhajoby projektu). Nasadenie so skutočnými údajmi ju má vypnutú;
+  účty vytvára administrátor.
+
+## Notifikácie a časová os pre nahlasovateľa
+
+### Notifikácie v aplikácii (aktuálne správanie)
+
+| Udalosť | Príjemca |
+| --- | --- |
+| Analytik prevezme incident | Nahlasovateľ |
+| Administrátor priradí analytika | Priradený analytik a nahlasovateľ |
+| Zmena stavu vrátane automatického uzavretia | Nahlasovateľ |
+| Zamestnanci bezpečnosti pridajú verejný komentár | Nahlasovateľ |
+| Nahlasovateľ odpovie na otázku alebo pridá verejný komentár | Priradený analytik |
+| Nahlasovateľ požiada o prehodnotenie riešenia | Priradený analytik |
+
+### Časová os pre nahlasovateľa (návrh)
+
+Detail incidentu zobrazí bežnému zamestnancovi zjednodušenú časovú os zostavenú
+z histórie akcií. O zahrnutých udalostiach rozhoduje server; história akcií pre
+zamestnancov bezpečnosti sa na tento účel nepoužíva.
+
+| Udalosť | Zamestnanec uvidí | Zobrazené detaily |
+| --- | --- | --- |
+| Incident odoslaný | Hlásenie odoslané | Čas |
+| Prevzatie, priradenie alebo preradenie | Vaše hlásenie rieši analytik | Meno aktuálneho analytika |
+| `triage` → `investigating` | Vyšetrovanie sa začalo | — |
+| → `awaiting_reporter` | Čaká sa na vašu odpoveď | Odkaz na verejnú otázku |
+| `awaiting_reporter` → `investigating` | Vaša odpoveď bola prijatá | — |
+| → `resolved` | Vyriešené: potvrďte, prosím | `resolution_note` |
+| → `closed` nahlasovateľom | Uzavreté: riešenie ste potvrdili | — |
+| → `closed` automaticky | Automaticky uzavreté po 7 dňoch | — |
+| → `false_positive` | Uzavreté: bezpečnostná hrozba sa nezistila | Dôvod |
+| `resolved` → `investigating` | Požiadali ste o prehodnotenie | Vlastný dôvod nahlasovateľa |
+| Opätovné otvorenie administrátorom | Bezpečnostný tím incident znovu otvoril | Bez dôvodu (môže byť interný) |
+
+Zamestnanec nevidí: zmeny kategórie a závažnosti (vidí len aktuálnu potvrdenú
+kategóriu), úpravy `affected_system`, interné komentáre, stavy a spätnú väzbu AI,
+archiváciu, označenia demo údajov ani iných zamestnancov bezpečnosti okrem
+aktuálne priradeného analytika.
 
 ## Playbooky pre LLM bríf
 
@@ -260,10 +325,46 @@ Nasledujúce príklady sú syntetické, bez skutočných hesiel a firemných úd
 
 Celá sada obsahuje 80 označených popisov (61 anglických, 19 slovenských) v súbore
 [demo-incidents.csv](demo-incidents.csv). Ide o referenčné označenia, nie výsledky
-merania modelu. Lokálny demo skript vie odoslať len scenár č. 2; vytváranie demo
-účtov neimportuje incidenty.
+merania modelu. **Admin → Demo data** pridá jedným kliknutím najviac desať náhodne
+vybraných syntetických hlásení z katalógu 15 scenárov založených na tejto sade
+(12 anglických, 3 slovenské), kým sa katalóg nevyčerpá.
 
-Scenár pre prezentáciu: č. 2 prejde celým cyklom — nahlásenie, AI návrh, otázka zamestnancovi, úprava závažnosti analytikom, riešenie, potvrdenie.
+Scenár pre prezentáciu: dva prehliadače vedľa seba, v jednom analytik a v druhom
+zamestnanec. Zamestnanec odošle scenár č. 2; analytik ho vidí vo fronte aj s
+posúdením AI, ktoré zamestnanec nevidí. Analytik položí verejnú otázku a pridá
+internú poznámku; zamestnanec vidí len otázku. Analytik potvrdí kategóriu a
+závažnosť a zapíše riešenie; zamestnanec ho potvrdí. Nakoniec administrátor
+naplní front cez Demo data.
+
+## Podnikový proces (BPMN)
+
+Model BPMN 2.0 [CyberGuard_BPMN.drawio](bpmn/CyberGuard_BPMN.drawio) zobrazuje
+celý proces správy incidentu: 70 činností, 23 brán, dva bazény a jeden podproces.
+Bazén spoločnosti má štyri dráhy (zamestnanec, systém CyberGuard, bezpečnostný
+analytik, administrátor / bezpečnostný manažér); druhý bazén je externý
+poskytovateľ bezpečnostných služieb. Podproces „Vyšetrovanie a reakcia na
+incident“ je rozpísaný na strane 2.
+
+Model zodpovedá životnému cyklu vyššie: úlohy „Nastaviť stav: …“ zodpovedajú
+stavom, časová udalosť je automatické uzavretie po 7 dňoch a slučky prehodnotenia
+a opätovného otvorenia vracajú incident do vyšetrovania.
+
+Obsahuje aj podnikové kroky mimo aplikácie. Patria do procesu, ale nie sú
+funkciami aplikácie:
+
+- **Kritické incidenty:** administrátor alebo bezpečnostný manažér posúdi
+  incident so závažnosťou `critical` a informuje vedenie spoločnosti.
+- **Eskalácia:** priradený analytik môže incident eskalovať externému
+  poskytovateľovi. Žiadosť aj odborný záver sa zaznamenajú ako interné komentáre.
+- **Opatrenia:** po obmedzení šírenia a odstránení príčiny analytik vyberie len
+  opatrenia, ktoré incident potrebuje (inkluzívna brána), podľa playbooku.
+- **Osobné údaje:** ak sú dotknuté osobné údaje, analytik pripraví podklady na
+  prípadné ohlásenie podľa GDPR (do 72 hodín) a informuje administrátora.
+- **Po uzavretí:** analytik zapíše poučenia z incidentu do interného komentára;
+  administrátor skontroluje incident a aktualizuje playbooky.
+
+Zjednodušenia: priradenie administrátorom, archivácia a opätovné otvorenie
+falošného poplachu sú v životnom cykle povolené, ale v modeli nie sú nakreslené.
 
 ## Prijaté rozhodnutia
 
@@ -281,3 +382,12 @@ Scenár pre prezentáciu: č. 2 prejde celým cyklom — nahlásenie, AI návrh,
 | Ransomware | Patrí pod `malware`, neukladá sa samostatne | SaiLenT |
 | Počet kategórií | Zostáva všetkých 8; `other` iba pre incidenty, ktoré nepatria nikam inam | SaiLenT |
 | Jazyk popisov | Prijíma sa angličtina aj slovenčina; hlavný jazyk je angličtina | SaiLenT |
+
+## Navrhované rozhodnutia (na potvrdenie)
+
+| Otázka | Návrh | Potrebný súhlas |
+| --- | --- | --- |
+| Ktoré udalosti zobrazí časová os nahlasovateľa | Pozri [Časovú os pre nahlasovateľa](#časová-os-pre-nahlasovateľa-návrh) | Daniil, vlastník frontendu |
+| Priradenie aktuálnych signálov AI k metodike; pomôcka potenciálneho dopadu | Pozri [Aktuálne signály AI a metodiku](#aktuálne-signály-ai-a-metodika-návrh) | SaiLenT |
+| Znenie, keď AI nenavrhne kategóriu | Pozri [Aktuálne signály AI a metodiku](#aktuálne-signály-ai-a-metodika-návrh) | SaiLenT, vlastník frontendu |
+| Kde je povolená samoregistrácia | Len lokálne a samostatné demo prostredie | Nikita |
