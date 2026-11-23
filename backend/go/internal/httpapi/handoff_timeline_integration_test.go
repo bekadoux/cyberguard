@@ -165,4 +165,57 @@ func TestReporterTimelinePostgres(t *testing.T) {
 	if got := append(one["events"].([]any), two["events"].([]any)...); !reflect.DeepEqual(got, all) || two["next_cursor"] != nil {
 		t.Fatalf("timeline skipped or repeated an event at a timestamp tie: %v", got)
 	}
+
+	workflowID := create(employee)
+	workflow := "/incidents/" + workflowID
+	assertStatuses := func(want ...string) {
+		t.Helper()
+		page := request(employee, "GET", workflow+"/timeline", "", 200)
+		var got []string
+		for _, item := range page["events"].([]any) {
+			event := item.(map[string]any)
+			if len(event) != 2 {
+				t.Fatalf("timeline exposed event metadata: %v", event)
+			}
+			if _, err := time.Parse(time.RFC3339Nano, event["occurred_at"].(string)); err != nil {
+				t.Fatal("invalid timeline timestamp")
+			}
+			got = append(got, event["status"].(string))
+		}
+		if !reflect.DeepEqual(got, want) || page["next_cursor"] != nil {
+			t.Fatalf("timeline = %v, want %v without continuation", got, want)
+		}
+	}
+
+	// Claim writes a claimed audit event rather than a status_changed event.
+	request(analyst, "POST", workflow+"/claim", "{}", 200)
+	assertStatuses("triage", "submitted")
+
+	request(analyst, "PATCH", workflow+"/fields", `{"category":"other","severity":"low","resolution_note":"Done."}`, 200)
+	request(analyst, "POST", workflow+"/transition", `{"status":"investigating"}`, 200)
+	request(analyst, "POST", workflow+"/comments", `{"visibility":"public","text":"Can you confirm the time?"}`, 201)
+	request(analyst, "POST", workflow+"/transition", `{"status":"awaiting_reporter"}`, 200)
+	assertStatuses("awaiting_reporter", "investigating", "triage", "submitted")
+	request(employee, "POST", workflow+"/comments", `{"visibility":"public","text":"It happened this morning."}`, 201)
+	assertStatuses("investigating", "awaiting_reporter", "investigating", "triage", "submitted")
+
+	request(analyst, "POST", workflow+"/transition", `{"status":"resolved"}`, 200)
+	autoClose := func() {
+		t.Helper()
+		if err := RunAutoClose(ctx, reports.Runtime); err != nil {
+			t.Fatalf("run automatic closure: %v", err)
+		}
+	}
+	autoClose()
+	assertStatuses("resolved", "investigating", "awaiting_reporter", "investigating", "triage", "submitted")
+	// Age just the resolution timer so the maintenance job runs without
+	// sleeping or rewriting any timeline events.
+	tag, err := reports.Migrator.Exec(ctx, `UPDATE incident_resolutions
+		SET resolved_at=now()-interval '8 days' WHERE incident_id=$1`, workflowID)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("age test resolution: updated %d rows, err=%v", tag.RowsAffected(), err)
+	}
+	autoClose()
+	autoClose() // a second maintenance pass must not add another closed event
+	assertStatuses("closed", "resolved", "investigating", "awaiting_reporter", "investigating", "triage", "submitted")
 }
