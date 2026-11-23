@@ -95,33 +95,41 @@ test('gates administration by role and keeps the expanded mobile navigation reac
   ).toBeLessThanOrEqual(320);
 });
 
-test('adds one confirmed demo batch and shows it as seeded after reload', async ({
+test('adds a full and a partial demo batch and stays exhausted after reload', async ({
   page,
 }) => {
   await identity(page, { ...analyst, role: 'admin' });
   let posts = 0;
+  let remaining = 15;
   await page.route('**/api/admin/demo-incidents', (route) => {
     if (route.request().method() === 'GET')
-      return route.fulfill({ json: { enabled: true, seeded: posts > 0 } });
+      return route.fulfill({ json: { enabled: true, remaining } });
     expect(route.request().method()).toBe('POST');
     expect(route.request().postDataJSON()).toEqual({});
     ++posts;
-    return route.fulfill({ status: 201, json: { created: 10 } });
+    const created = Math.min(10, remaining);
+    remaining -= created;
+    return route.fulfill({ status: 201, json: { created, remaining } });
   });
   await page.goto('/admin');
-  const add = page.getByRole('button', { name: 'Add 10 demo incidents' });
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('queue 10 AI assessments');
-    await dialog.accept();
-  });
-  await add.click();
-  await expect(page.getByRole('status')).toHaveText(
-    '10 demo incidents added and queued for AI assessment.',
-  );
+  for (const count of [10, 5]) {
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain(`Add up to ${count} synthetic incidents`);
+      await dialog.accept();
+    });
+    await page.getByRole('button', { name: `Add ${count} demo incidents` }).click();
+    await expect(page.getByRole('status')).toHaveText(
+      `${count} demo incidents added and queued for AI assessment.`,
+    );
+  }
+  const exhausted = page.getByText(/no unused demo scenarios remain/i);
+  await expect(exhausted).toBeVisible();
   await page.reload();
-  await expect(page.getByText(/already been added to this database/)).toBeVisible();
-  await expect(add).toHaveCount(0);
-  expect(posts).toBe(1);
+  await expect(exhausted).toBeVisible();
+  await expect(page.getByRole('button', { name: /Add \d+ demo incident/ })).toHaveCount(
+    0,
+  );
+  expect(posts).toBe(2);
 });
 
 test('creates employees and confirms the owner’s own password change', async ({

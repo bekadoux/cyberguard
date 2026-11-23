@@ -483,5 +483,5 @@ if [[ ${settings[DEMO_SEED]} == yes ]]; then
     printf '%s\n' 'Demo initial passwords are on the app VM under /etc/cyberguard/app/secrets/credentials/provisioning/.'
 fi
 if [[ ${settings[DEMO_INCIDENTS]} == yes ]]; then
-    printf '%s\n' 'Sign in as admin and choose Admin → Add 10 demo incidents.'
+    printf '%s\n' 'Sign in as admin and open Admin → Demo data to add unused demo incidents.'
 fi

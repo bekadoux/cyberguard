@@ -3,5 +3,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl jq util-linux \
  && rm -rf /var/lib/apt/lists/*
 COPY deploy/ai-vm/common.sh deploy/ai-vm/prepare-models.sh deploy/ai-vm/models.json /opt/cyberguard/deploy/ai-vm/
-RUN printf 'AI_MODEL_DIR=/models\n' > /opt/cyberguard/models.env
+COPY docker/ai/inference-cpus.sh /opt/cyberguard/docker/ai/
+RUN printf 'AI_MODEL_DIR=/models\n' > /opt/cyberguard/models.env \
+ && bash -c 'source /opt/cyberguard/deploy/ai-vm/common.sh && load_config /opt/cyberguard/models.env'
 ENTRYPOINT ["bash", "/opt/cyberguard/deploy/ai-vm/prepare-models.sh", "--config", "/opt/cyberguard/models.env"]

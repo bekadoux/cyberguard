@@ -40,6 +40,11 @@ type DemoIncidentBatch struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type DemoIncidentScenario struct {
+	ScenarioID string
+	IncidentID pgtype.UUID
+}
+
 type Incident struct {
 	ID                pgtype.UUID
 	ReporterID        pgtype.UUID

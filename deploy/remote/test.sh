@@ -229,10 +229,10 @@ grep -q 'Enter all or a positive whole number' "$scratch/out"
 grep -qx 'AI_INFERENCE_THREADS=4' "$scratch/interactive"
 grep -qx 'AI_INFERENCE_THREADS=4' "$scratch/config-ai"
 reject grep -q 'AI_INFERENCE_THREADS' "$scratch/config-app"
-grep -q 'Add 10 demo incidents' "$scratch/out"
+grep -q 'Admin → Demo data' "$scratch/out"
 : > "$scratch/trace"
 bash "$repo/deploy/remote-setup.sh" --config "$scratch/interactive" resume </dev/null > "$scratch/out"
-grep -q 'Add 10 demo incidents' "$scratch/out"
+grep -q 'Admin → Demo data' "$scratch/out"
 reject grep -Eq 'upload|initialize|configure|prepare|receive| installed$' "$scratch/trace"
 
 # Exercise the actual host helper logic in private temporary state, not /etc or Docker.

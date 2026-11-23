@@ -64,9 +64,10 @@ its name is derived from the checkout path. Keep the checkout at a stable path.
 Settings are saved under `.local/full-stack/`. If the LAN address changes, stop
 the stack and edit the first line of `.local/full-stack/settings` to an active
 private IPv4 address or `127.0.0.1` before resuming. Normal restarts do not rebuild
-the project images or apply new migrations. For a disposable environment, destroy
-and run setup again to build from the current checkout; for retained data, plan
-an explicit backup and migration rather than deleting the volumes.
+the application or inference images or apply new migrations. The model-preparation
+image is refreshed on resume when its packaged inputs change. For a disposable
+environment, destroy and run setup again to build from the current checkout; for
+retained data, plan an explicit backup and migration rather than deleting the volumes.
 
 Runtime inference is CPU-only, with one assessment worker and one Qwen generation
 slot. Kev and Qwen run in sequence. Each model gets a CPU quota and thread count
@@ -144,11 +145,14 @@ For the core setup, after applying both migration chains and provisioning the
 demo accounts, put `DEMO_INCIDENTS_ENABLED=true` in the root `.env` or run
 `DEMO_INCIDENTS_ENABLED=true make docker-up`.
 
-Sign in as an admin and choose **Admin → Add 10 demo incidents**. This creates
-one batch of ten `[Demo]` reports across `employee_a`, `employee_b`, and
-`analyst`, with no assigned analyst, category, or severity. The normal
-assessment jobs queue even if AI is off. Repeating the action does not insert
-duplicates. The bundled scenarios need no CSV upload.
+Sign in as an admin and use **Admin → Demo data**. Each click adds up to ten
+randomly selected unused `[Demo]` reports across `employee_a`, `employee_b`,
+and `analyst`, with no assigned analyst, category, or severity. The normal
+assessment jobs queue even if AI is off. With the current catalog, a fresh
+database gets ten reports on the first click and five on the second. The button
+disappears when all scenarios are used. Archiving a report does not free its
+scenario for reuse, and incident migration `00009` counts previously seeded
+reports when upgrading. No CSV upload is needed.
 
 All three reporters must be active, have their original roles, and have been
 created by the demo provisioner after identity migration `00005`. Matching names

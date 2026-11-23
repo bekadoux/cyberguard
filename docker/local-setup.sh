@@ -278,6 +278,25 @@ ensure_image() {
     fi
 }
 
+ensure_prepare_image() {
+    local file=docker/ai/Dockerfile.prepare-models
+    local marker="$state/${LOCAL_PREPARE_IMAGE%%:*}.built" inputs stamp
+    # Match the files copied by the Dockerfile. Old empty receipts force a
+    # rebuild instead of reusing a tool image that may lack a sourced helper.
+    inputs=$(sha256sum -- "$file" docker/ai/inference-cpus.sh \
+        deploy/ai-vm/{common.sh,prepare-models.sh,models.json})
+    stamp=$(printf '%s\n' "$inputs" | sha256sum)
+    stamp=${stamp%% *}
+    if [[ ! -f $marker || -L $marker || $(<"$marker") != "$stamp" ]] ||
+       ! docker image inspect "$LOCAL_PREPARE_IMAGE" >/dev/null 2>&1; then
+        docker build --tag "$LOCAL_PREPARE_IMAGE" --file "$file" .
+        temporary=$(mktemp "$state/.prepare-image.XXXXXX")
+        printf '%s\n' "$stamp" > "$temporary"
+        mv -T -- "$temporary" "$marker"
+        temporary=''
+    fi
+}
+
 up() { compose up --wait --wait-timeout "$1" --detach --no-build --pull never "${@:2}"; }
 run_tool() { compose run --rm --no-deps --pull never --interactive=false -T "$@"; }
 
@@ -322,7 +341,7 @@ prepare_models() {
     [[ -z $running ]] || die 'Stop the full stack before preparing or repairing model files.'
     step 'Download and verify the pinned Kev and Qwen model artifacts'
     mkdir -m 755 -p -- "$models"
-    ensure_image "$LOCAL_PREPARE_IMAGE" docker/ai/Dockerfile.prepare-models
+    ensure_prepare_image
     run_tool prepare-models
     touch -- "$state/models.done"
 }
@@ -343,7 +362,7 @@ deploy() {
     up 90 go-api web
     printf 'Core application: http://%s:%s/login\n' "$LOCAL_BIND_IP" "$LOCAL_WEB_PORT"
     if [[ $DEMO_INCIDENTS_ENABLED == true ]]; then
-        printf '%s\n' 'Sign in as admin and choose Admin → Add 10 demo incidents.'
+        printf '%s\n' 'Sign in as admin and open Admin → Demo data to add unused demo incidents.'
     fi
 
     if [[ ! -e $state/models.done ]]; then
@@ -351,7 +370,7 @@ deploy() {
     else
         step 'Verify the cached model files (no downloads)'
         [[ -d $models ]] || die 'Model directory missing. Stop the stack and run docker/local-setup.sh prepare-models.'
-        ensure_image "$LOCAL_PREPARE_IMAGE" docker/ai/Dockerfile.prepare-models
+        ensure_prepare_image
         run_tool prepare-models --check ||
             die 'Model verification failed. Investigate the artifact; stop the stack before running prepare-models.'
     fi

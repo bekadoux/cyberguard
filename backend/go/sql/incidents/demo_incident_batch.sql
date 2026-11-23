@@ -1,6 +1,8 @@
--- name: DemoIncidentBatchExists :one
-SELECT EXISTS (SELECT 1 FROM demo_incident_batch);
+-- name: LockDemoIncidentSelection :exec
+SELECT pg_advisory_xact_lock(12473, 9002);
 
--- name: ClaimDemoIncidentBatch :execrows
-INSERT INTO demo_incident_batch (created_by) VALUES ($1)
-ON CONFLICT (singleton) DO NOTHING;
+-- name: ListUsedDemoScenarios :many
+SELECT scenario_id FROM demo_incident_scenarios;
+
+-- name: UseDemoScenario :exec
+INSERT INTO demo_incident_scenarios (scenario_id, incident_id) VALUES ($1, $2);

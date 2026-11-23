@@ -133,22 +133,48 @@ describe('investigation API contracts', () => {
   it('reads demo status and submits an empty seed request', async () => {
     const fetcher = vi
       .fn()
-      .mockResolvedValueOnce(Response.json({ enabled: false, seeded: false }))
-      .mockResolvedValueOnce(Response.json({ enabled: true, seeded: false }))
-      .mockResolvedValueOnce(Response.json({ enabled: true, seeded: true }))
-      .mockResolvedValueOnce(Response.json({ enabled: false, seeded: true }))
-      .mockResolvedValueOnce(Response.json({ created: 10 }, { status: 201 }))
-      .mockResolvedValueOnce(Response.json({ created: 0 }))
-      .mockResolvedValueOnce(Response.json({ created: 42 }));
+      .mockResolvedValueOnce(Response.json({ enabled: false, remaining: 0 }))
+      .mockResolvedValueOnce(Response.json({ enabled: true, remaining: 15 }))
+      .mockResolvedValueOnce(Response.json({ enabled: true, remaining: 0 }))
+      .mockResolvedValueOnce(Response.json({ enabled: false, remaining: 1 }))
+      .mockResolvedValueOnce(
+        Response.json({ created: 10, remaining: 5 }, { status: 201 }),
+      )
+      .mockResolvedValueOnce(Response.json({ created: 5, remaining: 0 }, { status: 201 }))
+      .mockResolvedValueOnce(Response.json({ created: 0, remaining: 0 }))
+      .mockResolvedValueOnce(Response.json({ created: 11, remaining: 0 }))
+      .mockResolvedValueOnce(Response.json({ created: 5, remaining: 3 }));
     vi.stubGlobal('fetch', fetcher);
-    await expect(adminApi.demoIncidentStatus()).resolves.toBe('disabled');
-    await expect(adminApi.demoIncidentStatus()).resolves.toBe('ready');
-    await expect(adminApi.demoIncidentStatus()).resolves.toBe('seeded');
+    await expect(adminApi.demoIncidentStatus()).resolves.toEqual({
+      enabled: false,
+      remaining: 0,
+    });
+    await expect(adminApi.demoIncidentStatus()).resolves.toEqual({
+      enabled: true,
+      remaining: 15,
+    });
+    await expect(adminApi.demoIncidentStatus()).resolves.toEqual({
+      enabled: true,
+      remaining: 0,
+    });
     await expect(adminApi.demoIncidentStatus()).rejects.toMatchObject({
       code: 'invalid_response',
     });
-    await expect(adminApi.addDemoIncidents()).resolves.toBe(10);
-    await expect(adminApi.addDemoIncidents()).resolves.toBe(0);
+    await expect(adminApi.addDemoIncidents()).resolves.toEqual({
+      created: 10,
+      remaining: 5,
+    });
+    await expect(adminApi.addDemoIncidents()).resolves.toEqual({
+      created: 5,
+      remaining: 0,
+    });
+    await expect(adminApi.addDemoIncidents()).resolves.toEqual({
+      created: 0,
+      remaining: 0,
+    });
+    await expect(adminApi.addDemoIncidents()).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
     await expect(adminApi.addDemoIncidents()).rejects.toMatchObject({
       code: 'invalid_response',
     });

@@ -62,7 +62,7 @@ export async function identity(page: Page, user: User = employee) {
   );
   await page.route('**/api/admin/demo-incidents', (route) =>
     route.request().method() === 'GET'
-      ? route.fulfill({ json: { enabled: false, seeded: false } })
+      ? route.fulfill({ json: { enabled: false, remaining: 0 } })
       : route.fulfill({ status: 405, json: { error: { code: 'unexpected_mutation' } } }),
   );
   await page.route('**/api/incidents/*/ai-feedback/*', (route) =>

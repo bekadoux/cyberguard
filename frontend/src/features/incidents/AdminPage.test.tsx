@@ -23,7 +23,7 @@ const currentAdmin: ManagedUser = {
 async function setup(
   ownerId: string | null = null,
   accounts = [account],
-  demo: 'ready' | 'seeded' | 'disabled' = 'disabled',
+  demo = { enabled: false, remaining: 0 },
 ) {
   const users = vi.spyOn(adminApi, 'users').mockResolvedValue(accounts);
   vi.spyOn(adminApi, 'audit').mockResolvedValue([]);
@@ -50,12 +50,12 @@ it('keeps the demo control hidden when disabled', async () => {
 });
 
 it('does not submit on cancel and explains why ineligible accounts prevent seeding', async () => {
-  const { user } = await setup(null, [account], 'ready');
+  const { user } = await setup(null, [account], { enabled: true, remaining: 15 });
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
   const add = vi
     .spyOn(adminApi, 'addDemoIncidents')
     .mockRejectedValueOnce(new ApiError(409, 'demo_accounts_unavailable'))
-    .mockResolvedValueOnce(0);
+    .mockResolvedValueOnce({ created: 0, remaining: 0 });
   const button = screen.getByRole('button', { name: 'Add 10 demo incidents' });
   await user.click(button);
   expect(add).not.toHaveBeenCalled();
@@ -65,7 +65,7 @@ it('does not submit on cancel and explains why ineligible accounts prevent seedi
     'Provision or restore the active demo accounts employee_a, employee_b, and analyst first.',
   );
   await user.click(button);
-  expect(await screen.findByText(/already been added to this database/)).toBeVisible();
+  expect(await screen.findByText(/no unused demo scenarios remain/i)).toBeVisible();
   expect(button).not.toBeInTheDocument();
 });
 

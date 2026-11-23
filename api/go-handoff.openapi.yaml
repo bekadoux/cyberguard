@@ -331,27 +331,27 @@ paths:
       summary: Read demo incident availability for the Admin page
       responses:
         '200':
-          description: If the feature is disabled, both flags are false.
+          description: Remaining counts unused bundled scenarios; zero when disabled.
           content:
             application/json:
               schema:
                 type: object
-                required: [enabled, seeded]
+                required: [enabled, remaining]
                 properties:
                   enabled: {type: boolean}
-                  seeded: {type: boolean}
+                  remaining: {type: integer, minimum: 0}
         '400': {description: Unexpected query parameters}
         '401': {description: Session required}
         '403': {description: Admin role required}
         '503': {description: Incident storage unavailable}
     post:
-      summary: Add the one synthetic demo incident batch
+      summary: Add up to ten unused synthetic demo incidents
       description: |
-        Requires DEMO_INCIDENTS_ENABLED=true and a current admin. Creates ten
-        distinct synthetic reports with normal initial snapshots and AI jobs,
-        distributed across the three active provisioned demo reporters. The
-        batch, incidents and audit commit atomically. No request fields are
-        accepted; a repeat returns zero without creating duplicates.
+        Requires DEMO_INCIDENTS_ENABLED=true and a current admin. Randomly selects
+        up to ten previously unused bundled scenarios, or all remaining if fewer.
+        Reports are distributed across the three active provisioned demo reporters.
+        Scenario IDs, incidents, normal initial snapshots and AI jobs, and audit
+        events commit atomically. Each scenario can be added only once per database.
       requestBody:
         required: true
         content:
@@ -359,23 +359,25 @@ paths:
             schema: {type: object, additionalProperties: false}
       responses:
         '200':
-          description: The batch was already added
+          description: No unused scenarios remain
           content:
             application/json:
               schema:
                 type: object
-                required: [created]
+                required: [created, remaining]
                 properties:
                   created: {const: 0}
+                  remaining: {const: 0}
         '201':
-          description: Ten reports and jobs created
+          description: Reports and jobs created
           content:
             application/json:
               schema:
                 type: object
-                required: [created]
+                required: [created, remaining]
                 properties:
-                  created: {const: 10}
+                  created: {type: integer, minimum: 1, maximum: 10}
+                  remaining: {type: integer, minimum: 0}
         '400': {description: Expected an empty object and no query parameters}
         '401': {description: Session required or account authorization changed}
         '403': {description: Admin role required or rejected browser origin}

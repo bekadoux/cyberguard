@@ -63,7 +63,7 @@ cat .local/docker-secrets/dev_admin_password
 
 Keep this password private. There is no shared default password or public
 registration; users sign in with an account provided by their administrator.
-For presentations, you can opt in to [adding 10 synthetic incidents from the
+For presentations, you can opt in to [adding synthetic incidents from the
 Admin page](docs/docker-setup.md#add-demo-incidents).
 
 ## Enable AI

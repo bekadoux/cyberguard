@@ -22,15 +22,17 @@ from Go. Deployment uses verified TLS; see [deployment architecture](deployment.
   [`db/migrations/`](../db/migrations) owns the two Goose migration chains.
   Apply new numbered migrations rather than editing shared/applied migrations.
   Add explicit grants for new tables. Python does not run its own migrations.
-- Current heads are identity `00005` and incidents `00008`. The incident insert
+- Current heads are identity `00005` and incidents `00009`. The incident insert
   trigger writes the snapshot, initial job, and submitted event in the incident
   transaction. One initial job per incident is enforced in PostgreSQL.
 - Human AI review is an incident action, unique by normalized job UUID. Accepting or
   correcting a category and recording the decision commit together. `resolved_at`
   lives in `incident_resolutions`, not in the incident row.
 - Demo account provenance is recorded only for accounts created by the one-off
-  provisioner after identity `00005`. Incident `00008` records the one demo batch
-  and the admin who created it. Neither migration adopts accounts or creates reports.
+  provisioner after identity `00005`. Incident `00009` records used scenario IDs
+  from the earlier audited batch, including archived reports, and prevents the
+  old API from seeding without IDs. It keeps the original `00008` batch audit.
+  These migrations do not adopt accounts or create reports.
 - Edit handwritten queries in `backend/go/sql/{identity,incidents}/`, regenerate
   with `make go-sqlc`, and commit the result. `make go-sqlc-check` verifies generation;
   never edit the generated `backend/go/internal/db/` packages by hand.

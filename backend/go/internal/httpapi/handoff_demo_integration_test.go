@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,9 +19,14 @@ import (
 	"github.com/bekadoux/cyberguard/backend/go/internal/db/identity"
 	db "github.com/bekadoux/cyberguard/backend/go/internal/db/incidents"
 	"github.com/bekadoux/cyberguard/backend/go/internal/demoseed"
+	"github.com/bekadoux/cyberguard/backend/go/internal/migrations"
 	"github.com/bekadoux/cyberguard/backend/go/internal/sessionstore"
 	"github.com/bekadoux/cyberguard/backend/go/internal/testutil"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/stdlib"
 )
+
+const demoIncidentPath = "/admin/demo-incidents"
 
 func TestDemoIncidentsPostgres(t *testing.T) {
 	ids := testutil.Identity(t, "../../../../db/migrations/identity")
@@ -51,7 +58,8 @@ func TestDemoIncidentsPostgres(t *testing.T) {
 	}
 	api.EnableHandoff(reports.Runtime, ids.Runtime, true)
 	api.Mount(router)
-	const path = "/admin/demo-incidents"
+	const path = demoIncidentPath
+	catalogSize := len(demoseed.AvailableScenarios(nil))
 	login := func(index int) *http.Cookie {
 		t.Helper()
 		acc := accounts[index]
@@ -66,8 +74,12 @@ func TestDemoIncidentsPostgres(t *testing.T) {
 	}
 	_, disabled := newSignupApp(t, ids, false)
 	off := incidentJSON(t, requestAccount(t, disabled, "GET", path, nil, admin, 200))
-	if off["enabled"] != false || off["seeded"] != false {
+	if off["enabled"] != false || off["remaining"] != float64(0) {
 		t.Fatalf("disabled status: %v", off)
+	}
+	ready := incidentJSON(t, requestAccount(t, router, "GET", path, nil, admin, 200))
+	if ready["enabled"] != true || ready["remaining"] != float64(catalogSize) {
+		t.Fatalf("initial availability: %v", ready)
 	}
 	requestAccount(t, disabled, "POST", path, struct{}{}, admin, 404)
 	requestAccount(t, router, "POST", path, map[string]any{"reporter_id": "arbitrary"}, admin, 400)
@@ -140,7 +152,7 @@ func TestDemoIncidentsPostgres(t *testing.T) {
 	var count int
 	if err := reports.Migrator.QueryRow(ctx, `SELECT (SELECT count(*) FROM incidents)
 		+ (SELECT count(*) FROM incident_contexts) + (SELECT count(*) FROM assessment_jobs)
-		+ (SELECT count(*) FROM incident_actions) + (SELECT count(*) FROM demo_incident_batch)`).Scan(&count); err != nil || count != 0 {
+		+ (SELECT count(*) FROM incident_actions) + (SELECT count(*) FROM demo_incident_scenarios)`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("failure left %d records: %v", count, err)
 	}
 	if _, err := reports.Migrator.Exec(ctx, "ALTER TABLE incident_actions DROP CONSTRAINT test_reject_demo"); err != nil {
@@ -156,36 +168,38 @@ func TestDemoIncidentsPostgres(t *testing.T) {
 		}(cookie)
 	}
 	close(start)
-	outcomes := map[int]int{}
+	outcomes := map[float64]int{}
+	partial := float64(catalogSize - demoseed.BatchLimit)
 	for range 2 {
 		w := <-responses
-		outcomes[w.Code]++
-		created := incidentJSON(t, w)["created"]
-		if w.Header().Get("Set-Cookie") != "" ||
-			(w.Code == 201 && created != float64(demoseed.IncidentCount)) ||
-			(w.Code == 200 && created != float64(0)) {
+		body := incidentJSON(t, w)
+		created, ok := body["created"].(float64)
+		if w.Code != 201 || !ok || w.Header().Get("Set-Cookie") != "" ||
+			(created == float64(demoseed.BatchLimit) && body["remaining"] != partial) ||
+			(created == partial && body["remaining"] != float64(0)) {
 			t.Fatalf("unexpected seed response: %d %s", w.Code, w.Body)
 		}
+		outcomes[created]++
 	}
-	if outcomes[201] != 1 || outcomes[200] != 1 {
+	if outcomes[float64(demoseed.BatchLimit)] != 1 || outcomes[partial] != 1 {
 		t.Fatalf("concurrent outcomes: %v", outcomes)
 	}
-	ready := incidentJSON(t, requestAccount(t, router, "GET", path, nil, admin, 200))
-	if ready["enabled"] != true || ready["seeded"] != true {
-		t.Fatalf("seeded status: %v", ready)
+	exhausted := incidentJSON(t, requestAccount(t, router, "GET", path, nil, admin, 200))
+	if exhausted["enabled"] != true || exhausted["remaining"] != float64(0) {
+		t.Fatalf("exhausted status: %v", exhausted)
 	}
-	if _, err := reports.Runtime.Exec(ctx, "DELETE FROM demo_incident_batch"); !isPGCode(err, "42501") {
-		t.Fatalf("runtime could reset the completed batch: %v", err)
+	repeat := incidentJSON(t, requestAccount(t, router, "POST", path, struct{}{}, admin, 200))
+	if repeat["created"] != float64(0) || repeat["remaining"] != float64(0) {
+		t.Fatalf("exhausted request: %v", repeat)
+	}
+	if _, err := reports.Runtime.Exec(ctx, "DELETE FROM demo_incident_scenarios"); !isPGCode(err, "42501") {
+		t.Fatalf("runtime could reset the used scenarios: %v", err)
 	}
 
-	var actor string
-	for _, table := range []string{"incidents", "assessment_jobs", "incident_contexts"} {
-		if err := reports.Migrator.QueryRow(ctx, fmt.Sprintf("SELECT count(*) FROM %s", table)).Scan(&count); err != nil || count != demoseed.IncidentCount {
+	for _, table := range []string{"incidents", "assessment_jobs", "incident_contexts", "demo_incident_scenarios"} {
+		if err := reports.Migrator.QueryRow(ctx, fmt.Sprintf("SELECT count(*) FROM %s", table)).Scan(&count); err != nil || count != catalogSize {
 			t.Fatalf("%s contains %d rows: %v", table, count, err)
 		}
-	}
-	if err := reports.Runtime.QueryRow(ctx, "SELECT created_by FROM demo_incident_batch").Scan(&actor); err != nil {
-		t.Fatal(err)
 	}
 	loadID := func(index int) string {
 		t.Helper()
@@ -195,18 +209,16 @@ func TestDemoIncidentsPostgres(t *testing.T) {
 		}
 		return user.ID.String()
 	}
-	if actor != loadID(0) && actor != loadID(1) {
-		t.Fatalf("batch actor %q was not one of its admins", actor)
-	}
 	err = reports.Migrator.QueryRow(ctx, `SELECT count(*) FROM incidents i
+		JOIN demo_incident_scenarios d ON d.incident_id = i.id
 		JOIN incident_contexts c ON c.incident_id = i.id AND c.revision = i.context_revision
 		  AND c.title = i.title AND c.description = i.description AND c.affected_system = i.affected_system
 		JOIN assessment_jobs j ON j.context_id = c.id AND j.incident_id = i.id AND j.status = 'queued'
 		JOIN incident_actions s ON s.incident_id = i.id AND s.action = 'submitted' AND s.actor_id = i.reporter_id
-		JOIN incident_actions a ON a.incident_id = i.id AND a.action = 'demo_seeded' AND a.actor_id = $1
+		JOIN incident_actions a ON a.incident_id = i.id AND a.action = 'demo_seeded' AND a.actor_id IN ($1, $2)
 		WHERE i.status = 'submitted' AND i.category IS NULL AND i.severity IS NULL
-		  AND i.assigned_analyst_id IS NULL AND i.title LIKE '[Demo] %'`, actor).Scan(&count)
-	if err != nil || count != demoseed.IncidentCount {
+		  AND i.assigned_analyst_id IS NULL AND i.title LIKE '[Demo] %'`, loadID(0), loadID(1)).Scan(&count)
+	if err != nil || count != catalogSize {
 		t.Fatalf("%d complete reports, snapshot/job pairs, and audit events: %v", count, err)
 	}
 
@@ -225,14 +237,14 @@ func TestDemoIncidentsPostgres(t *testing.T) {
 		titles[title] = true
 		counts[incident["reporter_id"].(string)]++
 	}
-	if len(titles) != demoseed.IncidentCount || len(counts) != demoseed.ReporterCount ||
-		counts[loadID(2)] < 3 || counts[loadID(2)] > 4 {
+	if len(titles) != catalogSize || len(counts) != demoseed.ReporterCount ||
+		counts[loadID(2)] < 4 || counts[loadID(2)] > 6 {
 		t.Fatalf("incorrect reporter distribution: %v", counts)
 	}
 	for index, cookie := range []*http.Cookie{empA, empB} {
 		reporter := loadID(3 + index)
 		own := items(cookie)
-		if len(own) != counts[reporter] || len(own) < 3 || len(own) > 4 {
+		if len(own) != counts[reporter] || len(own) < 4 || len(own) > 6 {
 			t.Fatalf("employee sees %d reports; expected %d owned reports", len(own), counts[reporter])
 		}
 		for _, row := range own {
@@ -240,5 +252,106 @@ func TestDemoIncidentsPostgres(t *testing.T) {
 				t.Fatalf("employee can see another reporter's incident: %v", row)
 			}
 		}
+	}
+}
+
+func TestDemoIncidentsUpgradePostgres(t *testing.T) {
+	const directory = "../../../../db/migrations/incidents"
+	reports := testutil.IncidentsAtVersion(t, directory, 8)
+	ids := testutil.Identity(t, "../../../../db/migrations/identity")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	password := rand.Text()
+	accounts := []demoseed.Account{
+		{Username: "admin", Role: "admin", Password: password},
+		{Username: "analyst", Role: "analyst", Password: rand.Text()},
+		{Username: "employee_a", Role: "employee", Password: rand.Text()},
+		{Username: "employee_b", Role: "employee", Password: rand.Text()},
+	}
+	if _, err := demoseed.Seed(ctx, ids.Migrator, accounts); err != nil {
+		t.Fatal(err)
+	}
+	users := identity.New(ids.Runtime)
+	admin, err := users.GetUserByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reporter, err := users.GetUserByUsername(ctx, "employee_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := reports.Runtime.Exec(ctx, `INSERT INTO demo_incident_batch (created_by) VALUES ($1)`, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	catalog := demoseed.AvailableScenarios(nil)
+	queries := db.New(reports.Runtime)
+	create := func(scenario demoseed.Scenario) pgtype.UUID {
+		t.Helper()
+		incident, err := queries.CreateIncident(ctx, db.CreateIncidentParams{
+			ReporterID: reporter.ID, Title: scenario.Title, Description: scenario.Description,
+			AffectedSystem: pgtype.Text{String: scenario.System, Valid: true},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return incident.ID
+	}
+	// Simulate a legacy batch with an archived report and non-English titles.
+	oldScenarios := append(slices.Clone(catalog[:7]), catalog[12:15]...)
+	oldIDs := map[string]pgtype.UUID{}
+	for _, scenario := range oldScenarios {
+		id := create(scenario)
+		if _, err := reports.Runtime.Exec(ctx, `INSERT INTO incident_actions (incident_id, actor_id, action) VALUES ($1, $2, 'demo_seeded')`, id, admin.ID); err != nil {
+			t.Fatal(err)
+		}
+		oldIDs[scenario.ID] = id
+	}
+	if _, err := reports.Runtime.Exec(ctx, `UPDATE incidents SET archived_at=now(), archive_reason='Demo finished' WHERE id=$1`, oldIDs[catalog[0].ID]); err != nil {
+		t.Fatal(err)
+	}
+	// An ordinary report with a matching title must not claim a demo scenario.
+	ordinary := create(catalog[7])
+
+	migrationDB := stdlib.OpenDB(*reports.Migrator.Config().ConnConfig)
+	defer migrationDB.Close()
+	provider, err := migrations.NewProvider(migrationDB, os.DirFS(directory))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(ctx, 9); err != nil {
+		t.Fatal(err)
+	}
+	for scenario, want := range oldIDs {
+		var got pgtype.UUID
+		if err := reports.Runtime.QueryRow(ctx, `SELECT incident_id FROM demo_incident_scenarios WHERE scenario_id=$1`, scenario).Scan(&got); err != nil || got != want {
+			t.Fatalf("legacy scenario %q was not backfilled: %v, %v", scenario, got, err)
+		}
+	}
+	if _, err := reports.Runtime.Exec(ctx, `INSERT INTO demo_incident_batch (created_by) VALUES ($1) ON CONFLICT DO NOTHING`, admin.ID); !isPGCode(err, "42501") {
+		t.Fatalf("legacy runtime can still seed batches: %v", err)
+	}
+
+	cfg := config.AuthConfig{Environment: "development", Lifetime: time.Hour, IdleTimeout: time.Minute}
+	a, router := concurrencyApp(t, users, cfg, sessionstore.NewPostgres(ids.Runtime))
+	(&HandoffAPI{incidentDB: reports.Runtime, identityDB: ids.Runtime, auth: a, demoIncidents: true}).mountAuxiliaryRoutes(router)
+	session := requestAccount(t, router, "POST", "/auth/login", map[string]string{"username": "admin", "password": password}, nil, 200)
+	cookie := sessionCookie(t, session, a.sessions.Cookie.Name)
+	status := incidentJSON(t, requestAccount(t, router, "GET", demoIncidentPath, nil, cookie, 200))
+	remaining := float64(len(catalog) - len(oldScenarios))
+	if status["remaining"] != remaining {
+		t.Fatalf("unexpected availability after upgrade: %v", status)
+	}
+	added := incidentJSON(t, requestAccount(t, router, "POST", demoIncidentPath, struct{}{}, cookie, 201))
+	if added["created"] != remaining || added["remaining"] != float64(0) {
+		t.Fatalf("upgrade did not add only unused scenarios: %v", added)
+	}
+	var newID pgtype.UUID
+	if err := reports.Runtime.QueryRow(ctx, `SELECT incident_id FROM demo_incident_scenarios WHERE scenario_id=$1`, catalog[7].ID).Scan(&newID); err != nil || newID == ordinary {
+		t.Fatalf("ordinary report used as demo scenario: %v, %v", newID, err)
+	}
+	var all int
+	if err := reports.Runtime.QueryRow(ctx, `SELECT count(*) FROM incidents`).Scan(&all); err != nil || all != len(catalog)+1 {
+		t.Fatalf("unexpected incidents after upgrade: %d, %v", all, err)
 	}
 }

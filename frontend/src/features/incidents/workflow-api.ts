@@ -255,23 +255,35 @@ function parseIdentityEvent(v: unknown): IdentityEvent {
     created_at: v.created_at,
   };
 }
+export const demoIncidentBatchLimit = 10;
+
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
 export const adminApi = {
   demoIncidentStatus: async (signal?: AbortSignal) => {
     const value = await request('/admin/demo-incidents', { signal });
     if (
       !isRecord(value) ||
       typeof value.enabled !== 'boolean' ||
-      typeof value.seeded !== 'boolean' ||
-      (!value.enabled && value.seeded)
+      !isCount(value.remaining) ||
+      (!value.enabled && value.remaining !== 0)
     )
       return invalidResponse();
-    return value.enabled ? (value.seeded ? 'seeded' : 'ready') : 'disabled';
+    return { enabled: value.enabled, remaining: value.remaining };
   },
   addDemoIncidents: async () => {
     const value = await request('/admin/demo-incidents', { method: 'POST', body: {} });
-    if (!isRecord(value) || (value.created !== 0 && value.created !== 10))
+    if (
+      !isRecord(value) ||
+      !isCount(value.created) ||
+      value.created > demoIncidentBatchLimit ||
+      !isCount(value.remaining) ||
+      (value.created < demoIncidentBatchLimit && value.remaining !== 0)
+    )
       return invalidResponse();
-    return value.created;
+    return { created: value.created, remaining: value.remaining };
   },
   eligibleAnalysts: async (
     prefix: string,

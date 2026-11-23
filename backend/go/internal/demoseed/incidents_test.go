@@ -9,23 +9,29 @@ import (
 func TestSampleIncidents(t *testing.T) {
 	t.Parallel()
 	titles := map[string]bool{}
+	ids := map[string]bool{}
 	for _, item := range scenarios {
-		if titles[item.Title] || !strings.HasPrefix(item.Title, "[Demo] ") ||
+		if item.ID == "" || ids[item.ID] || titles[item.Title] || !strings.HasPrefix(item.Title, "[Demo] ") ||
 			!validFixtureText(item.Title, 200) || !validFixtureText(item.Description, 10000) ||
 			!validFixtureText(item.System, 500) {
 			t.Fatalf("invalid or duplicate scenario %q", item.Title)
 		}
 		titles[item.Title] = true
+		ids[item.ID] = true
 	}
-	sample := SampleIncidents()
-	if len(sample) != IncidentCount {
-		t.Fatalf("sample contains %d, expected %d", len(sample), IncidentCount)
-	}
-	for _, item := range sample {
-		if !titles[item.Title] {
-			t.Fatalf("sample contains unknown or duplicate fixture %q", item.Title)
+	used := []string{"retired-scenario"}
+	for _, want := range []int{BatchLimit, len(scenarios) - BatchLimit, 0} {
+		sample := SampleIncidents(AvailableScenarios(used))
+		if len(sample) != want {
+			t.Fatalf("sample contains %d, expected %d", len(sample), want)
 		}
-		delete(titles, item.Title)
+		for _, item := range sample {
+			if !ids[item.ID] {
+				t.Fatalf("sample contains unknown or previously used fixture %q", item.ID)
+			}
+			delete(ids, item.ID)
+			used = append(used, item.ID)
+		}
 	}
 }
 

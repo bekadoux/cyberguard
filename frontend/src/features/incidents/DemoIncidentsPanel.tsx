@@ -1,21 +1,23 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../shared/api/client';
 import { useAuth } from '../auth/use-auth';
-import { adminApi } from './workflow-api';
+import { adminApi, demoIncidentBatchLimit } from './workflow-api';
 import { actionError } from './workflow-ui';
 
 export function DemoIncidentsPanel() {
   const { pending, runProtected } = useAuth();
-  const [status, setStatus] = useState<'ready' | 'seeded' | 'disabled'>('disabled');
+  const [remaining, setRemaining] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [created, setCreated] = useState(false);
+  const [created, setCreated] = useState(0);
+  const batchSize = Math.min(remaining ?? 0, demoIncidentBatchLimit);
 
   useEffect(() => {
     const controller = new AbortController();
     void runProtected(() => adminApi.demoIncidentStatus(controller.signal)).then(
       (result) => {
-        if (!controller.signal.aborted) setStatus(result);
+        if (!controller.signal.aborted)
+          setRemaining(result.enabled ? result.remaining : null);
       },
       () => {
         if (!controller.signal.aborted)
@@ -26,16 +28,21 @@ export function DemoIncidentsPanel() {
   }, [runProtected]);
 
   async function addDemoIncidents() {
-    if (!window.confirm('Add 10 synthetic incidents and queue 10 AI assessments?'))
+    if (
+      !window.confirm(
+        `Add up to ${batchSize} synthetic ${batchSize === 1 ? 'incident' : 'incidents'} and queue their AI assessments?`,
+      )
+    )
       return;
     setBusy(true);
     setError('');
+    setCreated(0);
     try {
-      const count = await runProtected(adminApi.addDemoIncidents);
-      setCreated(count === 10);
-      setStatus('seeded');
+      const result = await runProtected(adminApi.addDemoIncidents);
+      setCreated(result.created);
+      setRemaining(result.remaining);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 404) setStatus('disabled');
+      if (e instanceof ApiError && e.status === 404) setRemaining(null);
       setError(
         e instanceof ApiError && e.code === 'demo_accounts_unavailable'
           ? 'Provision or restore the active demo accounts employee_a, employee_b, and analyst first.'
@@ -46,7 +53,7 @@ export function DemoIncidentsPanel() {
     }
   }
 
-  if (status === 'disabled' && !error) return null;
+  if (remaining === null && !error) return null;
   return (
     <section className="panel detail-panel workflow-card">
       <h2>Demo data</h2>
@@ -55,30 +62,26 @@ export function DemoIncidentsPanel() {
           {error}
         </p>
       )}
-      {status === 'ready' && (
+      {created > 0 && (
+        <p role="status" className="notice">
+          {created} demo {created === 1 ? 'incident' : 'incidents'} added and queued for
+          AI assessment.
+        </p>
+      )}
+      {remaining === 0 && <p>No unused demo scenarios remain in this database.</p>}
+      {batchSize > 0 && (
         <>
-          <p>
-            Create one batch of synthetic reports from employee_a, employee_b, and
-            analyst.
-          </p>
+          <p>Add unused synthetic reports from employee_a, employee_b, and analyst.</p>
           <button
             type="button"
             className="button button-primary"
             disabled={busy || pending}
             onClick={() => void addDemoIncidents()}
           >
-            Add 10 demo incidents
+            Add {batchSize} demo {batchSize === 1 ? 'incident' : 'incidents'}
           </button>
         </>
       )}
-      {status === 'seeded' &&
-        (created ? (
-          <p role="status" className="notice">
-            10 demo incidents added and queued for AI assessment.
-          </p>
-        ) : (
-          <p>Demo incidents have already been added to this database.</p>
-        ))}
     </section>
   );
 }

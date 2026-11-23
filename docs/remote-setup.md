@@ -115,7 +115,7 @@ Application admin and migrator credentials stay on the application VM.
 synthetic demo; their initial passwords are in the protected application VM
 provisioning directory. The installer does not provision a real-user
 administrator account or print any passwords. If you choose to seed the accounts,
-the installer also offers to enable **Admin → Add 10 demo incidents**. It defaults
+the installer also offers to enable **Admin → Demo data**. It defaults
 to No and saves the choice. For an unattended fresh install, set
 `DEMO_INCIDENTS=yes` alongside `DEMO_SEED=yes`. The installer only enables the
 button; it does not add any incidents. Do not edit the setting for an existing

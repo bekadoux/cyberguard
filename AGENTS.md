@@ -225,9 +225,9 @@
 - Apply identity migrations through `db/migrations/identity/00005_demo_accounts.sql`,
   incident migrations `00003_context_and_investigations.sql`,
   `00004_job_context_read.sql`, `00005_snapshot_worker_safety.sql`,
-  `00006_ai_feedback.sql`, `00007_ai_feedback_uuid.sql` and
-  `00008_demo_incident_batch.sql` before restarting the updated application/AI
-  worker. Migration 00007 refuses conflicting
+  `00006_ai_feedback.sql`, `00007_ai_feedback_uuid.sql`,
+  `00008_demo_incident_batch.sql` and `00009_demo_incident_scenarios.sql` before
+  restarting the updated application/AI worker. Migration 00007 refuses conflicting
   feedback decisions for the same normalized job UUID; it never rewrites history.
   Historical jobs are not backfilled. Migration 00005 preserves snapshot-less jobs
   and grants a boolean `ai_worker_ready()` probe;

@@ -11,26 +11,49 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const claimDemoIncidentBatch = `-- name: ClaimDemoIncidentBatch :execrows
-INSERT INTO demo_incident_batch (created_by) VALUES ($1)
-ON CONFLICT (singleton) DO NOTHING
+const listUsedDemoScenarios = `-- name: ListUsedDemoScenarios :many
+SELECT scenario_id FROM demo_incident_scenarios
 `
 
-func (q *Queries) ClaimDemoIncidentBatch(ctx context.Context, createdBy pgtype.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, claimDemoIncidentBatch, createdBy)
+func (q *Queries) ListUsedDemoScenarios(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listUsedDemoScenarios)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var scenario_id string
+		if err := rows.Scan(&scenario_id); err != nil {
+			return nil, err
+		}
+		items = append(items, scenario_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-const demoIncidentBatchExists = `-- name: DemoIncidentBatchExists :one
-SELECT EXISTS (SELECT 1 FROM demo_incident_batch)
+const lockDemoIncidentSelection = `-- name: LockDemoIncidentSelection :exec
+SELECT pg_advisory_xact_lock(12473, 9002)
 `
 
-func (q *Queries) DemoIncidentBatchExists(ctx context.Context) (bool, error) {
-	row := q.db.QueryRow(ctx, demoIncidentBatchExists)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
+func (q *Queries) LockDemoIncidentSelection(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockDemoIncidentSelection)
+	return err
+}
+
+const useDemoScenario = `-- name: UseDemoScenario :exec
+INSERT INTO demo_incident_scenarios (scenario_id, incident_id) VALUES ($1, $2)
+`
+
+type UseDemoScenarioParams struct {
+	ScenarioID string
+	IncidentID pgtype.UUID
+}
+
+func (q *Queries) UseDemoScenario(ctx context.Context, arg UseDemoScenarioParams) error {
+	_, err := q.db.Exec(ctx, useDemoScenario, arg.ScenarioID, arg.IncidentID)
+	return err
 }

@@ -66,16 +66,17 @@ raw URLs, or credentials. HTTP DTOs do not serialize persistence models.
   `GET /admin/ownership` returns the owner UUID (or `null` before initialization)
   to admins. There is no application-level override or owner recovery endpoint.
 
-## Demo incident batch
+## Demo incident creation
 
 `DEMO_INCIDENTS_ENABLED` defaults to `false`. `GET /admin/demo-incidents`
-reports availability to admins. When enabled, `POST /admin/demo-incidents`
-accepts only `{}` and creates one batch per incident database. The server
-selects embedded synthetic scenarios and verifies the three provisioned demo
-reporters by account ID and current role/status. It rechecks and holds admin
-authority through the incident commit without writing to the identity database.
-The batch and per-incident `demo_seeded` events identify the admin; ordinary
-incident ownership and snapshot/job creation still apply. See the
+returns the number of unused bundled scenarios to admins. When enabled,
+`POST /admin/demo-incidents` accepts only `{}` and creates up to ten of them
+per request. The server verifies the three provisioned demo reporters by
+account ID and current role/status. It rechecks and holds admin authority
+through the incident commit without writing to the identity database.
+Scenario selection is serialized in the incident database, which enforces
+unique scenario IDs. The per-incident `demo_seeded` events identify the admin;
+ordinary incident ownership and snapshot/job creation still apply. See the
 [demo runbook](docker-setup.md#add-demo-incidents).
 
 ## Workflow and service boundaries

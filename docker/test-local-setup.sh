@@ -28,9 +28,10 @@ jq -e '
     (.["prepare-models"] | .profiles == ["local-setup"] and (.volumes | length == 1 and all(.target == "/models" and (.read_only | not))) and (has("secrets") | not)))
 ' "$scratch/compose.json" >/dev/null
 
-mkdir -p "$scratch/repo/docker/ai" "$scratch/bin"
+mkdir -p "$scratch/repo/docker/ai" "$scratch/repo/deploy/ai-vm" "$scratch/bin"
 cp docker/{local-setup,create-secrets}.sh "$scratch/repo/docker/"
-cp docker/ai/{create-ai-secrets,inference-cpus}.sh "$scratch/repo/docker/ai/"
+cp docker/ai/{Dockerfile.prepare-models,create-ai-secrets.sh,inference-cpus.sh} "$scratch/repo/docker/ai/"
+cp deploy/ai-vm/{common.sh,prepare-models.sh,models.json} "$scratch/repo/deploy/ai-vm/"
 cd "$scratch/repo"
 export FIXTURE_DIR="$scratch" PATH="$scratch/bin:$PATH"
 digest=$(printf '%s' "$PWD" | sha256sum)
@@ -141,11 +142,15 @@ for account in employee_a employee_b analyst admin; do
     fi
 done
 
-# Resume preparation and then stop/resume again. Finished one-offs are never replayed.
+# Simulate a cached tool from the old installer. Resume must rebuild it once,
+# but must not replay completed provisioning or rebuild the application images.
+prepare_marker=.local/full-stack/cyberguard-prepare-models.built
+[[ $(<"$prepare_marker") =~ ^[a-f0-9]{64}$ ]]
+: > "$prepare_marker"
 : > "$scratch/docker.log"
 run </dev/null > "$scratch/resumed"
 grep -q 'http://192.168.7.5:18088/login' "$scratch/resumed"
-grep -q 'Add 10 demo incidents' "$scratch/resumed"
+grep -q 'Admin → Demo data' "$scratch/resumed"
 grep -q '4 inference threads per model' "$scratch/resumed"
 [[ -e .local/full-stack/models.done && -d .local/full-stack-models ]]
 reject run prepare-models > "$scratch/running" 2>&1
@@ -155,12 +160,26 @@ run resume </dev/null >> "$scratch/resumed"
 run check
 [[ $(grep -c ' -T prepare-models$' "$scratch/docker.log") == 1 ]]
 [[ $(grep -c ' -T prepare-models --check$' "$scratch/docker.log") == 1 ]]
+[[ $(grep 'build --tag cyberguard-prepare-models:' "$scratch/docker.log") == \
+    "build --tag cyberguard-prepare-models:$FIXTURE_PROJECT --file docker/ai/Dockerfile.prepare-models ." ]]
+reject grep -Eq 'build --tag cyberguard-(go|web):' "$scratch/docker.log"
 if grep -Eq ' -T (bootstrap-|migrate-|seed-demo)' "$scratch/docker.log" ||
     grep -q 'shown only once' "$scratch/resumed"; then
     echo 'Setup replayed a completed provisioning or password-display step.' >&2
     exit 1
 fi
 grep -q 'stop web ai-worker' "$scratch/docker.log"
+
+# A change in a copied helper refreshes the tool even with prepared models.
+previous_stamp=$(<"$prepare_marker")
+printf '\n# updated helper fixture\n' >> docker/ai/inference-cpus.sh
+: > "$scratch/docker.log"
+run resume </dev/null >> "$scratch/resumed"
+[[ $(<"$prepare_marker") != "$previous_stamp" ]]
+[[ $(grep 'build --tag' "$scratch/docker.log") == \
+    "build --tag cyberguard-prepare-models:$FIXTURE_PROJECT --file docker/ai/Dockerfile.prepare-models ." ]]
+[[ $(grep -c ' -T prepare-models --check$' "$scratch/docker.log") == 1 ]]
+reject grep -q ' -T prepare-models$' "$scratch/docker.log"
 
 # Legacy settings still load; the CPU setting becomes all when the models next start.
 settings=.local/full-stack/settings
@@ -199,7 +218,7 @@ EXPECT_CPUS=12 EXPECT_DEMO_INCIDENTS=false DEMO_INCIDENTS_ENABLED=true \
     terminal <<< $'\n18088\n\n\n\ny' > "$scratch/default"
 [[ $(cat "$settings") == $'127.0.0.1\n18088\nyes\nfalse\nall' ]]
 grep -q '12 inference threads per model' "$scratch/default"
-reject grep -q 'Add 10 demo incidents' "$scratch/default"
+reject grep -q 'Admin → Demo data' "$scratch/default"
 EXPECT_CPUS=8 FIXTURE_CPUS=8 EXPECT_DEMO_INCIDENTS=false run resume </dev/null > "$scratch/resized"
 grep -q '8 inference threads per model' "$scratch/resized"
 

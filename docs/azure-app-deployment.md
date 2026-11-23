@@ -162,7 +162,7 @@ shortcut. Before either migrator writes, the manager compares the SQL files for 
 databases in the selected image to the checkout and pins that image ID for the run.
 It accepts Go only if absent or exited, then checks current and image target versions
 after migrating. There is no automatic downgrade. Currently identity
-must reach 00005 and incidents 00008. API and worker never migrate themselves.
+must reach 00005 and incidents 00009. API and worker never migrate themselves.
 Status uses separate file-backed migrator connections with server-side
 `default_transaction_read_only=on`. This is deliberate: Goose can lazily create its
 version table even in status mode. Startup/check must reject an unmigrated database
@@ -175,10 +175,10 @@ command arguments, browser configuration, screenshots or test reports. Repeating
 preserves accounts and passwords. Do not seed these accounts into a real-user deployment.
 
 On a dedicated synthetic demo VM, separately set `DEMO_INCIDENTS_ENABLED=true`
-in the application VM configuration before `up`, then use **Admin → Add 10 demo
-incidents**. This queues one batch and requires demo reporters created by the
-updated seed command after identity migration `00005`; old usernames are not
-adopted automatically. See [demo batch behavior](docker-setup.md#add-demo-incidents).
+in the application VM configuration before `up`, then use **Admin → Demo data**.
+Each click adds up to ten unused scenarios and requires demo reporters created
+by the updated seed command after identity migration `00005`; old usernames are
+not adopted automatically. See [demo batch behavior](docker-setup.md#add-demo-incidents).
 
 ### Initialize the application owner
 
