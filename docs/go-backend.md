@@ -10,7 +10,7 @@ with handlers in `internal/httpapi`, auth and session logic in `internal/auth` a
 | [Foundation](../api/go-foundation.openapi.yaml) | Process liveness and connectivity readiness |
 | [Authentication](../api/go-authentication.openapi.yaml) | Employee signup, login, current user, and logout |
 | [Incident intake](../api/go-incidents.openapi.yaml) | Create, scoped list with initial AI status for staff, and detail |
-| [Incident workflows and administration](../api/go-handoff.openapi.yaml) | Incident actions, notifications, accounts, ownership, demo incidents, and AI feedback |
+| [Incident workflows and administration](../api/go-handoff.openapi.yaml) | Incident actions, reporter status timeline, notifications, accounts, ownership, demo incidents, and AI feedback |
 
 Direct Go routes are unprefixed; Caddy exposes them under `/api`. The private AI
 worker routes are not public. JSON uses UUIDs, `snake_case` fields, UTC/RFC 3339
@@ -90,7 +90,8 @@ assessment job; a worker result never updates incident fields. An authorized hum
 can record one decision per real assessment and update the category through Go.
 The staff list exposes only the initial job status; the
 [frontend handoff](frontend-handoff/staff-assessment-status.md) defines the null
-case and labels.
+case and labels. The [reporter timeline](frontend-handoff/reporter-status-timeline.md)
+uses a separate owner-only endpoint and exposes only status and timestamp.
 
 Go runs resolution maintenance at startup and hourly to close eligible
 seven-day-old resolutions. Account administration has a separate audit trail in the
