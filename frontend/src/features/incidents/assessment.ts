@@ -13,12 +13,32 @@ export const jobLabels = {
   completed: 'Completed',
   failed: 'Failed',
 } as const;
+// The first eight codes match the domain rubric. Legacy codes remain readable
+// for immutable assessments stored before the rubric expansion.
 export const indicatorLabels = {
-  clicked_suspicious_link: 'Suspicious link clicked',
-  credentials_entered: 'Credentials entered',
-  files_encrypted: 'Files encrypted',
-  unauthorized_access: 'Unauthorized access reported',
+  clicked_link: 'Link clicked',
+  credentials_entered: 'Credentials or code entered',
+  attachment_opened: 'Attachment opened or file run',
+  payment_made: 'Payment or transfer made',
+  data_sent_out: 'Data sent outside the company',
+  device_abnormal: 'Unusual device behavior',
+  multiple_affected: 'Multiple people or systems affected',
+  ongoing: 'Activity still ongoing',
+  clicked_suspicious_link: 'Suspicious link clicked (legacy)',
+  files_encrypted: 'Files encrypted (legacy)',
+  unauthorized_access: 'Unauthorized access reported (legacy)',
 } as const;
+
+export const domainIndicatorKeys = [
+  'clicked_link',
+  'credentials_entered',
+  'attachment_opened',
+  'payment_made',
+  'data_sent_out',
+  'device_abnormal',
+  'multiple_affected',
+  'ongoing',
+] as const;
 type JobStatus = keyof typeof jobLabels;
 type Probabilities = Record<string, number>;
 export type Assessment = {

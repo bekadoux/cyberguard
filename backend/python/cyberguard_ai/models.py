@@ -14,17 +14,23 @@ CATEGORIES = {
     "phishing": "Deceptive messages, links or social engineering attempting to obtain credentials or money",
     "malware": "Malicious software, including ransomware, infection or unauthorized execution",
     "account_compromise": "Account takeover, credential misuse, unauthorized sign-ins",
-    "data_exposure": "Sensitive data made accessible, disclosed or leaked to unauthorized parties",
+    "data_exposure": "Data sent to the wrong recipient, disclosed, published or taken out, whether accidental or malicious",
     "lost_device": "Lost or stolen computers, phones or physical devices",
     "policy_violation": "A breach of an organizational security policy not fitting other categories",
-    "service_disruption": "Denial of service, outages or availability degradation",
+    "service_disruption": "A service or system is unavailable or degraded and an attack is suspected, without assuming the cause",
     "other": "Insufficient information or a security concern not fitting the categories",
 }
+# Domain-defined yes/no rubric. The model must evaluate explicit statements,
+# not infer that an unreported action did not occur. The scores are NOT proof.
 INDICATORS = {
-    "clicked_suspicious_link": "Does the reporter explicitly say they clicked a suspicious link?",
-    "credentials_entered": "Does the reporter explicitly say they entered their password or credentials into a suspicious form?",
-    "files_encrypted": "Does the reporter explicitly say files became encrypted or a ransom note appeared?",
-    "unauthorized_access": "Does the reporter explicitly report evidence of unauthorized account or data access?",
+    "clicked_link": "Does the report explicitly say someone clicked a link (not merely received one)?",
+    "credentials_entered": "Does the report explicitly say someone entered a password or authentication code?",
+    "attachment_opened": "Does the report explicitly say an attachment was opened or a file was executed?",
+    "payment_made": "Does the report explicitly mention a payment or money transfer that was made?",
+    "data_sent_out": "Does the report explicitly state data left the company, including to an unintended recipient?",
+    "device_abnormal": "Does the report explicitly describe unusual device behavior (for example pop-ups, slowdown or encryption)?",
+    "multiple_affected": "Does the report explicitly say multiple employees or systems are affected?",
+    "ongoing": "Does the report explicitly state the activity is still happening?",
 }
 
 # Both Compose deployments give the single llama.cpp slot 2,048 tokens.
@@ -73,7 +79,7 @@ async def kev_triage(ctx: IncidentContext, cfg: Settings, http: httpx.AsyncClien
     questions = {
         "category": {
             "type": "choice",
-            "instructions": "Which ONE cybersecurity incident category best fits what the reporter explicitly describes? If unclear, choose other.",
+            "instructions": "Select ONE main category from the reported facts, not inferred causes. Ransomware is malware. A mistaken outbound data disclosure is data_exposure. Use other when the report is unclear.",
             "criteria": CATEGORIES,
         },
         "impact": {
@@ -81,7 +87,7 @@ async def kev_triage(ctx: IncidentContext, cfg: Settings, http: httpx.AsyncClien
             "instructions": "Potential impact from explicitly reported evidence only; do not infer a successful attack.",
             "criteria": ["low: minor/localized", "medium: limited business impact", "high: serious business impact", "critical: widespread harm or business-critical interruption"],
         },
-        **{key: {"type": "noul", "instructions": prompt} for key, prompt in INDICATORS.items()},
+        **{key: {"type": "noul", "instructions": prompt + " A no score means only that the report does not explicitly say so; it is not evidence that the event did not occur."} for key, prompt in INDICATORS.items()},
     }
     try:
         response = await http.post(

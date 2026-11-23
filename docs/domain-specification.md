@@ -103,10 +103,11 @@ Rules:
 
 This eight-question **domain rubric** checks what the description **explicitly
 states**, not what probably happened. It is not the current AI output schema.
-Today the [AI service](ai-backend.md#models-and-output) evaluates four signals:
-suspicious link clicked, credentials entered, files encrypted, and unauthorized
-access reported. Staff can view their probabilities in the assessment details.
-Expanded coverage and highlighting are tracked in the [temporary backlog](backlog.md).
+The [AI service](ai-backend.md#models-and-output) now requests all eight
+rubric questions. Scores remain uncalibrated advisory model output, not yes/no
+facts. Previously stored assessments may show the original four signals.
+Evaluation and indicator highlight thresholds remain in the
+[temporary backlog](backlog.md).
 
 | Code | Question about the description | Why it matters to the analyst | Severity guidance for human review |
 | --- | --- | --- | --- |

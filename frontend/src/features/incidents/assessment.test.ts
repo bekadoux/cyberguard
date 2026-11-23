@@ -5,6 +5,41 @@ import { getAssessment, parseAssessment } from './assessment';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('assessment contract', () => {
+  it('accepts all eight rubric indicators while rejecting unknown codes', () => {
+    const assessment = parseAssessment(completedAssessment, first.id);
+    expect(
+      Object.keys(assessment.result!.assessment.triage.indicator_probabilities),
+    ).toHaveLength(8);
+  });
+
+  it('keeps archived four-signal results readable without inventing missing rubric scores', () => {
+    const oldAssessment = {
+      ...completedAssessment,
+      result: {
+        ...completedAssessment.result,
+        assessment: {
+          ...completedAssessment.result.assessment,
+          triage: {
+            ...completedAssessment.result.assessment.triage,
+            indicator_probabilities: {
+              clicked_suspicious_link: 0.72,
+              credentials_entered: 0.04,
+              files_encrypted: 0.02,
+              unauthorized_access: 0.12,
+            },
+          },
+        },
+      },
+    };
+    const parsed = parseAssessment(oldAssessment, first.id);
+    expect(
+      parsed.result?.assessment.triage.indicator_probabilities.clicked_suspicious_link,
+    ).toBe(0.72);
+    expect(
+      parsed.result?.assessment.triage.indicator_probabilities.attachment_opened,
+    ).toBeUndefined();
+  });
+
   it('projects a separate advisory result, not incident classification', () => {
     const parsed = parseAssessment(
       {

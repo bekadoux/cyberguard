@@ -21,7 +21,9 @@ export class SessionStore {
   private authorizationGeneration = 0;
   private refreshController: AbortController | null = null;
 
-  constructor(private readonly api = authApi) {}
+  constructor(
+    private readonly api: Pick<typeof authApi, 'me' | 'login' | 'logout'> = authApi,
+  ) {}
 
   getSnapshot = (): SessionState => this.state;
 

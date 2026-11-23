@@ -107,11 +107,11 @@ Pravidlá:
 ## Indikátory (otázky áno/nie)
 
 Týchto osem otázok tvorí **doménovú metodiku**. Každá overuje len to, čo je
-v popise **výslovne uvedené**, nie to, čo sa pravdepodobne stalo. Nejde o aktuálnu
-schému výstupu AI. [Služba AI](ai-backend.md#models-and-output) dnes vyhodnocuje
-štyri signály: kliknutie na podozrivý odkaz, zadanie prihlasovacích údajov,
-zašifrovanie súborov a nahlásený neoprávnený prístup. Analytici a administrátori
-vidia pravdepodobnosti v detaile posúdenia. Rozšírenie a zvýraznenie signálov je v
+v popise **výslovne uvedené**, nie to, čo sa pravdepodobne stalo.
+[Služba AI](ai-backend.md#models-and-output) teraz vyhodnocuje všetkých osem
+otázok doménovej metodiky. Skóre je iba orientačné, nie potvrdené áno/nie.
+Staršie uložené hodnotenia môžu obsahovať pôvodné štyri signály. Vyhodnotenie
+kvality a hranice zvýrazňovania zostávajú v
 [dočasnom zozname úloh](backlog.md).
 
 | Kód | Otázka k popisu | Prečo je to dôležité pre analytika | Odporúčanie pre posúdenie závažnosti |

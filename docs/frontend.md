@@ -3,8 +3,10 @@
 The React/TypeScript single-page app lives in [`frontend/`](../frontend). Vite builds
 static files for Caddy; Node is not a deployed service. React Router defines login,
 account, incident list/create/detail, notifications, and admin screens in
-[`src/app/App.tsx`](../frontend/src/app/App.tsx). A new browser route also needs the
-[gateway's SPA allowlist](deployment.md#gateway-routing).
+[`src/app/App.tsx`](../frontend/src/app/App.tsx), including a public `/signup`
+page for the existing `POST /auth/signup` endpoint. Signup is feature-gated on
+Go via `SIGNUP_ENABLED`, always creates an employee, and never starts a session.
+A new browser route also needs the [gateway's SPA allowlist](deployment.md#gateway-routing).
 
 | Code | Responsibility |
 | --- | --- |
@@ -39,7 +41,10 @@ and assessment. Employees do not mount or fetch the panel. Refresh is manual.
 Fixture output is labelled and cannot be reviewed as a real assessment. For real
 output, the panel shows a saved human decision independently of whether the viewer
 can submit one. Suggestions and the brief are rendered as text, separate from
-confirmed incident fields.
+confirmed incident fields. Staff can see ranked category scores, the eight
+rubric indicators, an expandable AI draft brief, and approved playbook steps.
+No indicator automatically changes severity. Historic signals may be shown
+separately as legacy output.
 
 ## Development and checks
 

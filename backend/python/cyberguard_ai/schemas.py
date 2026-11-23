@@ -22,6 +22,8 @@ class Triage(BaseModel):
     suggested_category: Category | None = None
     category_probabilities: dict[str, float] = Field(default_factory=dict)
     potential_impact: float | None = Field(default=None, ge=0, le=3)
+    # New real runs use the eight domain-rubric keys; older immutable rows may
+    # retain the original four. Empty scores are valid in labelled fake fixtures.
     indicator_probabilities: dict[str, float] = Field(default_factory=dict)
     needs_human_review: bool = True
     model: str

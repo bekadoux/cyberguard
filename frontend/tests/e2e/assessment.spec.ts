@@ -27,12 +27,67 @@ test('renders stored advisory output without changing confirmed incident fields'
   await expect(
     page.locator('.incident-metadata').getByText('Not assessed', { exact: true }),
   ).toHaveCount(2);
-  await panel.getByText('Model signals', { exact: true }).click();
-  await expect(panel).toContainText('not calibrated risk scores');
+  await expect(panel.getByRole('heading', { name: 'Reported indicators' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Category scores' }).click();
+  await expect(panel).toContainText('not calibrated probabilities');
+  await page.getByRole('button', { name: 'Refresh assessment' }).click();
+  await expect(panel.getByRole('button', { name: 'Category scores' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
   const initialReads = reads;
   expect(initialReads).toBeGreaterThanOrEqual(1);
   await page.clock.fastForward(60_000);
   expect(reads).toBe(initialReads);
+});
+
+test('Kev abstention is explicit and cannot be accepted by human review', async ({
+  page,
+}) => {
+  const result = completedAssessment.result;
+  const abstained = {
+    ...completedAssessment,
+    result: {
+      ...result,
+      assessment: {
+        ...result.assessment,
+        triage: {
+          ...result.assessment.triage,
+          suggested_category: null,
+          category_probabilities: { other: 0.72, phishing: 0.28 },
+        },
+      },
+    },
+  };
+  await page.route('**/ai/incidents/*/assessment', (route) =>
+    route.fulfill({ json: abstained }),
+  );
+  await page.route(`**/api/incidents/${first.id}`, (route) =>
+    route.fulfill({
+      json: {
+        incident: {
+          ...detail,
+          assigned_analyst_id: analyst.id,
+          assigned_analyst: { id: analyst.id, username: analyst.username },
+        },
+      },
+    }),
+  );
+  await page.goto(`/incidents/${first.id}`);
+  const panel = page.getByTestId('assessment-panel');
+  await expect(panel.getByRole('heading', { name: 'No recommendation' })).toBeVisible();
+  await expect(
+    panel.getByText(/Highest-scoring result \(not a recommendation\)/),
+  ).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Category scores' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+  const review = page.getByRole('form', { name: 'AI feedback review' });
+  await expect(
+    review.getByRole('option', { name: 'Accept suggested category' }),
+  ).toBeDisabled();
+  await expect(review.getByRole('option', { name: 'Choose a category' })).toHaveCount(1);
 });
 
 test('preserves sibling drafts, patches only changed fields, and reloads the saved job decision', async ({
