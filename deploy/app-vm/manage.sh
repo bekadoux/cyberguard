@@ -148,14 +148,22 @@ migration_check() {
     done
 }
 gateway_check() {
-    local -a trust=()
+    local -a trust=() startup_wait=()
     [[ $APP_PUBLIC_TLS != provided ]] || trust=(--cacert "$APP_TLS_DIR/ca.crt")
+    if [[ $action == up && $APP_PUBLIC_TLS == acme ]]; then
+        # Caddy's container health check is HTTP-only. The first TLS handshake
+        # can fail while ACME is in progress. Leave time for the final attempt.
+        printf '%s\n' 'Checking public HTTPS (allowing up to two minutes for Caddy/ACME).'
+        startup_wait=(--retry 40 --retry-all-errors --retry-delay 3 --retry-max-time 110)
+    fi
     curl --fail --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 \
-        "${trust[@]}" --resolve "$APP_PUBLIC_NAME:$APP_HTTPS_PORT:$APP_BIND_IP" \
-        "https://$APP_PUBLIC_AUTHORITY/api/readyz" >/dev/null
+        "${trust[@]}" "${startup_wait[@]}" --resolve "$APP_PUBLIC_NAME:$APP_HTTPS_PORT:$APP_BIND_IP" \
+        "https://$APP_PUBLIC_AUTHORITY/api/readyz" >/dev/null ||
+        fail 'Public HTTPS readiness failed. Check the app VM web (Caddy) logs for certificate issuance, DNS, or challenge errors.'
     curl --fail --silent --show-error --noproxy '*' --connect-timeout 3 --max-time 10 \
         --cacert "$APP_TLS_DIR/ca.crt" --resolve "$APP_GO_TLS_NAME:$APP_PRIVATE_PORT:$APP_BIND_IP" \
-        "https://$APP_GO_TLS_NAME:$APP_PRIVATE_PORT/readyz" >/dev/null
+        "https://$APP_GO_TLS_NAME:$APP_PRIVATE_PORT/readyz" >/dev/null ||
+        fail 'Private Go HTTPS readiness failed. Check the app VM private-go and go-api logs.'
 }
 
 case "$action" in

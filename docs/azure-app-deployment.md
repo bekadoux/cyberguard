@@ -226,8 +226,10 @@ sudo bash deploy/app-vm/manage.sh --config /etc/cyberguard/app/config.env mainte
 
 `up` uses prepared images (`--no-build --pull never`), starts databases, verifies schema,
 initializes only empty Caddy certificate-volume ownership, and starts/checks the app.
-Public ACME needs working DNS and reachable validation ports; initial checks may fail
-until issuance completes. Fix the cause and rerun `check`, never use insecure curl.
+Public ACME needs working DNS and reachable validation ports. On startup, `up` waits
+up to two minutes for verified public HTTPS while Caddy obtains its certificate.
+If the wait expires, check Caddy's logs, fix the cause, and rerun `up` or `check`;
+never use insecure curl. The private Go readiness check still fails promptly.
 Persistent `/data` retains account/certificate state for renewals and recreation.
 Listeners use HTTP/1.1 and HTTP/2 over TCP; HTTP/3 is not advertised on internal port 8443.
 

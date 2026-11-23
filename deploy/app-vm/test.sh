@@ -156,4 +156,49 @@ if grep -Fq 'synthetic-owner-password' "$APP_TEST_COMMANDS"; then echo 'Password
 APP_TEST_GO_STATE=exited manage init-owner existing_admin >/dev/null
 grep -Fq 'migrate-identity /app/seed -owner existing_admin' "$APP_TEST_COMMANDS"
 [[ $before == "$(find "$temporary/secrets/credentials" -type f -exec sha256sum {} + | sort)" ]]
+
+# Only the ACME startup probe is allowed to wait out a transient TLS error.
+cat > "$temporary/bin/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$APP_TEST_CURL"
+case "$*" in
+    *'https://cg.example.org/api/readyz'*)
+        if [[ ${APP_TEST_PUBLIC_UNAVAILABLE:-no} == yes && $* != *' --retry-all-errors '* ]]; then exit 35; fi
+        if [[ ${APP_TEST_PUBLIC_EXPIRED:-no} == yes ]]; then exit 35; fi
+        ;;
+    *'https://app.internal:8443/readyz'*)
+        if [[ ${APP_TEST_PRIVATE_UNAVAILABLE:-no} == yes ]]; then exit 35; fi
+        ;;
+    *) exit 1 ;;
+esac
+SH
+chmod 0755 "$temporary/bin/curl"
+export APP_TEST_CURL=$temporary/curl
+printf '%s\n' 'APP_PUBLIC_NAME=cg.example.org' >> "$config"
+APP_TEST_PUBLIC_UNAVAILABLE=yes manage up > "$temporary/output"
+grep -Fq 'allowing up to two minutes' "$temporary/output"
+grep -Eq -- '--retry-all-errors --retry-delay 3 --retry-max-time 110 .*https://cg.example.org/api/readyz' "$APP_TEST_CURL"
+grep -Fq -- "--cacert $temporary/secrets/tls/ca.crt --resolve app.internal:8443:127.0.0.1 https://app.internal:8443/readyz" "$APP_TEST_CURL"
+if grep -Eq -- '(--insecure|--retry.*https://app.internal)' "$APP_TEST_CURL"; then
+    echo 'Private TLS or verification was weakened.' >&2
+    exit 1
+fi
+: > "$APP_TEST_CURL"
+APP_TEST_PUBLIC_EXPIRED=yes reject manage up
+grep -Fq 'Public HTTPS readiness failed. Check the app VM web (Caddy) logs' "$temporary/error"
+[[ $(wc -l < "$APP_TEST_CURL") == 1 ]]
+: > "$APP_TEST_CURL"
+APP_TEST_PUBLIC_UNAVAILABLE=yes reject manage check
+[[ $(wc -l < "$APP_TEST_CURL") == 1 ]]
+if grep -Fq -- '--retry' "$APP_TEST_CURL"; then echo 'Read-only check waited for ACME.' >&2; exit 1; fi
+APP_TEST_PRIVATE_UNAVAILABLE=yes reject manage up
+grep -Fq 'Private Go HTTPS readiness failed' "$temporary/error"
+cp "$temporary/secrets/tls/go.crt" "$temporary/secrets/tls/public.crt"
+cp "$temporary/secrets/tls/go.key" "$temporary/secrets/tls/public.key"
+printf '%s\n' 'APP_PUBLIC_TLS=provided' >> "$config"
+: > "$APP_TEST_CURL"
+manage up >/dev/null
+grep -Fq -- "--cacert $temporary/secrets/tls/ca.crt --resolve cg.example.org:443:127.0.0.1" "$APP_TEST_CURL"
+if grep -Fq -- '--retry' "$APP_TEST_CURL"; then echo 'Provided TLS waited for ACME.' >&2; exit 1; fi
 printf '%s\n' 'Application VM literal config, path safety and non-overwriting TLS credential generation passed.'
