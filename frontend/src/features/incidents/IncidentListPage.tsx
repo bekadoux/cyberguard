@@ -201,6 +201,12 @@ export function IncidentListPage() {
                         )}
                         {professional && (
                           <td>
+                            <span
+                              className="incident-assessment-label"
+                              aria-hidden="true"
+                            >
+                              AI assessment:
+                            </span>{' '}
                             {incident.ai_assessment_status === null
                               ? 'No assessment'
                               : incident.ai_assessment_status

@@ -86,6 +86,9 @@
   font-size: 11px;
   margin-top: 5px;
 }
+.incident-assessment-label {
+  display: none;
+}
 
 .back-link {
   display: inline-flex;
@@ -507,6 +510,11 @@
   .incident-table td:nth-child(3),
   .incident-table td:nth-child(4) {
     font-size: 12px;
+  }
+  .incident-assessment-label {
+    display: inline;
+    color: var(--text-secondary);
+    font-weight: 600;
   }
   .incident-table td:last-child {
     font-size: 12px;

@@ -19,8 +19,7 @@ advisory and are never merged into staff-confirmed incident fields.
    old open browser tabs to reload; an existing old JavaScript bundle does *not*
    become compatible merely because the server deploys a new bundle.
 2. Only after all clients use a compatible reader, enable/deploy the Python writer
-   with the eight domain-rubric indicators and the updated AI-VM fixture. Rollback
-   the writer first if old clients cannot be guaranteed compatible.
+   with the eight domain-rubric indicators and the updated AI-VM fixture.
 3. The incident list/status timeline UI requires the Go endpoints and incident
    migration `00010_staff_assessment_status.sql` already deployed.
 

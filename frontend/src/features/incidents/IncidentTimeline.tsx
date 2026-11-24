@@ -8,14 +8,21 @@ type State = {
   events: TimelineEvent[];
   cursor: string | null;
   loading: boolean;
-  error: unknown;
+  error: { cause: unknown; cursor: string | null } | null;
 };
 const initial: State = { events: [], cursor: null, loading: true, error: null };
 
 /** Reporter-only status changes; staff action history is a separate endpoint. */
-export function IncidentTimeline({ incidentId }: { incidentId: string }) {
+export function IncidentTimeline({
+  incidentId,
+  revision,
+}: {
+  incidentId: string;
+  revision: number;
+}) {
   const { runProtected, pending } = useAuth();
   const [state, setState] = useState<State>(initial);
+  const { error } = state;
   const controllerRef = useRef<AbortController | null>(null);
 
   const load = useCallback(
@@ -35,9 +42,13 @@ export function IncidentTimeline({ incidentId }: { incidentId: string }) {
             error: null,
           }));
         })
-        .catch((error: unknown) => {
+        .catch((cause: unknown) => {
           if (!controller.signal.aborted) {
-            setState((previous) => ({ ...previous, loading: false, error }));
+            setState((previous) => ({
+              ...previous,
+              loading: false,
+              error: { cause, cursor },
+            }));
           }
         })
         .finally(() => {
@@ -54,7 +65,7 @@ export function IncidentTimeline({ incidentId }: { incidentId: string }) {
       controllerRef.current?.abort();
       controllerRef.current = null;
     };
-  }, [load, pending]);
+  }, [load, pending, revision]);
 
   return (
     <section className="panel detail-panel" aria-labelledby="reporter-timeline-heading">
@@ -72,20 +83,20 @@ export function IncidentTimeline({ incidentId }: { incidentId: string }) {
         </ol>
       )}
       {state.loading && <p role="status">Loading status history…</p>}
-      {state.error !== null && <p role="alert">{incidentErrorMessage(state.error)}</p>}
-      {!state.loading && state.error !== null && (
+      {error && <p role="alert">{incidentErrorMessage(error.cause)}</p>}
+      {!state.loading && error && (
         <button
           className="button button-secondary"
           type="button"
-          onClick={() => load(state.events.length > 0 ? state.cursor : null)}
+          onClick={() => load(error.cursor)}
         >
           Try again
         </button>
       )}
-      {!state.loading && state.error === null && state.events.length === 0 && (
+      {!state.loading && !error && state.events.length === 0 && (
         <p>No status history available.</p>
       )}
-      {!state.loading && state.error === null && state.cursor && (
+      {!state.loading && !error && state.cursor && (
         <button
           className="button button-secondary"
           type="button"

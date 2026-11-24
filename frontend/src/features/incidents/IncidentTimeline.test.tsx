@@ -19,7 +19,7 @@ function setup() {
     pending: false,
     runProtected: (fn: () => Promise<unknown>) => fn(),
   } as ReturnType<typeof useAuth>);
-  return render(<IncidentTimeline incidentId={first.id} />);
+  return render(<IncidentTimeline incidentId={first.id} revision={0} />);
 }
 
 describe('reporter timeline UI', () => {
@@ -66,5 +66,30 @@ describe('reporter timeline UI', () => {
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2));
     expect(vi.mocked(getTimeline).mock.calls[2]?.[1]).toBe('retry-cursor');
+  });
+
+  it('retries a failed refresh from the first page instead of the old cursor', async () => {
+    const get = vi
+      .mocked(getTimeline)
+      .mockResolvedValueOnce({
+        events: [{ status: 'triage', occurred_at: first.updated_at }],
+        next_cursor: 'old-cursor',
+      })
+      .mockRejectedValueOnce(new Error('temporary error'))
+      .mockResolvedValueOnce({
+        events: [{ status: 'investigating', occurred_at: first.updated_at }],
+        next_cursor: 'new-cursor',
+      });
+    const user = userEvent.setup();
+    const { rerender } = setup();
+    await screen.findByRole('button', { name: 'Load more' });
+    rerender(<IncidentTimeline incidentId={first.id} revision={1} />);
+    await screen.findByRole('alert');
+    expect(screen.getByRole('listitem')).toHaveTextContent('Triage');
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() =>
+      expect(screen.getByRole('listitem')).toHaveTextContent('Investigating'),
+    );
+    expect(get.mock.calls.map(([, cursor]) => cursor)).toEqual([null, null, null]);
   });
 });
