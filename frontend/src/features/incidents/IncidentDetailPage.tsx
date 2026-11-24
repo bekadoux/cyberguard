@@ -10,6 +10,8 @@ import { useIncidentDetail } from './use-incident-detail';
 import { AssessmentPanel } from './AssessmentPanel';
 import { IncidentWorkflow } from './IncidentWorkflow';
 import { IncidentDiscussion } from './IncidentDiscussion';
+import { IncidentTimeline } from './IncidentTimeline';
+import { isReporter } from './timeline';
 import './incidents.css';
 import './workflow.css';
 
@@ -192,6 +194,9 @@ function ScopedDetail({ id }: { id: string }) {
               <p className="metadata-hint">Times are shown in your local time zone.</p>
             </aside>
           </div>
+          {isReporter(incident.reporter_id, user?.id) && (
+            <IncidentTimeline incidentId={incident.id} />
+          )}
           {professional && (
             <AssessmentPanel
               incidentId={incident.id}

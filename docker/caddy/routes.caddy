@@ -47,7 +47,7 @@
 			encode zstd gzip
 			file_server
 		}
-		@spa path / /login /account /incidents /incidents/* /notifications /admin
+		@spa path / /login /signup /account /incidents /incidents/* /notifications /admin
 		handle @spa {
 			rewrite * /index.html
 			encode zstd gzip

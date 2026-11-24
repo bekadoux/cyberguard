@@ -13,12 +13,36 @@ export const jobLabels = {
   completed: 'Completed',
   failed: 'Failed',
 } as const;
-export const indicatorLabels = {
+// Stored schema 1.0 assessments can use either rubric. The shared
+// credentials_entered key has different meanings; keep their labels separate.
+export const legacyIndicatorLabels = {
   clicked_suspicious_link: 'Suspicious link clicked',
-  credentials_entered: 'Credentials entered',
+  credentials_entered: 'Credentials entered into a suspicious form',
   files_encrypted: 'Files encrypted',
   unauthorized_access: 'Unauthorized access reported',
 } as const;
+export const currentIndicatorLabels = {
+  clicked_link: 'Link clicked (not merely received)',
+  credentials_entered: 'Password or authentication code entered',
+  attachment_opened: 'Attachment opened or file executed',
+  payment_made: 'Payment or money transfer made',
+  data_sent_out: 'Data sent outside the company',
+  device_abnormal: 'Unusual device behavior',
+  multiple_affected: 'Multiple employees or systems affected',
+  ongoing: 'Activity still ongoing',
+} as const;
+export const domainIndicatorKeys = [
+  'clicked_link',
+  'credentials_entered',
+  'attachment_opened',
+  'payment_made',
+  'data_sent_out',
+  'device_abnormal',
+  'multiple_affected',
+  'ongoing',
+] as const;
+
+type IndicatorRubric = 'legacy' | 'current';
 type JobStatus = keyof typeof jobLabels;
 type Probabilities = Record<string, number>;
 export type Assessment = {
@@ -48,6 +72,7 @@ export type Assessment = {
         raw_model_confidence: number | null;
         category_probabilities: Probabilities;
         indicator_probabilities: Probabilities;
+        indicator_rubric: IndicatorRubric;
       };
       brief: {
         summary: string;
@@ -85,6 +110,58 @@ function probabilities(value: unknown, labels: object): Probabilities {
     result[key] = probability;
   }
   return result;
+}
+
+function indicatorProbabilities(value: unknown): {
+  values: Probabilities;
+  rubric: IndicatorRubric;
+} {
+  if (!isRecord(value)) return invalidResponse();
+  const keys = Object.keys(value);
+  const hasLegacyOnly = keys.some(
+    (key) =>
+      Object.hasOwn(legacyIndicatorLabels, key) &&
+      !Object.hasOwn(currentIndicatorLabels, key),
+  );
+  const hasCurrentOnly = keys.some(
+    (key) =>
+      Object.hasOwn(currentIndicatorLabels, key) &&
+      !Object.hasOwn(legacyIndicatorLabels, key),
+  );
+  // A mixed rubric has no defined meaning under schema 1.0.
+  if (hasLegacyOnly && hasCurrentOnly) return invalidResponse();
+  // credentials_entered alone cannot identify a rubric. Interpret it using
+  // the archived meaning rather than falsely relabeling a historical score.
+  const rubric = hasCurrentOnly ? 'current' : 'legacy';
+  return {
+    values: probabilities(
+      value,
+      rubric === 'legacy' ? legacyIndicatorLabels : currentIndicatorLabels,
+    ),
+    rubric,
+  };
+}
+
+export function indicatorRows(
+  scores: Probabilities,
+  rubric: IndicatorRubric,
+): { key: string; label: string; probability: number | null }[] {
+  const labels: Record<string, string> =
+    rubric === 'legacy' ? legacyIndicatorLabels : currentIndicatorLabels;
+  const rows: { key: string; label: string; probability: number | null }[] =
+    Object.entries(scores).map(([key, probability]) => ({
+      key,
+      label: labels[key] ?? invalidResponse(),
+      probability,
+    }));
+  if (rubric === 'legacy') {
+    rows.push({
+      key: 'current_credentials_entered',
+      label: currentIndicatorLabels.credentials_entered,
+      probability: null,
+    });
+  }
+  return rows;
 }
 
 /** Project stored, advisory output only; never merge suggestions into incident fields. */
@@ -149,6 +226,7 @@ export function parseAssessment(data: unknown, incidentId: string): Assessment {
       Array.from(brief.summary).length > 900
     )
       return invalidResponse();
+    const indicators = indicatorProbabilities(triage.indicator_probabilities);
     result = {
       source_kind: row.source_kind as 'fake' | 'kev_llm',
       created_at: row.created_at,
@@ -166,10 +244,8 @@ export function parseAssessment(data: unknown, incidentId: string): Assessment {
             triage.category_probabilities,
             categoryLabels,
           ),
-          indicator_probabilities: probabilities(
-            triage.indicator_probabilities,
-            indicatorLabels,
-          ),
+          indicator_probabilities: indicators.values,
+          indicator_rubric: indicators.rubric,
         },
         brief: {
           summary: brief.summary,

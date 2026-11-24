@@ -176,8 +176,11 @@ SIGNUP_ENABLED=true make docker-up
 If the old demo seed already created `admin`, select that account instead:
 run the same Compose command ending in `/app/seed -owner admin`, without a
 password file. Keep the signup setting on subsequent restarts while enrollment
-is needed. Use only synthetic data. Until a signup screen is available, use
-[`POST /auth/signup`](../api/go-authentication.openapi.yaml) through the API.
+is needed. Use only synthetic data. The `/signup` screen uses
+[`POST /api/auth/signup`](../api/go-authentication.openapi.yaml) at the gateway.
+It does not log the user in; sign in after successful registration. A 404 from
+that endpoint means enrollment is disabled. Do not enable public registration
+on deployed environments without an explicit team decision.
 The owner can then promote registered employees through the admin role API.
 
 ## Updates and persistence

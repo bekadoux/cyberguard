@@ -28,6 +28,13 @@ export const severityLabels = {
 export type IncidentStatus = keyof typeof statusLabels;
 export type IncidentCategory = keyof typeof categoryLabels;
 export type IncidentSeverity = keyof typeof severityLabels;
+export const assessmentStatusLabels = {
+  queued: 'Queued',
+  running: 'In progress',
+  completed: 'Complete',
+  failed: 'Failed',
+} as const;
+export type AssessmentStatus = keyof typeof assessmentStatusLabels;
 export type IncidentSummary = {
   id: string;
   reporter_id: string;
@@ -38,6 +45,7 @@ export type IncidentSummary = {
   created_at: string;
   updated_at: string;
   severity?: IncidentSeverity | null;
+  ai_assessment_status?: AssessmentStatus | null;
 };
 export type IncidentPage = { incidents: IncidentSummary[]; next_cursor: string | null };
 export type IncidentDetail = IncidentSummary & {
@@ -78,7 +86,10 @@ export function parseSummary(data: unknown): IncidentSummary {
     !Number.isFinite(Date.parse(data.updated_at)) ||
     ('severity' in data &&
       data.severity !== null &&
-      !hasLabel(severityLabels, data.severity))
+      !hasLabel(severityLabels, data.severity)) ||
+    ('ai_assessment_status' in data &&
+      data.ai_assessment_status !== null &&
+      !hasLabel(assessmentStatusLabels, data.ai_assessment_status))
   ) {
     return invalidResponse();
   }
@@ -92,6 +103,9 @@ export function parseSummary(data: unknown): IncidentSummary {
     created_at: data.created_at,
     updated_at: data.updated_at,
     ...('severity' in data ? { severity: data.severity as IncidentSeverity | null } : {}),
+    ...('ai_assessment_status' in data
+      ? { ai_assessment_status: data.ai_assessment_status as AssessmentStatus | null }
+      : {}),
   };
 }
 

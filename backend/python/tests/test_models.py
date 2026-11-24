@@ -41,6 +41,11 @@ def run_with_mock(handler, mode="models"):
     return asyncio.run(run())
 
 
+from cyberguard_ai.models import INDICATORS as DOMAIN_INDICATORS
+
+INDICATOR_KEYS = tuple(DOMAIN_INDICATORS)
+
+
 def test_fake_mode_clearly_marked():
     def fail(_):
         raise AssertionError("Fake mode must never call models")
@@ -59,15 +64,13 @@ def test_real_adapters_use_approved_playbook_only():
         if req.url.path == "/v1/systemone":
             body = json.loads(req.content)
             assert body["questions"]["category"]["type"] == "choice"
-            assert len(body["questions"]) == 6
+            assert len(body["questions"]) == 10
+            assert set(body["questions"]) == {"category", "impact", *INDICATOR_KEYS}
             return httpx.Response(200, json={"answers": {
                 "category": {"choice": "phishing", "confidence": .82,
                              "probabilities": {"phishing": .83, "other": .17}},
                 "impact": {"score": 1.2},
-                "clicked_suspicious_link": {"noul": .01},
-                "credentials_entered": {"noul": .03},
-                "files_encrypted": {"noul": .02},
-                "unauthorized_access": {"noul": .01},
+                **{k: {"noul": .03} for k in INDICATOR_KEYS},
             }})
         if req.url.path == COUNT:
             counted.append(req.content)
@@ -103,9 +106,7 @@ def test_low_probability_requires_review():
             return httpx.Response(200, json={"answers": {
                 "category": {"probabilities": {"phishing": .45, "other": .55}},
                 "impact": {"score": .5},
-                **{k: {"noul": 0.1} for k in (
-                    "clicked_suspicious_link", "credentials_entered",
-                    "files_encrypted", "unauthorized_access")}
+                **{k: {"noul": 0.1} for k in INDICATOR_KEYS}
             }})
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({
             "summary": "Unclear report", "reported_facts": [],
@@ -116,6 +117,27 @@ def test_low_probability_requires_review():
     assert output.brief.suggested_steps == []
 
 
+def test_non_other_below_provisional_threshold_abstains():
+    def handler(req):
+        if req.url.path == "/v1/systemone":
+            return httpx.Response(200, json={"answers": {
+                "category": {"probabilities": {"phishing": .59, "malware": .21, "other": .2}},
+                "impact": {"score": 1},
+                **{key: {"noul": .1} for key in INDICATOR_KEYS},
+            }})
+        if req.url.path == COUNT:
+            return httpx.Response(200, json={"input_tokens": 500})
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({
+            "summary": "Unconfirmed report", "reported_facts": [],
+            "unknowns": [], "follow_up_questions": [],
+        })}}]})
+
+    result = run_with_mock(handler)
+    assert result.triage.suggested_category is None
+    assert result.triage.category_probabilities["phishing"] == .59
+    assert result.brief.suggested_steps == []
+
+
 def test_failed_llm_cannot_silently_fallback_to_fake():
     def handler(req):
         if req.url.path == COUNT:
@@ -124,8 +146,7 @@ def test_failed_llm_cannot_silently_fallback_to_fake():
             return httpx.Response(200, json={"answers": {
                 "category": {"probabilities": {"phishing": .9, "other": .1}},
                 "impact": {"score": 1},
-                **{k: {"noul": .1} for k in (
-                    "clicked_suspicious_link", "credentials_entered", "files_encrypted", "unauthorized_access")}
+                **{k: {"noul": .1} for k in INDICATOR_KEYS}
             }})
         return httpx.Response(503, text="model loading")
     with pytest.raises(ModelUnavailable, match="llm_unavailable_or_invalid"):

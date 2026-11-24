@@ -28,6 +28,16 @@ export const authApi = {
   async login(credentials: Credentials): Promise<User> {
     return parseUser(await request('/auth/login', { method: 'POST', body: credentials }));
   },
+  async signup(credentials: Credentials): Promise<User> {
+    // Registration never establishes a session. The Go API always assigns employee.
+    return parseUser(
+      await request('/auth/signup', {
+        method: 'POST',
+        body: credentials,
+        expectedStatus: 201,
+      }),
+    );
+  },
   async logout(): Promise<void> {
     const result = await request('/auth/logout', { method: 'POST' });
     if (result !== undefined) throw new ApiError(200, 'invalid_response');

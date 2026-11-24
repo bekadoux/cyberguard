@@ -54,6 +54,12 @@ export async function identity(page: Page, user: User = employee) {
           }),
     );
   }
+  await page.route('**/api/incidents/*/timeline?*', (route) =>
+    route.fulfill({ json: { events: [], next_cursor: null } }),
+  );
+  await page.route('**/api/incidents/*/timeline', (route) =>
+    route.fulfill({ json: { events: [], next_cursor: null } }),
+  );
   await page.route('**/api/admin/users?eligible=analyst&*', (route) =>
     route.fulfill({ json: { users: [], next_cursor: null } }),
   );

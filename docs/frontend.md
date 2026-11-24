@@ -3,12 +3,14 @@
 The React/TypeScript single-page app lives in [`frontend/`](../frontend). Vite builds
 static files for Caddy; Node is not a deployed service. React Router defines login,
 account, incident list/create/detail, notifications, and admin screens in
-[`src/app/App.tsx`](../frontend/src/app/App.tsx). A new browser route also needs the
-[gateway's SPA allowlist](deployment.md#gateway-routing).
+[`src/app/App.tsx`](../frontend/src/app/App.tsx), including a public `/signup`
+page for the existing `POST /auth/signup` endpoint. Signup is feature-gated on
+Go via `SIGNUP_ENABLED`, always creates an employee, and never starts a session.
+A new browser route also needs the [gateway's SPA allowlist](deployment.md#gateway-routing).
 
 | Code | Responsibility |
 | --- | --- |
-| `src/features/auth/` | Login, current-user state, route protection, and logout |
+| `src/features/auth/` | Login, signup, current-user state, route protection, and logout |
 | `src/features/incidents/` | Incident views and workflows, comments/history, admin and notifications, AI read/review |
 | `src/shared/api/` | Credentialed no-store JSON requests, cancellation, bounded requests, and safe errors |
 | `src/shared/theme/`, `src/styles/` | System/light/dark preference and semantic style tokens |
@@ -33,13 +35,19 @@ The list uses cursor pagination with status and category filters. The detail pag
 separates the original report, confirmed fields, discussion, and staff-only action
 history. Workflow forms keep local drafts during refresh and send only edited
 fields. A submission with an uncertain network outcome is not retried automatically.
+Reporters see their own paginated status history, separate from the staff audit
+history. The staff queue shows the initial assessment job status; it does not
+fetch individual assessments or poll for updates.
 
 Analysts and admins, including staff reporters, can see the stored AI job status
 and assessment. Employees do not mount or fetch the panel. Refresh is manual.
 Fixture output is labelled and cannot be reviewed as a real assessment. For real
 output, the panel shows a saved human decision independently of whether the viewer
 can submit one. Suggestions and the brief are rendered as text, separate from
-confirmed incident fields.
+confirmed incident fields. Staff can see ranked category scores, the eight
+rubric indicators, an expandable AI draft brief, and approved playbook steps.
+No indicator automatically changes severity. Archived assessments show their
+scores separately under the legacy labels.
 
 ## Development and checks
 

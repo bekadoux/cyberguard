@@ -37,7 +37,7 @@ curl() {
         status=405
     else
         case $path in
-            /|/index.html|/login|/account|/incidents|/incidents/new|/notifications|/admin|/incidents/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa)
+            /|/index.html|/login|/signup|/account|/incidents|/incidents/new|/notifications|/admin|/incidents/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa)
                 type=text/html
                 body='<html><link href="/assets/app-12345678.css"><script src="/assets/app-12345678.js"></script></html>' ;;
             /assets/app-12345678.js|/assets/app-12345678.css)

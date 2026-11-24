@@ -155,17 +155,24 @@ function JobReviewPanel({ assessment, incident, version, onChanged }: Props) {
           <option value="accepted" disabled={!suggested}>
             Accept suggested category
           </option>
-          <option value="corrected">Correct suggested category</option>
+          <option value="corrected">
+            {suggested ? 'Correct suggested category' : 'Choose a category'}
+          </option>
           <option value="rejected">Reject assessment</option>
         </select>
       </label>
-      {decision !== 'rejected' && (
+      {decision === 'accepted' && suggested && (
+        <p className="review-accepted-category">
+          Category to confirm: <strong>{categoryLabels[suggested]}</strong>
+        </p>
+      )}
+      {decision === 'corrected' && (
         <label>
-          Confirmed category
+          {suggested ? 'Corrected category' : 'Chosen category'}
           <select
             required
             value={category}
-            disabled={busy || decision === 'accepted'}
+            disabled={busy}
             onChange={(e) => setCategory(e.target.value as IncidentCategory | '')}
           >
             <option value="">Select category</option>
