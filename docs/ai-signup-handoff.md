@@ -160,7 +160,9 @@ See `docs/frontend-handoff/ai-assessment-compatibility.md`.
 
 ## 6. Known limitations and follow-up work
 
-- The Kev category suggestion threshold of 0.60 is provisional.
+- The provisional Kev category suggestion threshold is now `0.50` (previously `0.60`).
+  The earlier E2E report records the old threshold. Previously stored
+  assessments are not recalculated.
 - Indicator scores need evaluation and calibration before stronger
   interpretations or automated decisions can be considered.
 - AI-generated unknowns and suggested actions require human review.

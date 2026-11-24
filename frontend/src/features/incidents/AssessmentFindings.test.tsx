@@ -59,3 +59,57 @@ describe('archived AI assessment indicator semantics', () => {
     expect(screen.queryByText('Legacy model signals')).not.toBeInTheDocument();
   });
 });
+
+describe('Kev recommendation threshold at 50%', () => {
+  function showRecommendation(score: number, suggested: 'phishing' | null) {
+    const assessment = {
+      ...completedAssessment,
+      result: {
+        ...completedAssessment.result,
+        assessment: {
+          ...completedAssessment.result.assessment,
+          triage: {
+            ...completedAssessment.result.assessment.triage,
+            suggested_category: suggested,
+            category_probabilities: {
+              phishing: score,
+              malware: Number((0.8 - score).toFixed(2)),
+              other: 0.2,
+            },
+          },
+        },
+      },
+    };
+
+    render(
+      <AssessmentFindings
+        data={parseAssessment(assessment, first.id)}
+        version="threshold-test"
+        incident={incident}
+        onChanged={vi.fn()}
+      />,
+    );
+  }
+
+  it('explains abstention below 50%', () => {
+    showRecommendation(0.49, null);
+    expect(screen.getByRole('heading', { name: 'No recommendation' })).toBeVisible();
+    expect(
+      screen.getByText(/below the provisional 50% suggestion threshold/),
+    ).toBeVisible();
+  });
+
+  it.each([0.5, 0.55])('displays a saved recommendation at %s', (score) => {
+    showRecommendation(score, 'phishing');
+    expect(
+      screen.getByRole('heading', { name: 'Phishing / social engineering' }),
+    ).toBeVisible();
+    expect(screen.getByText(/An analyst must confirm or correct/)).toBeVisible();
+  });
+
+  it('preserves historical abstention at 55%', () => {
+    showRecommendation(0.55, null);
+    expect(screen.getByRole('heading', { name: 'No recommendation' })).toBeVisible();
+    expect(screen.getByText(/not a recommendation/)).toBeVisible();
+  });
+});
