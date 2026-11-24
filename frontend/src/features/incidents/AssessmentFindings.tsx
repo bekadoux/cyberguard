@@ -40,8 +40,8 @@ export function AssessmentFindings({ data, version, incident, onChanged }: Props
     ? 'The model did not provide category scores.'
     : top[0] === 'other'
       ? '“Other / unclear” has the highest model score. It is not an actionable recommendation.'
-      : top[1] < 0.6
-        ? 'The highest score is below the provisional 60% suggestion threshold.'
+      : top[1] < 0.5
+        ? 'The highest score is below the provisional 50% suggestion threshold.'
         : 'No category recommendation was returned; a human decision is required.';
   // The shared credentials_entered key changed meaning in the new rubric.
   // Never render an archived value under the new question.

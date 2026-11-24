@@ -117,25 +117,39 @@ def test_low_probability_requires_review():
     assert output.brief.suggested_steps == []
 
 
-def test_non_other_below_provisional_threshold_abstains():
-    def handler(req):
-        if req.url.path == "/v1/systemone":
-            return httpx.Response(200, json={"answers": {
-                "category": {"probabilities": {"phishing": .59, "malware": .21, "other": .2}},
-                "impact": {"score": 1},
-                **{key: {"noul": .1} for key in INDICATOR_KEYS},
-            }})
-        if req.url.path == COUNT:
-            return httpx.Response(200, json={"input_tokens": 500})
-        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({
-            "summary": "Unconfirmed report", "reported_facts": [],
-            "unknowns": [], "follow_up_questions": [],
-        })}}]})
+def test_recommendation_threshold_boundary():
+    for score, expected in [
+        (0.49, None),
+        (0.50, "phishing"),
+        (0.59, "phishing"),
+        (0.60, "phishing"),
+    ]:
+        def handler(req):
+            if req.url.path == "/v1/systemone":
+                return httpx.Response(200, json={"answers": {
+                    "category": {"probabilities": {
+                        "phishing": score,
+                        "malware": 0.20,
+                        "other": round(0.80 - score, 2),
+                    }},
+                    "impact": {"score": 1},
+                    **{key: {"noul": 0.1} for key in INDICATOR_KEYS},
+                }})
+            if req.url.path == COUNT:
+                return httpx.Response(200, json={"input_tokens": 500})
+            return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({
+                "summary": "Synthetic security report",
+                "reported_facts": [],
+                "unknowns": [],
+                "follow_up_questions": [],
+            })}}]})
 
-    result = run_with_mock(handler)
-    assert result.triage.suggested_category is None
-    assert result.triage.category_probabilities["phishing"] == .59
-    assert result.brief.suggested_steps == []
+        result = run_with_mock(handler)
+        assert result.triage.suggested_category == expected, f"score={score}"
+        assert result.triage.needs_human_review is True
+
+        if expected is None:
+            assert result.brief.suggested_steps == []
 
 
 def test_failed_llm_cannot_silently_fallback_to_fake():
@@ -220,3 +234,50 @@ def test_count_endpoint_unavailable_never_generates():
 
     with pytest.raises(ModelUnavailable, match='llm_unavailable_or_invalid'):
         run_brief(CTX, handler)
+
+
+def test_recommendation_threshold_across_categories():
+    cases = [
+        ("malware", 0.55, "malware"),
+        ("account_compromise", 0.59, "account_compromise"),
+        ("data_exposure", 0.49, None),
+        ("lost_device", 0.52, "lost_device"),
+        ("policy_violation", 0.65, "policy_violation"),
+        ("service_disruption", 0.50, "service_disruption"),
+        ("other", 0.90, None),
+    ]
+
+    for category, score, expected in cases:
+        if category == "other":
+            probabilities = {"other": score, "phishing": round(1 - score, 2)}
+        else:
+            probabilities = {
+                category: score,
+                "other": 0.20,
+                "phishing": round(0.80 - score, 2),
+            }
+
+        def handler(req):
+            if req.url.path == "/v1/systemone":
+                return httpx.Response(200, json={"answers": {
+                    "category": {"probabilities": probabilities},
+                    "impact": {"score": 1},
+                    **{key: {"noul": 0.1} for key in INDICATOR_KEYS},
+                }})
+            if req.url.path == COUNT:
+                return httpx.Response(200, json={"input_tokens": 500})
+            return httpx.Response(200, json={"choices": [{
+                "message": {"content": json.dumps({
+                    "summary": "Synthetic test report",
+                    "reported_facts": [],
+                    "unknowns": [],
+                    "follow_up_questions": [],
+                })}
+            }]})
+
+        result = run_with_mock(handler)
+
+        assert result.triage.suggested_category == expected, (
+            f"category={category}, score={score}"
+        )
+        assert result.triage.needs_human_review is True

@@ -46,7 +46,7 @@ retirement, or retry for failed jobs is supplied. See the
   still contain the original four signals. The meaning of `credentials_entered`
   depends on the [rubric](frontend-handoff/ai-assessment-compatibility.md).
   The category suggestion is omitted when `other` wins or the top probability is
-  below the provisional `0.60` threshold. An indicator highlight cutoff is not
+  below the provisional `0.50` threshold. An indicator highlight cutoff is not
   yet validated; scores remain advisory pending labelled EN/SK evaluation.
   Scores are not calibrated risk estimates or confirmed severity.
 - **Qwen2.5-1.5B-Instruct, Q4_K_M GGUF**, via CPU llama.cpp, produces a summary,

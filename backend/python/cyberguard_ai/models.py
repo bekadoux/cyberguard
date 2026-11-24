@@ -103,7 +103,7 @@ async def kev_triage(ctx: IncidentContext, cfg: Settings, http: httpx.AsyncClien
             raise ValueError("invalid category probabilities")
         best = max(probabilities, key=probabilities.__getitem__)
         # A threshold is provisional; analyst approval always required.
-        category = best if best != "other" and probabilities[best] >= 0.60 else None
+        category = best if best != "other" and probabilities[best] >= 0.50 else None
         indicators = {k: float(answers[k]["noul"]) for k in INDICATORS}
         if any(not 0 <= v <= 1 for v in indicators.values()):
             raise ValueError("invalid indicator probability")
