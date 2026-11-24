@@ -38,11 +38,17 @@ retirement, or retry for failed jobs is supplied. See the
 ## Models and output
 
 - **Kev-0.8B**, a local Jev-style model, produces category probabilities, a 0–3
-  potential impact score, and four explicitly reported signals: suspicious link
-  clicked, credentials entered, files encrypted, and unauthorized access reported.
+  potential impact score, and the eight reported indicators from the domain rubric:
+  link clicked, credentials entered, attachment opened, payment made,
+  data sent out, unusual device behavior, multiple affected, and ongoing activity.
+  Scores estimate what the report explicitly states; low or missing scores
+  do not establish that an event did not happen. Older stored assessments can
+  still contain the original four signals. The meaning of `credentials_entered`
+  depends on the [rubric](frontend-handoff/ai-assessment-compatibility.md).
   The category suggestion is omitted when `other` wins or the top probability is
-  below the provisional `0.60` threshold. Scores are not calibrated risk estimates
-  or confirmed severity.
+  below the provisional `0.60` threshold. An indicator highlight cutoff is not
+  yet validated; scores remain advisory pending labelled EN/SK evaluation.
+  Scores are not calibrated risk estimates or confirmed severity.
 - **Qwen2.5-1.5B-Instruct, Q4_K_M GGUF**, via CPU llama.cpp, produces a summary,
   reported facts, unknowns, and follow-up questions. The worker measures the
   templated prompt against the 2,048-token context and reserves 400 output tokens.

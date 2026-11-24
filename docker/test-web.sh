@@ -39,14 +39,14 @@ html
 no_store
 cp "$state/body" "$state/index"
 reject_match -Eq '/@vite/|/src/|localhost:5173|127\.0\.0\.1:5173' "$state/index"
-for path in / /index.html /login /account /incidents /incidents/new /notifications /admin \
+for path in / /index.html /login /signup /account /incidents /incidents/new /notifications /admin \
     /incidents/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa '/incidents?status=submitted'; do
     request 200 -H 'Accept: text/html' "$base$path"
     html
     no_store
     cmp -s "$state/body" "$state/index"
 done
-for path in /incidents/new /notifications /admin; do
+for path in /signup /incidents/new /notifications /admin; do
     request 200 --head "$base$path"
     html
     no_store
@@ -69,7 +69,7 @@ for path in /theme.js /favicon.svg; do
     no_store
     not_html
 done
-for path in /missing /admin/missing /notifications/missing \
+for path in /missing /signup/missing /admin/missing /notifications/missing \
     /assets/missing.js /assets/missing-12345678.js /assets/index.js.map \
     /.env /.git/config /src/main.tsx /node_modules/vite/package.json \
     /api /api/not-found /internal /api/internal/auth/authorize \
@@ -90,7 +90,7 @@ if [[ ${2:-0} == 1 ]]; then
     request 200 "$base/ai/healthz"
     request 200 "$base/ai/readyz"
 fi
-for path in /login /incidents/new /notifications /admin /assets/anything.js; do
+for path in /login /signup /incidents/new /notifications /admin /assets/anything.js; do
     request 405 -X POST "$base$path"
     no_store
     not_html

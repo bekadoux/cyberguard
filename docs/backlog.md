@@ -22,9 +22,10 @@ Deferred ideas are not release commitments.
 
 ### AI and frontend
 
-- [ ] Reconcile the four current AI signals with the domain's eight-indicator
-  rubric. Update the model, assessment API, and UI together, determine thresholds
-  from evaluation, and highlight supported signals on the staff incident view.
+- [x] Add the eight-indicator rubric to the model, assessment API contract, and
+  UI while preserving reads of historical four-indicator assessments.
+- [ ] Determine indicator thresholds from evaluation and highlight supported
+  signals on the staff incident view.
   Signals must never automatically change severity. The rubric is in
   [English](domain-specification.md#indicators-yesno-questions) and
   [Slovak](domain-specification.sk.md#indikátory-otázky-ánonie).
@@ -47,15 +48,15 @@ Deferred ideas are not release commitments.
   - Group the LLM summary, reported facts, unknowns, and follow-up questions in
     a collapsible “AI draft brief” that starts expanded. Keep approved playbook
     steps separate from the generated brief.
-- [ ] Display the reporter-safe timeline in the incident view using the new Go
+- [x] Display the reporter-safe timeline in the incident view using the new Go
   API, not the staff audit history.
-- [ ] Add an “AI assessment” column to the staff incident queue, separate from
+- [x] Add an “AI assessment” column to the staff incident queue, separate from
   incident status. Show Queued, In progress, Complete, and Failed; Complete means
   the job finished, not that it produced a recommendation or was reviewed. Use
   the existing manual list refresh. Do not poll or fetch an assessment per row.
-- [ ] Redesign the sign-in page and add a sign-up page based on the team's
-  concept images. Use the existing feature-gated sign-up API: it creates an
-  employee account and does not start a session. Handle disabled registration.
+- [x] Add a sign-up page using the feature-gated API. It creates an employee
+  account without starting a session and handles disabled registration.
+- [ ] Review the sign-in and sign-up pages against the team's concept images.
 
 ### Team decisions and handoffs
 

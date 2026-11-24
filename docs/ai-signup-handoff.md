@@ -1,16 +1,12 @@
 # CyberGuard — AI and frontend handoff
 
-Updated: 2026-11-24
-Branch: `fix/ai-assessment-compatibility`
-
 ## Overview
 
-This branch brings together the AI assessment compatibility changes,
+The integration of PRs #14 and #18 brings together the AI assessment changes,
 the employee registration UI, and the incident management frontend updates.
 
-The changes have been tested together using the local full-stack Docker
-environment. This document describes the current implementation and
-verification results, not a production release approval.
+This document describes the implementation and records prior local verification,
+not production release approval.
 
 ## 1. AI assessment
 
@@ -39,10 +35,12 @@ as equivalent to the broader new authentication indicator.
 
 The staff assessment view now provides:
 - Explicit Kev recommendation or abstention
-- Ranked category scores
-- Eight reported indicators
-- An AI-generated draft brief
-- Human review and feedback controls
+- Collapsible ranked category scores, with the top score separate from advice
+- Eight current indicator slots and separately labelled legacy scores
+- An expandable AI draft brief and separately sourced, approved playbook steps
+- Human review and feedback: Accept shows the suggested category as text,
+  Correct offers a category picker (labelled “Choose a category” after
+  abstention), and Reject leaves the category unchanged
 - A distinction between AI suggestions and human-confirmed decisions
 
 Category scores and indicator scores are model outputs, not verified facts
@@ -55,14 +53,15 @@ or workflow status.
 
 ### Reporter status history — Issue #16
 
-The employee incident detail page includes a status timeline.
+The incident detail page includes a status timeline for the reporter,
+including staff viewing their own reports.
 
 The backend endpoint used by the timeline is:
 
 `GET /api/incidents/{id}/timeline?limit=20`
 
-The reporter-facing timeline shows workflow status changes without exposing
-the complete internal investigation audit trail.
+The reporter-facing timeline shows paginated workflow status changes without
+exposing the internal investigation audit trail.
 
 ### Staff AI assessment status — Issue #17
 
@@ -76,8 +75,9 @@ The staff-only column is not shown in the employee incident queue.
 The corresponding PostgreSQL permissions are supplied through
 `db/migrations/incidents/00010_staff_assessment_status.sql`.
 
-These Go API changes and the migration must be present in the target
-environment. This branch primarily updates the AI and frontend integration.
+The Go endpoints and migration are already in `main`. Apply the migration and
+deploy the updated Go API in the target environment before relying on these
+frontend views.
 
 ## 3. Employee registration
 
@@ -97,9 +97,9 @@ and browser refreshes.
 Registration remains controlled by `SIGNUP_ENABLED`. Keep registration
 disabled unless explicitly approved for the target environment.
 
-## 4. Local verification — 2026-11-24
+## 4. Local verification reported in PR #18 — 2026-11-24
 
-The following checks passed during development:
+The PR reported these checks on its development snapshot, not on the merge commit:
 
 - Frontend TypeScript typecheck
 - Frontend unit tests: 161 passed
