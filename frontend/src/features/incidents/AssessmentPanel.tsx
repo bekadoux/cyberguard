@@ -6,13 +6,12 @@ import {
   assessmentError,
   assessmentFailure,
   getAssessment,
-  indicatorLabels,
   jobLabels,
   type Assessment,
 } from './assessment';
 import { isAborted } from './messages';
-import { categoryLabels, type IncidentDetail } from './model';
-import { AIReview } from './AIReview';
+import type { IncidentDetail } from './model';
+import { AssessmentFindings } from './AssessmentFindings';
 
 type State = {
   source: string;
@@ -64,8 +63,6 @@ export function AssessmentPanel({
   }, [incidentId, source, pending, runProtected]);
   const current = state;
   const data = current.data;
-  const result = data?.result;
-  const brief = result?.assessment.brief;
   return (
     <section
       className="panel detail-panel assessment-panel"
@@ -127,101 +124,13 @@ export function AssessmentPanel({
                 processing.
               </p>
             )}
-            {result && brief && (
-              <>
-                {result.source_kind === 'fake' && (
-                  <p className="notice assessment-fixture" role="note">
-                    <strong>Test fixture — not AI output.</strong> Synthetic integration
-                    data must not be used for security decisions.
-                  </p>
-                )}
-                <h3>Draft summary</h3>
-                <p className="text-preserved">{brief.summary}</p>
-                {(
-                  [
-                    ['Reported facts (model-extracted)', brief.reported_facts],
-                    ['Unknowns', brief.unknowns],
-                    ['Follow-up questions', brief.follow_up_questions],
-                    ['Suggested playbook steps', brief.suggested_steps],
-                  ] as const
-                ).map(([heading, items]) => (
-                  <div key={heading}>
-                    <h3>{heading}</h3>
-                    {items.length ? (
-                      <ul>
-                        {items.map((item, index) => (
-                          <li className="text-preserved" key={index}>
-                            {item}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="muted">None supplied.</p>
-                    )}
-                  </div>
-                ))}
-                <h3>Unconfirmed model suggestions</h3>
-                <dl className="assessment-signals">
-                  <div>
-                    <dt>Suggested category</dt>
-                    <dd>
-                      {result.assessment.triage.suggested_category
-                        ? categoryLabels[result.assessment.triage.suggested_category]
-                        : 'No category suggested'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Model impact (0–3)</dt>
-                    <dd>{result.assessment.triage.potential_impact ?? 'Not supplied'}</dd>
-                  </div>
-                  <div>
-                    <dt>Model</dt>
-                    <dd className="text-preserved">{result.assessment.triage.model}</dd>
-                  </div>
-                </dl>
-                <details>
-                  <summary>Model signals</summary>
-                  <p>
-                    Probabilities are not calibrated risk scores. Analyst review is
-                    required.
-                  </p>
-                  <dl className="assessment-signals">
-                    {Object.entries(result.assessment.triage.category_probabilities).map(
-                      ([key, value]) => (
-                        <div key={key}>
-                          <dt>{categoryLabels[key as keyof typeof categoryLabels]}</dt>
-                          <dd>{(value * 100).toFixed(1)}%</dd>
-                        </div>
-                      ),
-                    )}
-                    {Object.entries(result.assessment.triage.indicator_probabilities).map(
-                      ([key, value]) => (
-                        <div key={key}>
-                          <dt>{indicatorLabels[key as keyof typeof indicatorLabels]}</dt>
-                          <dd>{(value * 100).toFixed(1)}%</dd>
-                        </div>
-                      ),
-                    )}
-                  </dl>
-                </details>
-                <AIReview
-                  key={data.job.id}
-                  assessment={data}
-                  version={current.source}
-                  incident={incident}
-                  onChanged={onChanged}
-                />
-                <p className="text-preserved assessment-disclaimer">
-                  {result.assessment.disclaimer}
-                </p>
-                <p className="assessment-time">
-                  Saved{' '}
-                  <time dateTime={result.created_at}>
-                    {new Date(result.created_at).toLocaleString()}
-                  </time>{' '}
-                  · {result.source_kind === 'fake' ? 'Synthetic fixture' : 'Kev / LLM'}
-                </p>
-              </>
+            {data.result && (
+              <AssessmentFindings
+                data={data}
+                version={current.source}
+                incident={incident}
+                onChanged={onChanged}
+              />
             )}
           </>
         )

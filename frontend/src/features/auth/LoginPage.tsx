@@ -8,7 +8,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Navigate } from 'react-router';
+import { Link, Navigate } from 'react-router';
 import { ApiError } from '../../shared/api/client';
 import { AuthLayout } from './AuthLayout';
 import { authErrorMessage } from './messages';
@@ -191,6 +191,9 @@ export function LoginPage() {
               )}
             </button>
           </form>
+          <div className="auth-switch">
+            New to CyberGuard? <Link to="/signup">Create an employee account</Link>
+          </div>
           <div className="access-help">
             <strong>Need help signing in?</strong>
             <p>

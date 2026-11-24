@@ -37,6 +37,30 @@ describe('authentication API contract', () => {
     await expect(authApi.me()).rejects.toMatchObject({ code: 'invalid_response' });
   });
 
+  it('posts signup to the feature-gated endpoint without establishing a session', async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          user: { id: 'new-id', username: 'newuser', role: 'employee' },
+        }),
+        { status: 201 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    await expect(
+      authApi.signup({ username: 'NewUser', password: 'secure password' }),
+    ).resolves.toEqual({ id: 'new-id', username: 'newuser', role: 'employee' });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/auth/signup',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        cache: 'no-store',
+        body: JSON.stringify({ username: 'NewUser', password: 'secure password' }),
+      }),
+    );
+  });
+
   it('requires the contracted empty success response before confirming logout', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
     await expect(authApi.logout()).rejects.toMatchObject({ code: 'invalid_response' });

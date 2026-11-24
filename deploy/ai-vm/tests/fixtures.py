@@ -30,6 +30,23 @@ class Handler(BaseHTTPRequestHandler):
         # Discard, never log or echo incident input.
         body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0'))))
         if self.path == '/v1/systemone':
+            indicator_keys = (
+                'clicked_link',
+                'credentials_entered',
+                'attachment_opened',
+                'payment_made',
+                'data_sent_out',
+                'device_abnormal',
+                'multiple_affected',
+                'ongoing',
+            )
+            # Reject a stale four-question worker contract in the deployment smoke.
+            questions = body.get('questions')
+            if not isinstance(questions, dict) or set(questions) != {
+                'category', 'impact', *indicator_keys
+            }:
+                self.reply({'error': 'unexpected_indicator_rubric'}, 400)
+                return
             expected = Path('/control/expected-system')
             if (
                 expected.exists()
@@ -45,10 +62,7 @@ class Handler(BaseHTTPRequestHandler):
                         **{
                             name: {'noul': 0.0}
                             for name in (
-                                'clicked_suspicious_link',
-                                'credentials_entered',
-                                'files_encrypted',
-                                'unauthorized_access',
+                                *indicator_keys,
                             )
                         },
                     }

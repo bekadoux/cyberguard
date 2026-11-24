@@ -13,6 +13,22 @@ describe('incident summary contract', () => {
     expect(parseSummary(first)).not.toHaveProperty('severity');
     expect(parseSummary({ ...first, severity: null })).toHaveProperty('severity', null);
   });
+  it.each(['queued', 'running', 'completed', 'failed', null] as const)(
+    'preserves staff AI status %s without exposing private results',
+    (ai_assessment_status) => {
+      expect(
+        parseSummary({ ...first, ai_assessment_status, ai_result: 'private' }),
+      ).toEqual({
+        ...first,
+        ai_assessment_status,
+      });
+    },
+  );
+  it('rejects an invalid AI status', () => {
+    expect(() => parseSummary({ ...first, ai_assessment_status: 'unknown' })).toThrow(
+      'invalid_response',
+    );
+  });
   it('projects safe fields only', () => {
     expect(
       parseSummary({ ...first, ai_result: 'private', archive_reason: 'private' }),

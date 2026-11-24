@@ -11,7 +11,13 @@ import { Link, useSearchParams } from 'react-router';
 import { useAuth } from '../auth/use-auth';
 import { IncidentStatusBadge } from './IncidentStatusBadge';
 import { incidentErrorMessage } from './messages';
-import { categoryLabels, readFilters, severityLabels, statusLabels } from './model';
+import {
+  assessmentStatusLabels,
+  categoryLabels,
+  readFilters,
+  severityLabels,
+  statusLabels,
+} from './model';
 import { useIncidentList } from './use-incident-list';
 import './incidents.css';
 
@@ -20,7 +26,7 @@ export function IncidentListPage() {
   const [params, setParams] = useSearchParams();
   const filters = readFilters(params);
   const list = useIncidentList(filters);
-  const professional = user?.role !== 'employee';
+  const professional = user?.role === 'analyst' || user?.role === 'admin';
   const title = professional ? 'Incident queue' : 'My incidents';
   const filtered = !!(filters?.status || filters?.category);
   useEffect(() => {
@@ -152,6 +158,7 @@ export function IncidentListPage() {
                       <th scope="col">Status</th>
                       <th scope="col">Category</th>
                       {professional && <th scope="col">Severity</th>}
+                      {professional && <th scope="col">AI assessment</th>}
                       <th scope="col">Reported</th>
                     </tr>
                   </thead>
@@ -190,6 +197,15 @@ export function IncidentListPage() {
                             ) : (
                               <span className="muted">Not assessed</span>
                             )}
+                          </td>
+                        )}
+                        {professional && (
+                          <td>
+                            {incident.ai_assessment_status === null
+                              ? 'No assessment'
+                              : incident.ai_assessment_status
+                                ? assessmentStatusLabels[incident.ai_assessment_status]
+                                : 'Unavailable'}
                           </td>
                         )}
                         <td>

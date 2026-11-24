@@ -2,6 +2,7 @@ import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router';
 import { AuthLayout } from '../features/auth/AuthLayout';
 import { AuthProvider } from '../features/auth/AuthProvider';
 import { LoginPage } from '../features/auth/LoginPage';
+import { SignupPage } from '../features/auth/SignupPage';
 import { RequireSession } from '../features/auth/RequireSession';
 import { SessionPage } from '../features/auth/SessionPage';
 import { ThemeProvider } from '../shared/theme/ThemeProvider';
@@ -19,6 +20,7 @@ export function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
             <Route element={<RequireSession />}>
               <Route element={<WorkspaceLayout />}>
                 <Route index element={<Navigate to="/incidents" replace />} />
