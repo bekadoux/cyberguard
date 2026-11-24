@@ -195,7 +195,7 @@ function ScopedDetail({ id }: { id: string }) {
             </aside>
           </div>
           {isReporter(incident.reporter_id, user?.id) && (
-            <IncidentTimeline incidentId={incident.id} />
+            <IncidentTimeline incidentId={incident.id} revision={detail.revision} />
           )}
           {professional && (
             <AssessmentPanel

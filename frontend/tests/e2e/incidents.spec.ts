@@ -274,7 +274,7 @@ test('rejects unknown filters instead of silently requesting an unrestricted que
   await expect(page.getByRole('heading', { name: 'No reports yet' })).toBeVisible();
 });
 
-test('shows staff professional severity on their own reports in the read-only queue', async ({
+test('shows staff severity and labels AI status on mobile for their own reports', async ({
   page,
 }) => {
   await identity(page, analyst);
@@ -283,7 +283,12 @@ test('shows staff professional severity on their own reports in the read-only qu
       json: {
         incidents: [
           { ...first, severity: 'high' },
-          { ...second, reporter_id: analyst.id, severity: 'critical' },
+          {
+            ...second,
+            reporter_id: analyst.id,
+            severity: 'critical',
+            ai_assessment_status: 'completed',
+          },
         ],
         next_cursor: null,
       },
@@ -297,6 +302,13 @@ test('shows staff professional severity on their own reports in the read-only qu
   await expect(
     page.getByRole('button', { name: /assign|classify|resolve/i }),
   ).toHaveCount(0);
+  await expect(page.getByRole('columnheader', { name: 'AI assessment' })).toBeVisible();
+  const ownReport = page.getByRole('row').filter({ hasText: second.title });
+  const mobileLabel = ownReport.getByText('AI assessment:', { exact: true });
+  await expect(mobileLabel).toBeHidden();
+  await page.setViewportSize({ width: 375, height: 667 });
+  await expect(mobileLabel).toBeVisible();
+  await expect(ownReport.getByRole('cell', { name: 'Complete' })).toBeVisible();
 });
 
 test('treats incident 401 as expired identity, but 503 as a retryable feature failure', async ({
@@ -432,6 +444,56 @@ test('opens read-only detail and returns to the same list filters', async ({ pag
   await expect(page.getByRole('heading', { name: first.title })).toBeVisible();
   await page.getByRole('link', { name: 'Back to incidents' }).click();
   await expect(page).toHaveURL('/incidents?status=submitted');
+});
+
+test('updates the incident status and reporter timeline after a public reply', async ({
+  page,
+}) => {
+  let replied = false;
+  const incidentPath = `/api/incidents/${first.id}`;
+  await page.route(`**${incidentPath}`, (route) =>
+    route.fulfill({
+      json: {
+        incident: {
+          ...detail,
+          status: replied ? 'investigating' : 'awaiting_reporter',
+        },
+      },
+    }),
+  );
+  await page.route(
+    (url) => url.pathname === `${incidentPath}/timeline`,
+    (route) => {
+      const awaiting = { status: 'awaiting_reporter', occurred_at: first.updated_at };
+      return route.fulfill({
+        json: {
+          events: replied
+            ? [{ status: 'investigating', occurred_at: '2026-11-09T10:01:00Z' }, awaiting]
+            : [awaiting],
+          next_cursor: null,
+        },
+      });
+    },
+  );
+  await page.route(`**${incidentPath}/comments`, (route) => {
+    if (route.request().method() === 'POST') {
+      replied = true;
+      return route.fulfill({ status: 201, json: { saved: true } });
+    }
+    return route.fulfill({ json: { comments: [] } });
+  });
+
+  await page.goto(`/incidents/${first.id}`);
+  const events = page
+    .getByRole('region', { name: 'Status history' })
+    .getByRole('listitem');
+  await expect(events).toHaveText([/^Awaiting reporter/]);
+  await page.getByLabel('Your message').fill('Synthetic follow-up');
+  await page.getByRole('button', { name: 'Post comment' }).click();
+  await expect(
+    page.locator('.page-heading').getByText('Investigating', { exact: true }),
+  ).toBeVisible();
+  await expect(events).toHaveText([/^Investigating/, /^Awaiting reporter/]);
 });
 
 for (const role of ['analyst', 'admin'] as const) {
